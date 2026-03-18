@@ -65,16 +65,22 @@ pub fn detect_room_exit(
     if matches!(*room_state, RoomState::Locked | RoomState::BossFight) {
         return;
     }
-    let Ok(player_tf) = player_q.get_single() else { return };
+    let Ok(player_tf) = player_q.get_single() else {
+        return;
+    };
     let player_pos = player_tf.translation().truncate();
 
     let room = layout.room(current_room.0).unwrap();
     for (dir, to) in &room.connections.exits {
         let door_pos = match dir {
             crate::gameplay::map::room::Direction::Right => Vec2::new(ROOM_HALF_WIDTH - 10.0, 0.0),
-            crate::gameplay::map::room::Direction::Left => Vec2::new(-(ROOM_HALF_WIDTH - 10.0), 0.0),
+            crate::gameplay::map::room::Direction::Left => {
+                Vec2::new(-(ROOM_HALF_WIDTH - 10.0), 0.0)
+            }
             crate::gameplay::map::room::Direction::Up => Vec2::new(0.0, ROOM_HALF_HEIGHT - 10.0),
-            crate::gameplay::map::room::Direction::Down => Vec2::new(0.0, -(ROOM_HALF_HEIGHT - 10.0)),
+            crate::gameplay::map::room::Direction::Down => {
+                Vec2::new(0.0, -(ROOM_HALF_HEIGHT - 10.0))
+            }
         };
         if player_pos.distance(door_pos) < 70.0 {
             transition.active = true;
@@ -153,7 +159,8 @@ pub fn fade_transition_system(
                     visited.0.insert(transition.to);
                 }
                 if let Ok(mut player_tf) = player_q.get_single_mut() {
-                    player_tf.translation = Vec3::new(-ROOM_HALF_WIDTH * 0.6, 0.0, player_tf.translation.z);
+                    player_tf.translation =
+                        Vec3::new(-ROOM_HALF_WIDTH * 0.6, 0.0, player_tf.translation.z);
                 }
                 for mut tf in &mut coop_player_q {
                     tf.translation = Vec3::new(-ROOM_HALF_WIDTH * 0.45, -40.0, tf.translation.z);

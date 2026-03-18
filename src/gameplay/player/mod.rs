@@ -26,6 +26,7 @@ impl Plugin for PlayerPlugin {
                     combat::player_attack_input_system,
                     combat::player_ranged_input_system,
                     combat::update_attack_cooldowns,
+                    combat::update_melee_slash_effects,
                     dash::player_dash_input_system,
                     dash::update_dash_state,
                     skills::player_skill1_input_system,

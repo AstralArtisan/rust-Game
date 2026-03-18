@@ -19,15 +19,16 @@ pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<VisitedRooms>()
-            .init_resource::<RewardRoomGoldBonusSeen>()
-            .add_plugins((transitions::TransitionsPlugin, doors::DoorsPlugin, tiles::TilesPlugin))
-            .add_systems(OnEnter(AppState::InGame), generator::generate_and_spawn_floor)
-            .add_systems(
-                Update,
-                (track_visited_rooms, reward_room_gold_bonus_on_enter).run_if(in_state(AppState::InGame)),
-            );
-            // 清理逻辑由 GameplayPlugin 统一在真正离开一局时触发（MainMenu/GameOver/Victory）。
+        app.add_plugins((
+            transitions::TransitionsPlugin,
+            doors::DoorsPlugin,
+            tiles::TilesPlugin,
+        ))
+        .add_systems(
+            OnEnter(AppState::InGame),
+            generator::generate_and_spawn_floor,
+        );
+        // 清理逻辑由 GameplayPlugin 统一在真正离开一局时触发（MainMenu/GameOver/Victory）。
     }
 }
 
