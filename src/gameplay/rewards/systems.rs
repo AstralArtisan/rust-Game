@@ -3,12 +3,12 @@ use bevy::prelude::*;
 use crate::core::events::{RewardChosenEvent, RoomClearedEvent};
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::enemy::systems::{ClearGrace, EnemySpawnCount, SpawnedForRoom};
-use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
+use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::components::{
-    AttackCooldown, CritChance, DashCooldown, Health, MoveSpeed, Player, RangedCooldown,
-    RewardModifiers,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, Health, MoveSpeed, Player,
+    RangedCooldown, RewardModifiers,
 };
 use crate::gameplay::progression::difficulty::is_final_floor;
 use crate::gameplay::progression::floor::FloorNumber;
@@ -113,6 +113,7 @@ fn generate_reward_choices(rng: &mut GameRng) -> Vec<RewardType> {
     let mut pool = vec![
         RewardType::EnhanceMeleeWeapon,
         RewardType::IncreaseAttackSpeed,
+        RewardType::IncreaseAttackPower,
         RewardType::IncreaseMaxHealth,
         RewardType::ReduceDashCooldown,
         RewardType::LifeStealOnKill,
@@ -131,17 +132,24 @@ fn handle_reward_choice_input(
     mut events: EventWriter<RewardChosenEvent>,
     choices: Res<RewardChoices>,
 ) {
-    let idx = if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) {
+    let idx = if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1)
+    {
         Some(0)
-    } else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2) {
+    } else if keyboard.just_pressed(KeyCode::Digit2)
+        || keyboard.just_pressed(KeyCode::Numpad2)
+    {
         Some(1)
-    } else if keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3) {
+    } else if keyboard.just_pressed(KeyCode::Digit3)
+        || keyboard.just_pressed(KeyCode::Numpad3)
+    {
         Some(2)
     } else {
         None
     };
 
-    let Some(i) = idx else { return };
+    let Some(i) = idx else {
+        return;
+    };
     let Some(reward) = choices.choices.get(i).copied() else {
         return;
     };
@@ -162,6 +170,7 @@ fn apply_reward_choice(
             &mut RangedCooldown,
             &mut CritChance,
             &mut AttackCooldown,
+            &mut AttackPower,
         ),
         With<Player>,
     >,
@@ -182,6 +191,7 @@ fn apply_reward_choice(
             mut ranged_cd,
             mut crit,
             mut atk_cd,
+            mut attack_power,
         )) = player_q.get_single_mut()
         {
             apply_reward_to_player_components(
@@ -194,6 +204,7 @@ fn apply_reward_choice(
                 &mut ranged_cd,
                 &mut crit,
                 &mut atk_cd,
+                &mut attack_power,
             );
         } else {
             warn!("奖励已选择，但没有找到玩家实体。");
@@ -243,6 +254,7 @@ fn reward_value_for(data: Option<&GameDataRegistry>, reward: RewardType) -> f32 
     .unwrap_or_else(|| match reward {
         RewardType::EnhanceMeleeWeapon => 1.0,
         RewardType::IncreaseAttackSpeed => 0.10,
+        RewardType::IncreaseAttackPower => 0.15,
         RewardType::IncreaseMaxHealth => 20.0,
         RewardType::ReduceDashCooldown => 0.15,
         RewardType::LifeStealOnKill => 3.0,

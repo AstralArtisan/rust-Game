@@ -1,23 +1,28 @@
-﻿use bevy::prelude::*;
+use bevy::prelude::*;
 
+use crate::coop::components::CoopPlayer;
 use crate::core::events::{DeathEvent, RoomClearedEvent};
 use crate::data::definitions::EnemyStatsConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{Hitbox, Hurtbox, Knockback, Lifetime, Projectile, Team};
 use crate::gameplay::combat::projectiles;
 use crate::gameplay::effects::flash::Flash;
+use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::{ai, boss, spawner};
-use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};
-use crate::gameplay::player::components::Health;
-use crate::gameplay::player::components::{Health as PlayerHealth, Player, RewardModifiers};
+use crate::gameplay::map::InGameEntity;
+use crate::gameplay::puzzle::{reset_active_puzzle, spawn_puzzle_for_room, ActivePuzzle, PuzzleEntity};
+use crate::gameplay::player::components::{Gold, Health, RewardModifiers};
+use crate::gameplay::player::components::{Health as PlayerHealth, Player};
 use crate::gameplay::progression::difficulty::{
     get_floor_difficulty_multiplier, get_floor_enemy_count,
 };
 use crate::gameplay::progression::floor::FloorNumber;
+use crate::gameplay::shop::ShopKiosk;
 use crate::states::{AppState, RoomState};
 use crate::utils::math::direction_to;
 use crate::utils::rng::GameRng;
+
 use super::components::*;
 
 #[derive(Component, Debug, Default, Clone, Copy)]
@@ -27,7 +32,8 @@ pub struct EnemySystemsPlugin;
 
 impl Plugin for EnemySystemsPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(EnemySpawnCount { current: 0 })
+        app.init_resource::<GameRng>()
+            .insert_resource(EnemySpawnCount { current: 0 })
             .insert_resource(SpawnedForRoom::default())
             .insert_resource(ClearGrace::default())
             .add_systems(
@@ -46,12 +52,12 @@ impl Plugin for EnemySystemsPlugin {
 }
 
 #[derive(Resource, Default, Debug, Clone, Copy)]
-pub struct SpawnedForRoom(pub Option<u32>);
+pub(crate) struct SpawnedForRoom(pub Option<u32>);
 
 #[derive(Resource, Debug)]
-pub struct ClearGrace {
-    pub last_room: Option<u32>,
-    pub timer: Timer,
+pub(crate) struct ClearGrace {
+    pub(crate) last_room: Option<u32>,
+    pub(crate) timer: Timer,
 }
 
 impl Default for ClearGrace {
@@ -80,7 +86,10 @@ pub fn room_entry_spawner(
     projectiles_q: Query<Entity, With<Projectile>>,
     hitboxes_q: Query<Entity, With<Hitbox>>,
     shop_kiosk_q: Query<Entity, With<ShopKiosk>>,
+    puzzle_entities_q: Query<Entity, With<PuzzleEntity>>,
     mut spawn_count: ResMut<EnemySpawnCount>,
+    mut active_puzzle: ResMut<ActivePuzzle>,
+    mut rng: ResMut<GameRng>,
     floor: Option<Res<FloorNumber>>,
 ) {
     if spawned.0 == Some(current_room.0.0) {
@@ -97,9 +106,13 @@ pub fn room_entry_spawner(
     for entity in &hitboxes_q {
         commands.entity(entity).despawn_recursive();
     }
-    for e in &shop_kiosk_q {
-        commands.entity(e).despawn_recursive();
+    for entity in &shop_kiosk_q {
+        commands.entity(entity).despawn_recursive();
     }
+    for entity in &puzzle_entities_q {
+        commands.entity(entity).despawn_recursive();
+    }
+    reset_active_puzzle(&mut active_puzzle);
 
     let room = layout.room(current_room.0).unwrap();
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
@@ -107,10 +120,9 @@ pub fn room_entry_spawner(
     let base_enemy_count = get_floor_enemy_count(&data, floor_number);
 
     match room.room_type {
-        RoomType::Start => {
+        RoomType::Start | RoomType::Reward | RoomType::Shop => {
             *room_state = RoomState::Idle;
         }
-        RoomType::Reward => *room_state = RoomState::Idle,
         RoomType::Normal => {
             *room_state = RoomState::Locked;
             if spawn_count.current == 0 {
@@ -128,11 +140,15 @@ pub fn room_entry_spawner(
             *room_state = RoomState::BossFight;
             spawn_boss(&mut commands, &assets, &data, floor_multiplier);
         }
-        RoomType::Shop => {
-            *room_state = RoomState::Idle;
-        }
         RoomType::Puzzle => {
-            *room_state = RoomState::Idle;
+            *room_state = RoomState::Locked;
+            spawn_puzzle_for_room(
+                &mut commands,
+                &assets,
+                &mut rng,
+                &mut active_puzzle,
+                current_room.0,
+            );
         }
     }
 }
@@ -158,6 +174,7 @@ pub fn spawn_room_enemies(
 
     for i in 0..spawn_n {
         let enemy_type = spawner::pick_enemy_type(&mut rng, &pool);
+        let is_elite = elite_idx == Some(i);
         spawn_enemy(
             commands,
             assets,
@@ -165,6 +182,7 @@ pub fn spawn_room_enemies(
             enemy_type,
             points[i],
             floor_multiplier,
+            is_elite,
         );
     }
 }
@@ -176,6 +194,7 @@ pub fn spawn_enemy(
     enemy_type: EnemyType,
     pos: Vec2,
     floor_multiplier: f32,
+    is_elite: bool,
 ) -> Entity {
     let stats_cfg = match enemy_type {
         EnemyType::MeleeChaser => &data.enemies.melee_chaser,
@@ -183,8 +202,13 @@ pub fn spawn_enemy(
         EnemyType::Charger => &data.enemies.charger,
         EnemyType::Boss => &data.enemies.melee_chaser,
     };
-    let stats = scaled_enemy_stats(stats_cfg, floor_multiplier);
-    let color = match enemy_type {
+    let mut stats = scaled_enemy_stats(stats_cfg, floor_multiplier);
+    if is_elite && enemy_type != EnemyType::Boss {
+        stats.max_hp *= data.balance.elite_hp_mult.max(1.0);
+        stats.attack_damage *= data.balance.elite_damage_mult.max(1.0);
+        stats.move_speed *= 1.12;
+    }
+    let base_color = match enemy_type {
         EnemyType::MeleeChaser => Color::srgb(0.95, 0.45, 0.45),
         EnemyType::RangedShooter => Color::srgb(0.55, 0.65, 0.95),
         EnemyType::Charger => Color::srgb(0.95, 0.75, 0.25),
@@ -195,10 +219,10 @@ pub fn spawn_enemy(
             EnemyType::MeleeChaser => Color::srgb(1.0, 0.65, 0.65),
             EnemyType::RangedShooter => Color::srgb(0.75, 0.82, 1.0),
             EnemyType::Charger => Color::srgb(1.0, 0.88, 0.45),
-            EnemyType::Boss => color,
+            EnemyType::Boss => base_color,
         }
     } else {
-        color
+        base_color
     };
 
     let mut entity = commands.spawn((
@@ -209,6 +233,8 @@ pub fn spawn_enemy(
                 color,
                 custom_size: Some(Vec2::splat(if enemy_type == EnemyType::Boss {
                     56.0
+                } else if is_elite {
+                    34.0
                 } else {
                     28.0
                 })),
@@ -232,6 +258,8 @@ pub fn spawn_enemy(
             team: Team::Enemy,
             size: Vec2::splat(if enemy_type == EnemyType::Boss {
                 52.0
+            } else if is_elite {
+                32.0
             } else {
                 26.0
             }),
@@ -303,7 +331,7 @@ pub fn enemy_attack_system(
     mut commands: Commands,
     time: Res<Time>,
     assets: Res<crate::core::assets::GameAssets>,
-    player_q: Query<&GlobalTransform, With<Player>>,
+    player_q: Query<&GlobalTransform, Or<(With<Player>, With<CoopPlayer>)>>,
     mut enemies: Query<(
         &EnemyKind,
         &EnemyStats,
@@ -311,10 +339,13 @@ pub fn enemy_attack_system(
         &mut EnemyAttackCooldown,
     )>,
 ) {
-    let Ok(player_tf) = player_q.get_single() else {
+    let player_positions: Vec<Vec2> = player_q
+        .iter()
+        .map(|tf| tf.translation().truncate())
+        .collect();
+    if player_positions.is_empty() {
         return;
-    };
-    let player_pos = player_tf.translation().truncate();
+    }
 
     for (kind, stats, tf, mut cd) in &mut enemies {
         cd.timer.tick(time.delta());
@@ -401,14 +432,14 @@ pub fn enemy_death_system(
     mut commands: Commands,
     mut death_events: EventReader<DeathEvent>,
     mut room_cleared: EventWriter<RoomClearedEvent>,
-    data: Res<GameDataRegistry>,
-    floor: Option<Res<crate::gameplay::progression::floor::FloorNumber>>,
     time: Res<Time>,
+    assets: Res<crate::core::assets::GameAssets>,
     layout: Res<FloorLayout>,
     current_room: Res<CurrentRoom>,
     mut room_state: ResMut<RoomState>,
     mut player_q: Query<(&RewardModifiers, &mut PlayerHealth, &mut Gold), With<Player>>,
     enemy_info_q: Query<(&EnemyKind, Option<&Elite>)>,
+    player_tf: Query<&GlobalTransform, With<Player>>,
     enemies_left: Query<Entity, With<Enemy>>,
     mut grace: ResMut<ClearGrace>,
     mut spawn_count: ResMut<EnemySpawnCount>,
@@ -420,11 +451,36 @@ pub fn enemy_death_system(
             continue;
         }
 
-        if let (Ok(mods), Ok(mut hp)) = (player_mods.get_single(), player_health.get_single_mut()) {
+        let (kind, is_elite) = enemy_info_q
+            .get(ev.entity)
+            .ok()
+            .map(|(k, e)| (Some(k.0), e.is_some()))
+            .unwrap_or((None, false));
+        let floor_bonus = floor.as_deref().map(|f| f.0.saturating_sub(1)).unwrap_or(0);
+        let base_gold = match kind {
+            Some(EnemyType::Boss) => 45,
+            _ => 10,
+        } + floor_bonus * 2;
+        let reward_gold = base_gold + if is_elite { data.balance.elite_gold_bonus } else { 0 };
+
+        if let Ok((mods, mut hp, mut gold)) = player_q.get_single_mut() {
+            gold.0 = gold.0.saturating_add(reward_gold);
             if mods.lifesteal_on_kill > 0.0 {
+                let previous = hp.current;
                 hp.current = (hp.current + mods.lifesteal_on_kill).min(hp.max);
+                if hp.current > previous {
+                    if let Ok(player_tf) = player_tf.get_single() {
+                        particles::spawn_hit_particles(
+                            &mut commands,
+                            &assets,
+                            player_tf.translation().truncate(),
+                            Color::srgba(0.42, 1.0, 0.52, 0.88),
+                        );
+                    }
+                }
             }
         }
+
         commands.entity(ev.entity).despawn_recursive();
     }
 

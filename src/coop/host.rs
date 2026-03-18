@@ -43,11 +43,11 @@ pub fn ensure_coop_player_spawned_system(
     let ranged_cd = cfg.map(|c| c.ranged_base_cooldown_s).unwrap_or(0.45);
 
     let mut e = commands.spawn(SpriteBundle {
-        texture: assets.textures.white.clone(),
+        texture: assets.textures.player.clone(),
         transform: Transform::from_translation(Vec3::new(-170.0, 0.0, 50.0)),
         sprite: Sprite {
-            color: Color::srgb(0.25, 0.9, 1.0),
-            custom_size: Some(Vec2::splat(32.0)),
+            color: Color::srgba(0.82, 0.96, 1.0, 1.0),
+            custom_size: Some(Vec2::new(74.0, 60.0)),
             ..default()
         },
         ..default()
@@ -77,19 +77,13 @@ pub fn ensure_coop_player_spawned_system(
         },
     ));
     e.insert((
-        AttackCooldown {
-            timer: Timer::from_seconds(attack_cd, TimerMode::Once),
-        },
-        RangedCooldown {
-            timer: Timer::from_seconds(ranged_cd, TimerMode::Once),
-        },
+        AttackCooldown::new(attack_cd),
+        RangedCooldown::new(ranged_cd),
         RangedRapidFire {
             ramp: 0,
             decay: Timer::from_seconds(0.65, TimerMode::Once),
         },
-        DashCooldown {
-            timer: Timer::from_seconds(dash_cd, TimerMode::Once),
-        },
+        DashCooldown::new(dash_cd),
         Skill1Cooldown {
             timer: Timer::from_seconds(cfg.map(|c| c.skill1_cooldown_s).unwrap_or(1.1), TimerMode::Once),
         },
@@ -398,6 +392,7 @@ pub fn coop_player_dash_input_system(
         &FacingDirection,
         &mut InvincibilityTimer,
         &mut Energy,
+        &Handle<Image>,
         &Sprite,
     ), With<CoopPlayer>>,
 ) {
@@ -407,7 +402,7 @@ pub fn coop_player_dash_input_system(
 
     let move_axis = Vec2::new(remote.0.move_axis.0, remote.0.move_axis.1);
 
-    for (tf, mut cd, mut dash, facing, mut inv, mut energy, sprite) in &mut q {
+    for (tf, mut cd, mut dash, facing, mut inv, mut energy, texture, sprite) in &mut q {
         cd.timer.tick(time.delta());
         if dash.active || !remote.0.dash_pressed || !cd.timer.finished() {
             continue;
@@ -425,6 +420,7 @@ pub fn coop_player_dash_input_system(
         cd.timer.reset();
         dash.active = true;
         dash.timer.reset();
+        dash.trail_timer.reset();
         dash.dir = if move_axis.length_squared() > 0.0 {
             move_axis.normalize()
         } else {
@@ -436,10 +432,11 @@ pub fn coop_player_dash_input_system(
 
         crate::gameplay::effects::afterimage::spawn_afterimage(
             &mut commands,
-            &assets,
+            texture.clone(),
             tf.translation().truncate(),
             sprite.color.with_alpha(0.45),
             sprite.custom_size.unwrap_or(Vec2::splat(32.0)),
+            sprite.flip_x,
         );
     }
 }
@@ -447,14 +444,13 @@ pub fn coop_player_dash_input_system(
 pub fn coop_update_dash_state(
     mut commands: Commands,
     time: Res<Time>,
-    assets: Res<GameAssets>,
     config: Res<CoopNetConfig>,
-    mut q: Query<(&GlobalTransform, &mut DashState, &Sprite), With<CoopPlayer>>,
+    mut q: Query<(&GlobalTransform, &mut DashState, &Handle<Image>, &Sprite), With<CoopPlayer>>,
 ) {
     if config.mode != NetMode::Host {
         return;
     }
-    for (tf, mut dash, sprite) in &mut q {
+    for (tf, mut dash, texture, sprite) in &mut q {
         if !dash.active {
             continue;
         }
@@ -467,10 +463,11 @@ pub fn coop_update_dash_state(
 
         crate::gameplay::effects::afterimage::spawn_afterimage(
             &mut commands,
-            &assets,
+            texture.clone(),
             tf.translation().truncate(),
             sprite.color.with_alpha(0.25),
             sprite.custom_size.unwrap_or(Vec2::splat(32.0)),
+            sprite.flip_x,
         );
     }
 }

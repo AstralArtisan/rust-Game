@@ -24,10 +24,9 @@ impl Plugin for GameplayPlugin {
             enemy::EnemyPlugin,
             rewards::RewardsPlugin,
             effects::EffectsPlugin,
+            puzzle::PuzzlePlugin,
             shop::ShopPlugin,
         ))
-        // 注意：RewardSelect / Paused 也是从 InGame 切换出去的状态，
-        // 不能在 OnExit(InGame) 直接清理世界，否则奖励选择时玩家会被 despawn，导致“选奖励没反应”。
         .add_systems(OnEnter(AppState::MainMenu), map::cleanup_ingame_world)
         .add_systems(OnEnter(AppState::GameOver), map::cleanup_ingame_world)
         .add_systems(OnEnter(AppState::Victory), map::cleanup_ingame_world);

@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
 use crate::core::input::PlayerInputState;
+use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{ArcHitbox, Hitbox, Lifetime, Team};
 use crate::gameplay::combat::projectiles;
 use crate::gameplay::effects::particles;
@@ -50,7 +51,7 @@ pub fn player_attack_input_system(
     cd.timer.reset();
     let melee_reach = melee_arc_radius(*mods);
 
-    spawn_player_melee_hitbox(
+    spawn_player_melee_hitbox_with_mods(
         &mut commands,
         &assets,
         player_e,
@@ -72,6 +73,8 @@ pub fn player_attack_input_system(
 pub fn player_ranged_input_system(
     mut commands: Commands,
     input: Res<PlayerInputState>,
+    time: Res<Time>,
+    data: Option<Res<GameDataRegistry>>,
     assets: Res<GameAssets>,
     mut q: Query<
         (
@@ -81,37 +84,56 @@ pub fn player_ranged_input_system(
             &AttackPower,
             &CritChance,
             &mut RangedCooldown,
+            &mut Energy,
+            &mut RangedRapidFire,
             &RewardModifiers,
         ),
         With<Player>,
     >,
 ) {
-    let Ok((player_e, tf, facing, power, crit, mut cd, mods)) = q.get_single_mut() else {
+    let Ok((player_e, tf, facing, power, crit, mut cd, mut energy, mut rapid, mods)) =
+        q.get_single_mut()
+    else {
         return;
     };
-    if !input.ranged_held || !cd.timer.finished() {
+
+    if input.ranged_held {
+        rapid.decay.reset();
+    } else {
+        rapid.decay.tick(time.delta());
+        if rapid.decay.finished() {
+            rapid.ramp = 0;
+        }
         return;
     }
 
-    let cost = data
-        .as_deref()
-        .map(|d| d.player.ranged_energy_cost)
-        .unwrap_or(12.0);
+    if !cd.timer.finished() {
+        return;
+    }
+
+    let cfg = data.as_deref().map(|d| &d.player);
+    let cost = cfg.map(|c| c.ranged_energy_cost).unwrap_or(12.0);
     if energy.current < cost {
         return;
     }
     energy.current = (energy.current - cost).max(0.0);
 
-    // 连发加速：连续射击提升射速，松开后衰减。
-    let cfg = data.as_deref().map(|d| &d.player);
-    let base_cd = cfg.map(|c| c.ranged_base_cooldown_s).unwrap_or(0.45);
+    let base_cd = cfg
+        .map(|c| c.ranged_base_cooldown_s)
+        .unwrap_or(cd.base_duration_s);
     let min_cd = cfg.map(|c| c.ranged_min_cooldown_s).unwrap_or(0.18);
     let max_ramp = cfg.map(|c| c.ranged_ramp_max).unwrap_or(8).max(1);
     rapid.ramp = (rapid.ramp + 1).min(max_ramp);
-    let ramp_t = (rapid.ramp.saturating_sub(1) as f32) / (max_ramp.saturating_sub(1) as f32).max(1.0);
-    let cd_s = (base_cd + (min_cd - base_cd) * ramp_t).max(min_cd);
-    cd.timer.set_duration(std::time::Duration::from_secs_f32(cd_s));
-
+    let ramp_t = if max_ramp > 1 {
+        (rapid.ramp.saturating_sub(1) as f32) / (max_ramp.saturating_sub(1) as f32)
+    } else {
+        1.0
+    };
+    let ramp_cd = base_cd + (min_cd - base_cd) * ramp_t;
+    let final_cd = (ramp_cd * (1.0 - mods.total_ranged_speed_bonus().clamp(0.0, 0.75)))
+        .max(min_cd * 0.5);
+    cd.timer
+        .set_duration(std::time::Duration::from_secs_f32(final_cd));
     cd.timer.reset();
 
     let dir = facing.0;
@@ -137,6 +159,27 @@ pub fn player_ranged_input_system(
 }
 
 pub fn spawn_player_melee_hitbox(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    owner: Entity,
+    owner_tf: &GlobalTransform,
+    dir: Vec2,
+    damage: f32,
+    crit_chance: f32,
+) {
+    spawn_player_melee_hitbox_with_mods(
+        commands,
+        assets,
+        owner,
+        owner_tf,
+        dir,
+        damage,
+        crit_chance,
+        RewardModifiers::default(),
+    );
+}
+
+pub fn spawn_player_melee_hitbox_with_mods(
     commands: &mut Commands,
     assets: &GameAssets,
     owner: Entity,

@@ -103,20 +103,24 @@ fn reward_copy(data: Option<&GameDataRegistry>, reward: RewardType) -> (String, 
     match reward {
         RewardType::EnhanceMeleeWeapon => (
             "近战精通".to_string(),
-            "强化近战伤害、攻击距离和攻击范围，并略微缩短近战冷却。持续强化后可解锁弹反。"
-                .to_string(),
+            "强化近战伤害、范围与冷却，后续可解锁弹反。".to_string(),
         ),
         RewardType::IncreaseAttackSpeed => (
             "攻速提升 +10%".to_string(),
             "提高近战与远程的攻击速度。".to_string(),
         ),
+        RewardType::IncreaseAttackPower => (
+            "攻击力提升 +15%".to_string(),
+            "提高近战与远程的攻击伤害。".to_string(),
+        ),
         RewardType::IncreaseMaxHealth => (
             "最大生命 +20".to_string(),
             "提高生命上限，并立刻回复同等生命。".to_string(),
         ),
-        RewardType::ReduceDashCooldown => {
-            ("冲刺冷却 -15%".to_string(), "冲刺恢复得更快。".to_string())
-        }
+        RewardType::ReduceDashCooldown => (
+            "冲刺冷却 -15%".to_string(),
+            "冲刺恢复得更快。".to_string(),
+        ),
         RewardType::LifeStealOnKill => (
             "击杀回血".to_string(),
             "每次击杀回复生命，不会在打首领时按命中吸血。".to_string(),

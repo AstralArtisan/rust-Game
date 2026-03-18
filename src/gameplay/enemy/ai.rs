@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
+use crate::coop::components::CoopPlayer;
 use crate::gameplay::enemy::components::{
     ChargerPhase, ChargerState, EnemyKind, EnemyStats, EnemyType,
 };
@@ -16,7 +17,7 @@ struct EnemySnapshot {
 
 pub fn update_enemy_ai(
     time: Res<Time>,
-    player_q: Query<&GlobalTransform, With<Player>>,
+    player_q: Query<&GlobalTransform, Or<(With<Player>, With<CoopPlayer>)>>,
     mut enemies: ParamSet<(
         Query<(Entity, &EnemyKind, &Transform)>,
         Query<(
@@ -29,10 +30,14 @@ pub fn update_enemy_ai(
         )>,
     )>,
 ) {
-    let Ok(player_tf) = player_q.get_single() else {
+    let player_positions: Vec<Vec2> = player_q
+        .iter()
+        .map(|tf| tf.translation().truncate())
+        .collect();
+    if player_positions.is_empty() {
         return;
-    };
-    let player_pos = player_tf.translation().truncate();
+    }
+
     let snapshots = enemies
         .p0()
         .iter()

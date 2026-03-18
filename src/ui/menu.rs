@@ -26,24 +26,29 @@ pub fn setup_main_menu(mut commands: Commands, assets: Res<GameAssets>) {
                     panel.spawn(widgets::title_text(&assets, "迷雾回响", 52.0));
                     panel.spawn(widgets::title_text(
                         &assets,
-                        "左键近战  右键远程  Space 冲刺  E 交互  ESC 暂停",
+                        "鼠标左键：近战   鼠标右键：远程   Space：冲刺   E：交互   ESC：暂停",
                         18.0,
                     ));
                     panel.spawn(widgets::title_text(
                         &assets,
-                        "现在为 4 层随机流程，每层难度都会继续上升。",
+                        "当前支持多层随机流程，单人玩法与联机入口都会保留。",
                         16.0,
                     ));
 
                     panel
-                        .spawn((widgets::button_bundle(), MenuButton::Start))
+                        .spawn((widgets::button_bundle(), MenuButton::SinglePlayer))
                         .with_children(|button| {
-                            button.spawn(widgets::title_text(&assets, "开始游戏", 22.0));
+                            button.spawn(widgets::title_text(&assets, "单人游戏", 22.0));
+                        });
+                    panel
+                        .spawn((widgets::button_bundle(), MenuButton::Multiplayer))
+                        .with_children(|button| {
+                            button.spawn(widgets::title_text(&assets, "联机游戏", 22.0));
                         });
                     panel
                         .spawn((widgets::button_bundle(), MenuButton::Quit))
                         .with_children(|button| {
-                            button.spawn(widgets::title_text(&assets, "退出游戏", 22.0));
+                            button.spawn(widgets::title_text(&assets, "退出", 22.0));
                         });
                 });
         });
@@ -80,7 +85,7 @@ pub fn menu_button_system(
 }
 
 pub fn cleanup_main_menu(mut commands: Commands, q: Query<Entity, With<MainMenuUi>>) {
-    for entity in &q {
-        commands.entity(entity).despawn_recursive();
+    for e in &q {
+        commands.entity(e).despawn_recursive();
     }
 }

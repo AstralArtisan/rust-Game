@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 pub enum RewardType {
     EnhanceMeleeWeapon,
     IncreaseAttackSpeed,
+    IncreaseAttackPower,
     IncreaseMaxHealth,
     ReduceDashCooldown,
     LifeStealOnKill,

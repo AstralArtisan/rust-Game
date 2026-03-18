@@ -1,13 +1,14 @@
 use bevy::prelude::*;
 
+use crate::core::achievements::ShopPurchaseEvent;
 use crate::core::assets::GameAssets;
 use crate::core::input::PlayerInputState;
-use crate::core::achievements::ShopPurchaseEvent;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Gold, Health, MoveSpeed, Player, RewardModifiers,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Gold, Health, MoveSpeed,
+    Player, RangedCooldown, RewardModifiers,
 };
 use crate::states::AppState;
 use crate::utils::rng::GameRng;
@@ -77,8 +78,12 @@ pub fn spawn_shop_kiosk_if_needed(
     if existing.iter().next().is_some() {
         return;
     }
-    let (Some(assets), Some(layout), Some(current)) = (assets, layout, current) else { return };
-    let Some(room) = layout.room(current.0) else { return };
+    let (Some(assets), Some(layout), Some(current)) = (assets, layout, current) else {
+        return;
+    };
+    let Some(room) = layout.room(current.0) else {
+        return;
+    };
     if room.room_type != RoomType::Shop {
         return;
     }
@@ -128,8 +133,12 @@ pub fn maybe_enter_shop_state(
     data: Option<Res<GameDataRegistry>>,
     mut rng: ResMut<GameRng>,
 ) {
-    let (Some(layout), Some(current)) = (layout, current) else { return };
-    let Some(room) = layout.room(current.0) else { return };
+    let (Some(layout), Some(current)) = (layout, current) else {
+        return;
+    };
+    let Some(room) = layout.room(current.0) else {
+        return;
+    };
     if room.room_type != RoomType::Shop {
         return;
     }
@@ -215,31 +224,44 @@ pub fn handle_shop_purchase_input(
     offers: Res<ShopOffers>,
     mut next: ResMut<NextState<AppState>>,
     mut shop_purchase: EventWriter<ShopPurchaseEvent>,
-    mut player_q: Query<(
-        &mut Gold,
-        &mut Health,
-        &mut Energy,
-        &mut MoveSpeed,
-        &mut AttackPower,
-        &mut CritChance,
-        &mut DashCooldown,
-        &mut AttackCooldown,
-        &mut RewardModifiers,
-    ), With<Player>>,
+    mut player_q: Query<
+        (
+            &mut Gold,
+            &mut Health,
+            &mut Energy,
+            &mut MoveSpeed,
+            &mut AttackPower,
+            &mut CritChance,
+            &mut DashCooldown,
+            &mut AttackCooldown,
+            &mut RangedCooldown,
+            &mut RewardModifiers,
+        ),
+        With<Player>,
+    >,
 ) {
-    let idx = if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) {
+    let idx = if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1)
+    {
         Some(0)
-    } else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2) {
+    } else if keyboard.just_pressed(KeyCode::Digit2)
+        || keyboard.just_pressed(KeyCode::Numpad2)
+    {
         Some(1)
-    } else if keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3) {
+    } else if keyboard.just_pressed(KeyCode::Digit3)
+        || keyboard.just_pressed(KeyCode::Numpad3)
+    {
         Some(2)
     } else {
         None
     };
-    let Some(i) = idx else { return };
-    let Some(line) = offers.lines.get(i) else { return };
+    let Some(i) = idx else {
+        return;
+    };
+    let Some(line) = offers.lines.get(i) else {
+        return;
+    };
 
-    let Ok((mut gold, mut hp, mut energy, mut move_speed, mut power, mut crit, mut dash_cd, mut atk_cd, mut mods)) =
+    let Ok((mut gold, mut hp, mut energy, mut move_speed, mut power, mut crit, mut dash_cd, mut atk_cd, mut ranged_cd, mut mods)) =
         player_q.get_single_mut()
     else {
         return;
@@ -260,6 +282,7 @@ pub fn handle_shop_purchase_input(
         &mut crit,
         &mut dash_cd,
         &mut atk_cd,
+        &mut ranged_cd,
         &mut mods,
     );
 
@@ -276,6 +299,7 @@ fn apply_item(
     crit: &mut CritChance,
     dash_cd: &mut DashCooldown,
     atk_cd: &mut AttackCooldown,
+    ranged_cd: &mut RangedCooldown,
     mods: &mut RewardModifiers,
 ) {
     match item {
@@ -284,16 +308,15 @@ fn apply_item(
         }
         ShopItem::IncreaseMaxHealth => {
             hp.max += 20.0;
-            hp.current = hp.current.min(hp.max);
+            hp.current = (hp.current + 20.0).min(hp.max);
             mods.max_hp_add += 20.0;
         }
         ShopItem::IncreaseAttackPower => {
             power.0 += 5.0;
         }
         ShopItem::ReduceDashCooldown => {
-            let d = dash_cd.timer.duration().as_secs_f32() * 0.85;
-            dash_cd.timer.set_duration(std::time::Duration::from_secs_f32(d.max(0.1)));
             mods.dash_cooldown_mult += 0.15;
+            dash_cd.apply_reduction(mods.dash_cooldown_mult);
         }
         ShopItem::IncreaseMoveSpeed => {
             move_speed.0 += 30.0;
@@ -307,9 +330,9 @@ fn apply_item(
             mods.crit_add += 0.08;
         }
         ShopItem::IncreaseAttackSpeed => {
-            let d = atk_cd.timer.duration().as_secs_f32() * 0.85;
-            atk_cd.timer.set_duration(std::time::Duration::from_secs_f32(d.max(0.05)));
-            mods.attack_speed_mult += 0.15;
+            mods.attack_speed_add += 0.15;
+            atk_cd.apply_speed_bonus(mods.total_melee_speed_bonus());
+            ranged_cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
         }
     }
 }

@@ -20,8 +20,6 @@ pub fn spawn_player(
     data: Option<Res<GameDataRegistry>>,
     existing_player_q: Query<(), With<Player>>,
 ) {
-    // 从 RewardSelect/Paused 返回 InGame 时也会触发 OnEnter(InGame)。
-    // 如果这里重复生成 Player，会导致大量系统的 `get_single()` 失败，从而出现“回到游戏后无法移动/无响应”。
     if existing_player_q.iter().next().is_some() {
         return;
     }
@@ -37,6 +35,8 @@ pub fn spawn_player(
     let dash_duration = cfg.map(|c| c.dash_duration_s).unwrap_or(0.12);
     let inv_s = cfg.map(|c| c.invincibility_s).unwrap_or(0.35);
     let crit = cfg.map(|c| c.crit_chance).unwrap_or(0.05);
+    let energy_max = cfg.map(|c| c.energy_max).unwrap_or(100.0);
+    let skill1_cd = cfg.map(|c| c.skill1_cooldown_s).unwrap_or(1.1);
 
     let mut entity = commands.spawn((SpriteBundle {
         texture: assets.textures.player.clone(),
@@ -80,7 +80,14 @@ pub fn spawn_player(
     entity.insert((
         AttackCooldown::new(attack_cd),
         RangedCooldown::new(ranged_cd),
+        RangedRapidFire {
+            ramp: 0,
+            decay: Timer::from_seconds(0.65, TimerMode::Once),
+        },
         DashCooldown::new(dash_cd),
+        Skill1Cooldown {
+            timer: Timer::from_seconds(skill1_cd, TimerMode::Once),
+        },
         InvincibilityTimer {
             timer: Timer::from_seconds(inv_s, TimerMode::Once),
         },
@@ -99,7 +106,9 @@ pub fn player_energy_regen_system(
     data: Option<Res<GameDataRegistry>>,
     mut q: Query<&mut Energy, With<Player>>,
 ) {
-    let Ok(mut energy) = q.get_single_mut() else { return };
+    let Ok(mut energy) = q.get_single_mut() else {
+        return;
+    };
     let regen = data
         .as_deref()
         .map(|d| d.player.energy_regen_per_s)
@@ -116,7 +125,9 @@ pub fn player_heal_channel_system(
     if !input.heal_held {
         return;
     }
-    let Ok((mut hp, mut energy)) = q.get_single_mut() else { return };
+    let Ok((mut hp, mut energy)) = q.get_single_mut() else {
+        return;
+    };
     if hp.current <= 0.0 || hp.current >= hp.max {
         return;
     }

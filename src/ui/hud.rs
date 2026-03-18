@@ -4,9 +4,9 @@ use crate::core::assets::GameAssets;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::enemy::components::Enemy;
 use crate::gameplay::enemy::components::{EnemyKind, EnemyType};
-use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};
+use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::VisitedRooms;
-use crate::gameplay::player::components::{DashCooldown, Energy, Gold, Health, Player};
+use crate::gameplay::player::components::{DashCooldown, Health, Player};
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::states::RoomState;
 use crate::ui::widgets;
@@ -16,6 +16,9 @@ pub struct HudUi;
 
 #[derive(Component)]
 pub struct HealthFill;
+
+#[derive(Component)]
+pub struct HealthText;
 
 #[derive(Component)]
 pub struct DashText;
@@ -42,16 +45,10 @@ pub struct EnemyCountText;
 pub struct HintText;
 
 #[derive(Component)]
-pub struct GoldText;
-
-#[derive(Component)]
-pub struct ComboText;
-
-#[derive(Component)]
 pub struct MinimapRoot;
 
 #[derive(Component, Debug, Clone, Copy)]
-pub struct MinimapRoomNode(pub crate::gameplay::map::room::RoomId);
+pub struct MinimapRoomNode(pub RoomId);
 
 #[derive(Component)]
 pub struct MinimapDynamic;
@@ -107,6 +104,7 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                         HealthFill,
                     ));
                 });
+                col.spawn((widgets::title_text(&assets, "HP: 100 / 100", 15.0), HealthText));
 
                 col.spawn(NodeBundle {
                     style: Style {
@@ -151,15 +149,9 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                     row.spawn((widgets::title_text(&assets, "冲刺：就绪", 16.0), DashText));
                 });
 
-                col.spawn((
-                    widgets::title_text(&assets, "楼层：第 1 层", 16.0),
-                    FloorText,
-                ));
+                col.spawn((widgets::title_text(&assets, "楼层：第 1 层", 16.0), FloorText));
                 col.spawn((widgets::title_text(&assets, "房间：起始", 16.0), RoomText));
-                col.spawn((
-                    widgets::title_text(&assets, "敌人：0", 16.0),
-                    EnemyCountText,
-                ));
+                col.spawn((widgets::title_text(&assets, "敌人：0", 16.0), EnemyCountText));
                 col.spawn((
                     widgets::title_text(
                         &assets,
@@ -201,7 +193,6 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                 ));
             });
 
-            // Top-right minimap.
             root.spawn((
                 NodeBundle {
                     style: Style {
@@ -241,6 +232,19 @@ pub fn update_health_bar(
         0.0
     };
     style.width = Val::Percent(ratio * 100.0);
+}
+
+pub fn update_health_text(
+    player_q: Query<&Health, With<Player>>,
+    mut text_q: Query<&mut Text, With<HealthText>>,
+) {
+    let Ok(hp) = player_q.get_single() else {
+        return;
+    };
+    let Ok(mut text) = text_q.get_single_mut() else {
+        return;
+    };
+    text.sections[0].value = format!("HP: {:.0} / {:.0}", hp.current, hp.max);
 }
 
 pub fn update_dash_cooldown_ui(
@@ -285,7 +289,9 @@ pub fn update_floor_text(
     data: Option<Res<GameDataRegistry>>,
     mut text_q: Query<&mut Text, With<FloorText>>,
 ) {
-    let Some(floor) = floor else { return };
+    let Some(floor) = floor else {
+        return;
+    };
     let Ok(mut text) = text_q.get_single_mut() else {
         return;
     };
@@ -316,7 +322,8 @@ pub fn update_room_text(
     let room_label = match room_type {
         RoomType::Start => "起始",
         RoomType::Normal => "战斗",
-        RoomType::Reward => "休整",
+        RoomType::Shop => "商店",
+        RoomType::Reward => "奖励",
         RoomType::Puzzle => "机关",
         RoomType::Boss => "首领",
     };
@@ -359,9 +366,10 @@ pub fn update_hint_text(
         .unwrap_or(RoomType::Start);
     let hint = match (room_type, *room_state) {
         (RoomType::Start, _) => "提示：长按鼠标左右键持续攻击，靠近门后按 E 前进",
-        (RoomType::Reward, _) => "提示：这是休整房，整理状态后继续向前",
+        (RoomType::Reward, _) => "提示：这里会提供奖励，整理状态后继续前进",
+        (RoomType::Shop, _) => "提示：商店房可按数字键购买，离开后继续推进",
         (RoomType::Boss, RoomState::BossFight) => "提示：保持移动，合理冲刺，抓住首领空档输出",
-        (_, RoomState::Locked) => "提示：清掉房间内所有敌人，门才会开启",
+        (_, RoomState::Locked) => "提示：清掉房间内所有敌人或完成机关后，门才会开启",
         (_, RoomState::Cleared) => "提示：房门已经打开，靠近后按 E 切换房间",
         _ => "提示：靠近房门后按 E 进入下一个房间",
     };
@@ -376,11 +384,23 @@ pub fn update_minimap(
     current: Option<Res<CurrentRoom>>,
     visited: Option<Res<VisitedRooms>>,
     root_q: Query<Entity, With<MinimapRoot>>,
-    mut nodes_q: Query<(Entity, &MinimapRoomNode, &mut BackgroundColor, &mut Style, &mut BorderColor)>,
+    mut nodes_q: Query<
+        (
+            Entity,
+            &MinimapRoomNode,
+            &mut BackgroundColor,
+            &mut Style,
+            &mut BorderColor,
+        ),
+    >,
     dynamic_q: Query<Entity, With<MinimapDynamic>>,
 ) {
-    let (Some(layout), Some(current), Some(visited)) = (layout, current, visited) else { return };
-    let Ok(root) = root_q.get_single() else { return };
+    let (Some(layout), Some(current), Some(visited)) = (layout, current, visited) else {
+        return;
+    };
+    let Ok(root) = root_q.get_single() else {
+        return;
+    };
 
     let need_rebuild = nodes_q.iter().next().is_none() || layout.is_changed();
     if need_rebuild {
@@ -431,7 +451,11 @@ pub fn update_minimap(
             });
 
             mm.spawn((
-                widgets::body_text(&assets, "白=当前位置 灰=起点 红=战斗 黄=奖励 紫=Boss", 12.0),
+                widgets::body_text(
+                    &assets,
+                    "白：当前位置 灰：起点 红：战斗 绿：商店 黄：奖励 蓝：机关 紫：Boss",
+                    12.0,
+                ),
                 MinimapDynamic,
             ));
         });
@@ -442,7 +466,9 @@ pub fn update_minimap(
     }
 
     for (_, node, mut bg, mut style, mut border) in nodes_q.iter_mut() {
-        let Some(room) = layout.room(node.0) else { continue };
+        let Some(room) = layout.room(node.0) else {
+            continue;
+        };
         let (base, _) = room_color(room.room_type);
         let visited_room = visited.0.contains(&node.0);
         let alpha = if visited_room { 0.95 } else { 0.25 };
@@ -462,10 +488,10 @@ fn room_color(room_type: RoomType) -> (Color, f32) {
     match room_type {
         RoomType::Start => (Color::srgb(0.50, 0.50, 0.55), 12.0),
         RoomType::Normal => (Color::srgb(0.85, 0.35, 0.25), 12.0),
-        RoomType::Puzzle => (Color::srgb(0.25, 0.85, 0.85), 12.0),
-        RoomType::Reward => (Color::srgb(0.85, 0.85, 0.20), 12.0),
-        RoomType::Boss => (Color::srgb(0.85, 0.25, 0.95), 14.0),
         RoomType::Shop => (Color::srgb(0.25, 0.85, 0.35), 12.0),
+        RoomType::Reward => (Color::srgb(0.85, 0.85, 0.20), 12.0),
+        RoomType::Puzzle => (Color::srgb(0.25, 0.85, 0.85), 12.0),
+        RoomType::Boss => (Color::srgb(0.85, 0.25, 0.95), 14.0),
     }
 }
 

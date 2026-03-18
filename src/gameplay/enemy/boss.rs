@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::coop::components::CoopPlayer;
 use crate::core::events::BossPhaseChangeEvent;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::Team;
@@ -9,7 +10,6 @@ use crate::gameplay::enemy::components::{
     BossPatternTimer, BossPhase, EnemyKind, EnemyStats, EnemyType,
 };
 use crate::gameplay::player::components::{Health, Player};
-use crate::coop::components::CoopPlayer;
 use crate::utils::math::direction_to;
 
 pub fn boss_phase_controller(
@@ -43,7 +43,7 @@ pub fn boss_attack_patterns(
     mut commands: Commands,
     time: Res<Time>,
     assets: Res<crate::core::assets::GameAssets>,
-    player_q: Query<&GlobalTransform, With<Player>>,
+    player_q: Query<&GlobalTransform, Or<(With<Player>, With<CoopPlayer>)>>,
     mut q: Query<
         (
             &GlobalTransform,
@@ -55,10 +55,13 @@ pub fn boss_attack_patterns(
     >,
     mut shake_ev: EventWriter<ScreenShakeRequest>,
 ) {
-    let Ok(player_tf) = player_q.get_single() else {
+    let player_positions: Vec<Vec2> = player_q
+        .iter()
+        .map(|tf| tf.translation().truncate())
+        .collect();
+    if player_positions.is_empty() {
         return;
-    };
-    let player_pos = player_tf.translation().truncate();
+    }
     let Ok((boss_tf, phase, stats, mut timer)) = q.get_single_mut() else {
         return;
     };
@@ -114,16 +117,19 @@ pub fn boss_attack_patterns(
             });
         }
         _ => {
-            timer.0 = Timer::from_seconds(1.05, TimerMode::Once);
+            timer.0 = Timer::from_seconds(0.34, TimerMode::Once);
             timer.0.reset();
-            projectiles::spawn_projectile(
-                &mut commands,
-                &assets,
-                Team::Enemy,
-                boss_pos + dir * 24.0,
-                dir * proj_speed,
-                stats.attack_damage * 0.72,
-            );
+            for angle in [-0.14, 0.0, 0.14] {
+                let rot = Mat2::from_angle(angle);
+                projectiles::spawn_projectile(
+                    &mut commands,
+                    &assets,
+                    Team::Enemy,
+                    boss_pos + dir * 24.0,
+                    rot.mul_vec2(dir) * proj_speed * 1.08,
+                    stats.attack_damage * 0.40,
+                );
+            }
             shake_ev.send(ScreenShakeRequest {
                 strength: 6.0,
                 duration: 0.14,

@@ -3,11 +3,11 @@ use bevy::prelude::*;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::events::SpawnEnemyEvent;
 use crate::data::registry::GameDataRegistry;
-use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{
     CurrentRoom, Direction, FloorLayout, RoomBounds, RoomConnections, RoomData, RoomId, RoomType,
 };
 use crate::gameplay::map::transitions::RoomTransition;
+use crate::gameplay::map::{InGameEntity, VisitedRooms};
 use crate::gameplay::player::components::{DashState, Player, Velocity};
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::states::RoomState;
@@ -23,6 +23,7 @@ pub fn generate_and_spawn_floor(
     existing_current: Option<Res<CurrentRoom>>,
     existing_room_state: Option<Res<RoomState>>,
     existing_transition: Option<Res<RoomTransition>>,
+    mut visited: Option<ResMut<VisitedRooms>>,
     mut player_q: Query<(&mut Transform, &mut Velocity, &mut DashState), With<Player>>,
 ) {
     if let Some(layout) = existing_layout.as_deref() {
@@ -71,6 +72,10 @@ pub fn generate_and_spawn_floor(
     };
     commands.insert_resource(CurrentRoom(layout.current));
     commands.insert_resource(layout);
+    if let Some(mut visited) = visited {
+        visited.0.clear();
+        visited.0.insert(RoomId(0));
+    }
     reset_player_for_floor(&mut player_q);
 
     spawn_current_room(&mut commands, &spawn_ev);
@@ -98,12 +103,24 @@ fn build_room_sequence(
 fn random_room_sequence(total_rooms: u32, floor: u32, rng: &mut GameRng) -> Vec<RoomType> {
     let middle_count = total_rooms.saturating_sub(2).max(2) as usize;
     let mut middle_rooms = vec![RoomType::Normal; middle_count];
+    let mut slots: Vec<usize> = (0..middle_count).collect();
+    rng.shuffle(&mut slots);
 
-    if middle_rooms.len() > 1 && (floor == 1 || rng.gen_bool(0.7)) {
-        let mut reward_slots: Vec<usize> = (1..middle_rooms.len()).collect();
-        rng.shuffle(&mut reward_slots);
-        if let Some(slot) = reward_slots.first() {
-            middle_rooms[*slot] = RoomType::Reward;
+    if floor > 1 && !slots.is_empty() && rng.gen_bool(0.55) {
+        if let Some(slot) = slots.pop() {
+            middle_rooms[slot] = RoomType::Shop;
+        }
+    }
+
+    if floor > 1 && !slots.is_empty() && rng.gen_bool(0.45) {
+        if let Some(slot) = slots.pop() {
+            middle_rooms[slot] = RoomType::Puzzle;
+        }
+    }
+
+    if !slots.is_empty() && (floor == 1 || rng.gen_bool(0.75)) {
+        if let Some(slot) = slots.pop() {
+            middle_rooms[slot] = RoomType::Reward;
         }
     }
 

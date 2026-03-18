@@ -1,5 +1,6 @@
 use crate::gameplay::player::components::{
-    AttackCooldown, CritChance, DashCooldown, Health, MoveSpeed, RangedCooldown, RewardModifiers,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, Health, MoveSpeed, RangedCooldown,
+    RewardModifiers,
 };
 use crate::gameplay::rewards::data::RewardType;
 
@@ -13,12 +14,14 @@ pub fn apply_reward_to_player_components(
     ranged_cd: &mut RangedCooldown,
     crit: &mut CritChance,
     atk_cd: &mut AttackCooldown,
+    attack_power: &mut AttackPower,
 ) {
     match reward {
         RewardType::EnhanceMeleeWeapon => {
             mods.melee_mastery_stacks += reward_stack_gain(value);
         }
         RewardType::IncreaseAttackSpeed => mods.attack_speed_add += value,
+        RewardType::IncreaseAttackPower => attack_power.0 *= 1.0 + value,
         RewardType::IncreaseMaxHealth => {
             mods.max_hp_add += value;
             health.max += value;

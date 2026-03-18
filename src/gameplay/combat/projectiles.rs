@@ -68,6 +68,8 @@ fn spawn_projectile_with_hitbox(
             match team {
                 Team::Player => Color::srgb(0.2, 0.85, 1.0),
                 Team::Enemy => Color::srgb(1.0, 0.35, 0.25),
+                Team::Pvp1 => Color::srgb(0.25, 0.9, 0.35),
+                Team::Pvp2 => Color::srgb(0.95, 0.85, 0.25),
             },
             Vec2::splat(12.0),
             Vec2::splat(14.0),

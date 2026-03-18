@@ -34,15 +34,6 @@ pub fn player_dash_input_system(
         return;
     }
 
-    let cost = data
-        .as_deref()
-        .map(|d| d.player.dash_energy_cost)
-        .unwrap_or(25.0);
-    if energy.current < cost {
-        return;
-    }
-    energy.current = (energy.current - cost).max(0.0);
-
     cd.timer.reset();
     dash.active = true;
     dash.timer.reset();

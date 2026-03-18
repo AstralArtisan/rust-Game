@@ -66,6 +66,35 @@ pub enum AnimationState {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct CritChance(pub f32);
 
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct Gold(pub u32);
+
+#[derive(Component, Debug, Clone)]
+pub struct Combo {
+    pub count: u32,
+    pub timer: Timer,
+}
+
+impl Combo {
+    pub fn new(window_s: f32) -> Self {
+        Self {
+            count: 0,
+            timer: Timer::from_seconds(window_s, TimerMode::Once),
+        }
+    }
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct Skill1Cooldown {
+    pub timer: Timer,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct RangedRapidFire {
+    pub ramp: u32,
+    pub decay: Timer,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RangedVolleyPattern {
     Single,
@@ -74,8 +103,9 @@ pub enum RangedVolleyPattern {
     Nova,
 }
 
-#[derive(Component, Debug, Default, Clone, Copy)]
+#[derive(Component, Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct RewardModifiers {
+    pub attack_speed_mult: f32,
     pub max_hp_add: f32,
     pub dash_cooldown_mult: f32,
     pub lifesteal_on_kill: f32,
@@ -83,6 +113,7 @@ pub struct RewardModifiers {
     pub move_speed_mult: f32,
     pub attack_speed_add: f32,
     pub dash_damage_trail: bool,
+    pub bonus_projectile: bool,
     pub melee_mastery_stacks: u32,
     pub ranged_mastery_stacks: u32,
 }
@@ -93,7 +124,7 @@ impl RewardModifiers {
     }
 
     pub fn shared_attack_speed_bonus(self) -> f32 {
-        self.attack_speed_add.clamp(0.0, 0.45)
+        (self.attack_speed_add + self.attack_speed_mult).clamp(0.0, 0.45)
     }
 
     pub fn melee_damage_mult(self) -> f32 {
