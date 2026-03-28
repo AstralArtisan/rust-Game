@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
-use crate::gameplay::shop::{ShopOffers, ShopUiLine};
+use crate::gameplay::shop::{ShopOffers, ShopUiLine, next_refresh_cost};
 use crate::states::AppState;
 use crate::ui::widgets;
 
@@ -47,23 +47,33 @@ pub fn setup_shop_ui(mut commands: Commands, assets: Res<GameAssets>) {
                 panel.spawn(widgets::title_text(&assets, "商店", 28.0));
                 panel.spawn(widgets::body_text(
                     &assets,
-                    "按 1/2/3 购买；Esc 关闭。购买后会自动关闭商店。",
+                    "按 1/2/3 购买；R 刷新；Esc 关闭。购买后会自动关闭商店。",
                     18.0,
                 ));
-                panel.spawn((NodeBundle {
-                    style: Style {
-                        row_gap: Val::Px(8.0),
-                        flex_direction: FlexDirection::Column,
+                panel.spawn((
+                    NodeBundle {
+                        style: Style {
+                            row_gap: Val::Px(8.0),
+                            flex_direction: FlexDirection::Column,
+                            ..default()
+                        },
                         ..default()
                     },
-                    ..default()
-                }, ShopLines, Name::new("ShopLines")));
+                    ShopLines,
+                    Name::new("ShopLines"),
+                ));
             });
         });
 }
 
-pub fn update_shop_ui(offers: Res<ShopOffers>, assets: Res<GameAssets>, mut commands: Commands, q: Query<Entity, With<ShopLines>>, existing: Query<Entity, With<ShopUiLine>>) {
-    if !offers.is_changed() {
+pub fn update_shop_ui(
+    offers: Res<ShopOffers>,
+    assets: Res<GameAssets>,
+    mut commands: Commands,
+    q: Query<Entity, With<ShopLines>>,
+    existing: Query<Entity, With<ShopUiLine>>,
+) {
+    if !offers.is_changed() && existing.iter().next().is_some() {
         return;
     }
     for e in &existing {
@@ -71,11 +81,22 @@ pub fn update_shop_ui(offers: Res<ShopOffers>, assets: Res<GameAssets>, mut comm
     }
     let Ok(root) = q.get_single() else { return };
     commands.entity(root).with_children(|lines| {
+        let refresh_cost = next_refresh_cost(offers.refresh_count);
+        let refresh_text = if refresh_cost == 0 {
+            "刷新：本次免费".to_string()
+        } else {
+            format!("刷新：{} 金币", refresh_cost)
+        };
+        lines.spawn((widgets::body_text(&assets, refresh_text, 18.0), ShopUiLine));
         for (i, line) in offers.lines.iter().enumerate() {
             lines.spawn((
                 widgets::body_text(
                     &assets,
-                    format!("{}）{}（价格：{}）", i + 1, line.title, line.cost),
+                    if line.purchased {
+                        format!("{}）{}（已购买）", i + 1, line.title)
+                    } else {
+                        format!("{}）{}（价格：{}）", i + 1, line.title, line.cost)
+                    },
                     20.0,
                 ),
                 ShopUiLine,
@@ -102,4 +123,3 @@ pub fn cleanup_shop_ui(mut commands: Commands, q: Query<Entity, With<ShopUi>>) {
         commands.entity(e).despawn_recursive();
     }
 }
-

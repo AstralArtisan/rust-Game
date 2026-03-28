@@ -6,10 +6,11 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::core::achievements::{AchievementId, Achievements};
+use crate::core::local_debug::debug_save_filename;
 use crate::gameplay::enemy::systems::EnemySpawnCount;
 use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Gold, Health, MoveSpeed,
-    Player, RangedCooldown, RewardModifiers,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Gold,
+    Health, MoveSpeed, Player, RangedCooldown, RewardModifiers,
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::states::AppState;
@@ -58,7 +59,8 @@ pub struct PlayerSave {
 }
 
 fn save_path() -> PathBuf {
-    PathBuf::from("saves").join("run_save.ron")
+    let filename = debug_save_filename().unwrap_or_else(|| "run_save.ron".to_string());
+    PathBuf::from("saves").join(filename)
 }
 
 fn ensure_parent_dir(path: &Path) -> Result<()> {
@@ -127,9 +129,9 @@ fn save_hotkey_system(
             attack_power: attack_power.0,
             crit_chance: crit.0,
             rewards: *rewards,
-            attack_cd_s: atk_cd.timer.duration().as_secs_f32(),
-            dash_cd_s: dash_cd.timer.duration().as_secs_f32(),
-            ranged_cd_s: ranged_cd.timer.duration().as_secs_f32(),
+            attack_cd_s: atk_cd.base_duration_s,
+            dash_cd_s: dash_cd.base_duration_s,
+            ranged_cd_s: ranged_cd.base_duration_s,
         },
         enemy_spawn_count: spawn_count.as_deref().map(|s| s.current),
         achievements: achievements
@@ -212,11 +214,23 @@ fn apply_pending_load(
     }
     if let Some(mut achievements) = achievements {
         achievements.unlocked.clear();
-        achievements.unlocked.extend(save.achievements.iter().copied());
+        achievements
+            .unlocked
+            .extend(save.achievements.iter().copied());
     }
 
-    let Ok((mut hp, mut energy, mut gold, mut move_speed, mut attack_power, mut crit, mut rewards, mut atk_cd, mut dash_cd, mut ranged_cd)) =
-        player_q.get_single_mut()
+    let Ok((
+        mut hp,
+        mut energy,
+        mut gold,
+        mut move_speed,
+        mut attack_power,
+        mut crit,
+        mut rewards,
+        mut atk_cd,
+        mut dash_cd,
+        mut ranged_cd,
+    )) = player_q.get_single_mut()
     else {
         pending.0 = Some(save);
         return;
@@ -225,7 +239,11 @@ fn apply_pending_load(
     hp.max = save.player.hp_max.max(1.0);
     hp.current = save.player.hp_current.clamp(0.0, hp.max);
     energy.max = save.player.energy_max.max(0.0);
-    energy.current = save.player.energy_current.clamp(0.0, energy.max);
+    energy.current = if ENERGY_SYSTEM_ENABLED {
+        save.player.energy_current.clamp(0.0, energy.max)
+    } else {
+        energy.max
+    };
     gold.0 = save.player.gold;
     move_speed.0 = save.player.move_speed.max(0.0);
     attack_power.0 = save.player.attack_power.max(0.0);
@@ -235,6 +253,9 @@ fn apply_pending_load(
     *atk_cd = AttackCooldown::new(save.player.attack_cd_s.max(0.05));
     *dash_cd = DashCooldown::new(save.player.dash_cd_s.max(0.05));
     *ranged_cd = RangedCooldown::new(save.player.ranged_cd_s.max(0.05));
+    atk_cd.apply_speed_bonus(rewards.total_melee_speed_bonus());
+    dash_cd.apply_reduction(rewards.total_dash_cooldown_reduction());
+    ranged_cd.apply_speed_bonus(rewards.total_ranged_speed_bonus());
 
     info!("读档完成：楼层 {}", floor_value);
 }

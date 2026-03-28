@@ -3,13 +3,9 @@ use bevy_rapier2d::prelude::*;
 
 use crate::coop::CoopPlugin;
 use crate::core::{
-    achievements::AchievementsPlugin,
-    assets::AssetsPlugin,
-    audio::AudioPlugin,
-    camera::CameraPlugin,
-    events::EventsPlugin,
-    input::InputPlugin,
-    save::SavePlugin,
+    achievements::AchievementsPlugin, assets::AssetsPlugin, audio::AudioPlugin,
+    camera::CameraPlugin, events::EventsPlugin, input::InputPlugin,
+    local_debug::LocalDebugPlugin, save::SavePlugin,
 };
 use crate::data::DataPlugin;
 use crate::gameplay::GameplayPlugin;
@@ -35,6 +31,7 @@ impl Plugin for GamePlugin {
                 AudioPlugin,
                 SavePlugin,
                 AchievementsPlugin,
+                LocalDebugPlugin,
                 RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0),
                 CameraPlugin,
                 GameplayPlugin,

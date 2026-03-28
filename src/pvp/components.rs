@@ -50,3 +50,29 @@ pub struct PvpTeam(pub Team);
 pub struct PvpBullet {
     pub velocity: Vec2,
 }
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PvpNetTarget {
+    pub pos: Vec2,
+    pub hp: f32,
+    pub lives: u8,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct PvpMeleeFlash {
+    pub timer: Timer,
+}
+
+impl Default for PvpMeleeFlash {
+    fn default() -> Self {
+        Self {
+            timer: Timer::from_seconds(0.0, TimerMode::Once),
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct PvpOverlayUi;
+
+#[derive(Component)]
+pub struct PvpOverlayText;

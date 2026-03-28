@@ -45,15 +45,37 @@ pub struct EnemiesConfig {
     pub melee_chaser: EnemyStatsConfig,
     pub ranged_shooter: EnemyStatsConfig,
     pub charger: EnemyStatsConfig,
+    pub flanker: EnemyStatsConfig,
+    pub sniper: EnemyStatsConfig,
+    pub support_caster: EnemyStatsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BossConfig {
+pub struct BossFloorConfig {
     pub max_hp: f32,
     pub move_speed: f32,
     pub contact_damage: f32,
     pub phase_thresholds: Vec<f32>,
     pub projectile_speed: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BossesConfig {
+    pub floor_1: BossFloorConfig,
+    pub floor_2: BossFloorConfig,
+    pub floor_3: BossFloorConfig,
+    pub floor_4: BossFloorConfig,
+}
+
+impl BossesConfig {
+    pub fn for_floor(&self, floor: u32) -> &BossFloorConfig {
+        match floor {
+            0 | 1 => &self.floor_1,
+            2 => &self.floor_2,
+            3 => &self.floor_3,
+            _ => &self.floor_4,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

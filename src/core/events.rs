@@ -35,9 +35,17 @@ pub struct RoomClearedEvent {
     pub room: RoomId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RewardChoiceGroup {
+    Heal,
+    Primary,
+    Secondary,
+}
+
 #[derive(Event, Debug, Clone, Copy)]
 pub struct RewardChosenEvent {
     pub reward: RewardType,
+    pub group: RewardChoiceGroup,
 }
 
 #[derive(Event, Debug, Clone, Copy)]

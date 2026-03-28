@@ -5,6 +5,7 @@ use crate::core::assets::GameAssets;
 use crate::core::events::DamageAppliedEvent;
 use crate::gameplay::combat::components::Team;
 use crate::gameplay::map::InGameEntity;
+use crate::utils::entity::safe_despawn_recursive;
 
 #[derive(Component, Debug, Clone)]
 pub struct DamageNumber {
@@ -44,7 +45,9 @@ pub fn update_damage_numbers(
                         color: text_color,
                     },
                 ),
-                transform: Transform::from_translation((e.pos + Vec2::new(0.0, 18.0)).extend(UI_Z - 6.0)),
+                transform: Transform::from_translation(
+                    (e.pos + Vec2::new(0.0, 18.0)).extend(UI_Z - 6.0),
+                ),
                 ..default()
             },
             DamageNumber {
@@ -65,7 +68,7 @@ pub fn update_damage_numbers(
             section.style.color.set_alpha(alpha);
         }
         if dmg.timer.finished() {
-            commands.entity(entity).despawn_recursive();
+            safe_despawn_recursive(&mut commands, entity);
         }
     }
 }

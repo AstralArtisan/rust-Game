@@ -1,0 +1,64 @@
+(
+  rewards: [
+    (
+      reward: EnhanceMeleeWeapon,
+      title: "近战精通",
+      description: "强化近战伤害、范围与冷却，后续可解锁弹反。",
+      value: 1.0,
+    ),
+    (
+      reward: IncreaseAttackSpeed,
+      title: "攻速提升 +10%",
+      description: "提高近战与远程的攻击速度。",
+      value: 0.10,
+    ),
+    (
+      reward: IncreaseAttackPower,
+      title: "攻击力提升 +15%",
+      description: "提高近战与远程的攻击伤害。",
+      value: 0.15,
+    ),
+    (
+      reward: IncreaseMaxHealth,
+      title: "最大生命 +20",
+      description: "提高生命上限，并立刻回复同等生命。",
+      value: 20.0,
+    ),
+    (
+      reward: ReduceDashCooldown,
+      title: "冲刺冷却 -15%",
+      description: "冲刺恢复得更快。",
+      value: 0.15,
+    ),
+    (
+      reward: LifeStealOnKill,
+      title: "击杀回血",
+      description: "每次击杀回复 3 点生命，不是命中吸血。",
+      value: 3.0,
+    ),
+    (
+      reward: IncreaseCritChance,
+      title: "暴击率 +5%",
+      description: "提高近战与远程的暴击概率。",
+      value: 0.05,
+    ),
+    (
+      reward: IncreaseMoveSpeed,
+      title: "移速提升 +18%",
+      description: "显著提高移动速度，让走位更有手感。",
+      value: 0.18,
+    ),
+    (
+      reward: DashDamageTrail,
+      title: "冲刺残影",
+      description: "冲刺时留下会造成伤害的轨迹。",
+      value: 1.0,
+    ),
+    (
+      reward: EnhanceRangedWeapon,
+      title: "远程改装",
+      description: "强化右键远程的伤害、射速与弹速。",
+      value: 1.0,
+    ),
+  ],
+)

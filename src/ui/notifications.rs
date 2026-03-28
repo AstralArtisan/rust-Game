@@ -11,7 +11,11 @@ pub struct Toast {
     pub timer: Timer,
 }
 
-pub fn ensure_notification_root(mut commands: Commands, assets: Option<Res<GameAssets>>, existing: Query<(), With<NotificationRoot>>) {
+pub fn ensure_notification_root(
+    mut commands: Commands,
+    assets: Option<Res<GameAssets>>,
+    existing: Query<(), With<NotificationRoot>>,
+) {
     if existing.iter().next().is_some() {
         return;
     }
@@ -43,7 +47,9 @@ pub fn handle_achievement_notifications(
     mut ev: EventReader<AchievementUnlockedEvent>,
 ) {
     let Some(assets) = assets else { return };
-    let Ok(root) = root_q.get_single() else { return };
+    let Ok(root) = root_q.get_single() else {
+        return;
+    };
 
     for e in ev.read() {
         let msg = achievement_text(e.id);
@@ -74,7 +80,11 @@ pub fn handle_achievement_notifications(
     }
 }
 
-pub fn update_notifications(mut commands: Commands, time: Res<Time>, mut q: Query<(Entity, &mut Toast, &mut Text, &mut BackgroundColor)>) {
+pub fn update_notifications(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut Toast, &mut Text, &mut BackgroundColor)>,
+) {
     for (e, mut toast, mut text, mut bg) in &mut q {
         toast.timer.tick(time.delta());
         let t = toast.timer.fraction();

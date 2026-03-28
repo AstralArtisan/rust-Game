@@ -1,8 +1,10 @@
 use bevy::prelude::*;
+use lightyear::prelude::Replicated;
+use lightyear::shared::replication::components::Controlled;
 
+use crate::coop::components::LocalControlled;
 use crate::gameplay::effects::screen_shake::{ScreenShake, ScreenShakeRequest};
 use crate::gameplay::player::components::Player;
-use crate::coop::components::CoopClientLocalPlayer;
 use crate::pvp::components::PvpLocalPlayer;
 use crate::states::AppState;
 
@@ -17,7 +19,19 @@ impl Plugin for CameraPlugin {
             .add_systems(Startup, setup_camera)
             .add_systems(
                 Update,
-                (camera_follow_player, apply_screen_shake).run_if(in_state(AppState::InGame)),
+                camera_follow_player.run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                camera_follow_coop_local.run_if(in_state(AppState::CoopGame)),
+            )
+            .add_systems(
+                Update,
+                camera_follow_pvp_local.run_if(in_state(AppState::PvpGame)),
+            )
+            .add_systems(
+                Update,
+                apply_screen_shake.run_if(in_state(AppState::InGame)),
             );
     }
 }
@@ -51,8 +65,12 @@ pub fn camera_follow_pvp_local(
     mut camera_q: Query<&mut Transform, With<MainCamera>>,
     time: Res<Time>,
 ) {
-    let Ok(player_tf) = player_q.get_single() else { return };
-    let Ok(mut camera_tf) = camera_q.get_single_mut() else { return };
+    let Ok(player_tf) = player_q.get_single() else {
+        return;
+    };
+    let Ok(mut camera_tf) = camera_q.get_single_mut() else {
+        return;
+    };
 
     let target = player_tf.translation().truncate();
     let current = camera_tf.translation.truncate();
@@ -63,12 +81,28 @@ pub fn camera_follow_pvp_local(
 }
 
 pub fn camera_follow_coop_local(
-    player_q: Query<&GlobalTransform, With<CoopClientLocalPlayer>>,
+    player_q: Query<
+        (&GlobalTransform, Option<&Replicated>, Option<&Controlled>),
+        (
+            With<crate::gameplay::player::components::Player>,
+            With<LocalControlled>,
+        ),
+    >,
     mut camera_q: Query<&mut Transform, With<MainCamera>>,
     time: Res<Time>,
 ) {
-    let Ok(player_tf) = player_q.get_single() else { return };
-    let Ok(mut camera_tf) = camera_q.get_single_mut() else { return };
+    let Some(player_tf) = player_q
+        .iter()
+        .max_by_key(|(_, replicated, controlled)| {
+            (replicated.is_some() as i32) * 10 + (controlled.is_some() as i32) * 20
+        })
+        .map(|(tf, _, _)| tf)
+    else {
+        return;
+    };
+    let Ok(mut camera_tf) = camera_q.get_single_mut() else {
+        return;
+    };
 
     let target = player_tf.translation().truncate();
     let current = camera_tf.translation.truncate();

@@ -6,7 +6,9 @@ use crate::states::AppState;
 use crate::ui::widgets;
 
 use super::components::PvpEntity;
-use super::net::{start_client_socket, start_host_socket, NetMode, PvpNetConfig, PvpNetState, PVP_PORT};
+use super::net::{
+    NetMode, PVP_PORT, PvpNetConfig, PvpNetState, start_client_socket, start_host_socket,
+};
 
 #[derive(Component)]
 pub struct PvpMenuUi;
@@ -102,7 +104,12 @@ pub fn cleanup_multiplayer_menu(mut commands: Commands, q: Query<Entity, With<Mu
 pub fn setup_pvp_menu(mut commands: Commands, assets: Res<GameAssets>) {
     commands.init_resource::<PvpJoinIp>();
     commands
-        .spawn((widgets::root_node(), PvpMenuUi, PvpEntity, Name::new("PvpMenuRoot")))
+        .spawn((
+            widgets::root_node(),
+            PvpMenuUi,
+            PvpEntity,
+            Name::new("PvpMenuRoot"),
+        ))
         .with_children(|root| {
             root.spawn(widgets::panel_node(Color::srgba(0.05, 0.06, 0.10, 0.9)))
                 .with_children(|panel| {
@@ -112,7 +119,11 @@ pub fn setup_pvp_menu(mut commands: Commands, assets: Res<GameAssets>) {
                         "规则：2人对战；每人3条命；无技能（只保留移动+近战+远程）",
                         18.0,
                     ));
-                    panel.spawn(widgets::title_text(&assets, "H=当房主  J=输入房主IP并加入  Esc=返回", 18.0));
+                    panel.spawn(widgets::title_text(
+                        &assets,
+                        "H=当房主  J=输入房主IP并加入  Esc=返回",
+                        18.0,
+                    ));
                     panel.spawn((widgets::title_text(&assets, "房主IP：", 18.0), PvpIpText));
                 });
         });
@@ -127,7 +138,9 @@ pub fn pvp_menu_input_system(
     mut net: ResMut<PvpNetState>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    let Ok(mut ip_text) = ip_text_q.get_single_mut() else { return };
+    let Ok(mut ip_text) = ip_text_q.get_single_mut() else {
+        return;
+    };
 
     if keyboard.just_pressed(KeyCode::Escape) {
         config.mode = NetMode::None;
@@ -183,12 +196,20 @@ pub fn cleanup_pvp_menu(mut commands: Commands, q: Query<Entity, With<PvpMenuUi>
 
 pub fn setup_pvp_lobby(mut commands: Commands, assets: Res<GameAssets>) {
     commands
-        .spawn((widgets::root_node(), PvpLobbyUi, PvpEntity, Name::new("PvpLobbyRoot")))
+        .spawn((
+            widgets::root_node(),
+            PvpLobbyUi,
+            PvpEntity,
+            Name::new("PvpLobbyRoot"),
+        ))
         .with_children(|root| {
             root.spawn(widgets::panel_node(Color::srgba(0.05, 0.06, 0.10, 0.9)))
                 .with_children(|panel| {
                     panel.spawn(widgets::title_text(&assets, "PVP 联机大厅", 46.0));
-                    panel.spawn((widgets::title_text(&assets, "连接中...", 18.0), PvpLobbyText));
+                    panel.spawn((
+                        widgets::title_text(&assets, "连接中...", 18.0),
+                        PvpLobbyText,
+                    ));
                     panel.spawn(widgets::title_text(&assets, "Esc=取消并返回菜单", 18.0));
                 });
         });
@@ -199,11 +220,16 @@ pub fn pvp_lobby_ui_system(
     net: Res<PvpNetState>,
     mut q: Query<&mut Text, With<PvpLobbyText>>,
 ) {
-    let Ok(mut text) = q.get_single_mut() else { return };
+    let Ok(mut text) = q.get_single_mut() else {
+        return;
+    };
     let status = match config.mode {
         NetMode::Host => {
             if net.connected {
-                format!("已连接：客户端 {}", net.peer.map(|p| p.to_string()).unwrap_or_default())
+                format!(
+                    "已连接：客户端 {}",
+                    net.peer.map(|p| p.to_string()).unwrap_or_default()
+                )
             } else {
                 format!("房主已启动，等待客户端连接（端口 {PVP_PORT}）")
             }
@@ -253,7 +279,12 @@ pub fn setup_pvp_result(mut commands: Commands, assets: Res<GameAssets>, net: Re
     };
 
     commands
-        .spawn((widgets::root_node(), PvpResultUi, PvpEntity, Name::new("PvpResultRoot")))
+        .spawn((
+            widgets::root_node(),
+            PvpResultUi,
+            PvpEntity,
+            Name::new("PvpResultRoot"),
+        ))
         .with_children(|root| {
             root.spawn(widgets::panel_node(Color::srgba(0.05, 0.06, 0.10, 0.9)))
                 .with_children(|panel| {

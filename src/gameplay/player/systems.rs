@@ -1,5 +1,7 @@
 use bevy::prelude::*;
+use lightyear::prelude::Replicated;
 
+use crate::coop::components::{GhostState, LocalControlled};
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::assets::GameAssets;
 use crate::core::events::DeathEvent;
@@ -28,8 +30,8 @@ pub fn spawn_player(
     let max_hp = cfg.map(|c| c.max_hp).unwrap_or(100.0);
     let move_speed = cfg.map(|c| c.move_speed).unwrap_or(260.0);
     let attack_power = cfg.map(|c| c.attack_power).unwrap_or(18.0);
-    let attack_cd = cfg.map(|c| c.attack_cooldown_s).unwrap_or(0.50);
-    let ranged_cd = cfg.map(|c| c.ranged_cooldown_s).unwrap_or(0.70);
+    let attack_cd = cfg.map(|c| c.attack_cooldown_s).unwrap_or(0.70);
+    let ranged_cd = cfg.map(|c| c.ranged_cooldown_s).unwrap_or(0.80);
     let dash_cd = cfg.map(|c| c.dash_cooldown_s).unwrap_or(1.2);
     let dash_speed = cfg.map(|c| c.dash_speed).unwrap_or(680.0);
     let dash_duration = cfg.map(|c| c.dash_duration_s).unwrap_or(0.12);
@@ -51,6 +53,7 @@ pub fn spawn_player(
 
     entity.insert((
         Player,
+        LocalControlled,
         TeamMarker(Team::Player),
         InGameEntity,
         Name::new("Player"),
@@ -66,10 +69,12 @@ pub fn spawn_player(
         },
         Gold(0),
         Combo::new(1.8),
+        PlayerDriveInput::default(),
         Velocity::default(),
         MoveSpeed(move_speed),
         AttackPower(attack_power),
         FacingDirection(Vec2::X),
+        AnimationState::Idle,
         CritChance(crit),
         RewardModifiers::default(),
         PlayerAnim {
@@ -101,124 +106,157 @@ pub fn spawn_player(
     ));
 }
 
+pub fn push_local_input_to_players(
+    input: Res<PlayerInputState>,
+    mut player_q: Query<&mut PlayerDriveInput, (With<Player>, With<LocalControlled>, Without<Replicated>)>,
+) {
+    for mut drive in &mut player_q {
+        *drive = PlayerDriveInput {
+            move_axis: input.move_axis,
+            aim_world: input.aim_world,
+            attack_pressed: input.attack_pressed,
+            attack_held: input.attack_held,
+            ranged_pressed: input.ranged_pressed,
+            ranged_held: input.ranged_held,
+            dash_pressed: input.dash_pressed,
+            interact_pressed: input.interact_pressed,
+            pause_pressed: input.pause_pressed,
+            shop_pressed: input.shop_pressed,
+            menu_confirm_pressed: input.attack_pressed || input.interact_pressed,
+            menu_cancel_pressed: input.pause_pressed,
+        };
+    }
+}
+
 pub fn player_energy_regen_system(
     time: Res<Time>,
     data: Option<Res<GameDataRegistry>>,
-    mut q: Query<&mut Energy, With<Player>>,
+    mut q: Query<&mut Energy, (With<Player>, Without<Replicated>)>,
 ) {
-    let Ok(mut energy) = q.get_single_mut() else {
-        return;
-    };
-    let regen = data
-        .as_deref()
-        .map(|d| d.player.energy_regen_per_s)
-        .unwrap_or(12.0);
-    energy.current = (energy.current + regen * time.delta_seconds()).min(energy.max);
+    for mut energy in &mut q {
+        if !ENERGY_SYSTEM_ENABLED {
+            energy.current = energy.max;
+            continue;
+        }
+        let regen = data
+            .as_deref()
+            .map(|d| d.player.energy_regen_per_s)
+            .unwrap_or(12.0);
+        energy.current = (energy.current + regen * time.delta_seconds()).min(energy.max);
+    }
 }
 
 pub fn player_heal_channel_system(
     time: Res<Time>,
-    input: Res<PlayerInputState>,
     data: Option<Res<GameDataRegistry>>,
-    mut q: Query<(&mut Health, &mut Energy), With<Player>>,
+    mut q: Query<(&PlayerDriveInput, &mut Health, &mut Energy), (With<Player>, Without<Replicated>)>,
 ) {
-    if !input.heal_held {
+    if !ENERGY_SYSTEM_ENABLED {
         return;
     }
-    let Ok((mut hp, mut energy)) = q.get_single_mut() else {
-        return;
-    };
-    if hp.current <= 0.0 || hp.current >= hp.max {
-        return;
-    }
-    let cfg = data.as_deref().map(|d| &d.player);
-    let energy_per_s = cfg.map(|c| c.heal_energy_cost_per_s).unwrap_or(20.0).max(0.0);
-    let heal_per_s = cfg.map(|c| c.heal_hp_per_s).unwrap_or(18.0).max(0.0);
+    for (input, mut hp, mut energy) in &mut q {
+        if !input.menu_confirm_pressed {
+            continue;
+        }
+        if hp.current <= 0.0 || hp.current >= hp.max {
+            continue;
+        }
+        let cfg = data.as_deref().map(|d| &d.player);
+        let energy_per_s = cfg
+            .map(|c| c.heal_energy_cost_per_s)
+            .unwrap_or(20.0)
+            .max(0.0);
+        let heal_per_s = cfg.map(|c| c.heal_hp_per_s).unwrap_or(18.0).max(0.0);
 
-    let dt = time.delta_seconds();
-    let need = energy_per_s * dt;
-    if energy.current <= 0.0 {
-        return;
-    }
-    let ratio = (energy.current / need).clamp(0.0, 1.0);
-    let actual_dt = dt * ratio;
-    let actual_need = energy_per_s * actual_dt;
+        let dt = time.delta_seconds();
+        let need = energy_per_s * dt;
+        if energy.current <= 0.0 {
+            continue;
+        }
+        let ratio = (energy.current / need).clamp(0.0, 1.0);
+        let actual_dt = dt * ratio;
+        let actual_need = energy_per_s * actual_dt;
 
-    energy.current = (energy.current - actual_need).max(0.0);
-    hp.current = (hp.current + heal_per_s * actual_dt).min(hp.max);
+        energy.current = (energy.current - actual_need).max(0.0);
+        hp.current = (hp.current + heal_per_s * actual_dt).min(hp.max);
+    }
 }
 
 pub fn player_move_system(
     time: Res<Time>,
-    input: Res<PlayerInputState>,
     room_state: Res<RoomState>,
-    mut q: Query<(&DashState, &MoveSpeed, &mut Velocity, &mut Transform), With<Player>>,
+    mut q: Query<
+        (&PlayerDriveInput, &DashState, &MoveSpeed, &mut Velocity, &mut Transform, Option<&GhostState>),
+        (With<Player>, Without<Replicated>),
+    >,
 ) {
     if matches!(*room_state, RoomState::BossFight) {
         // still movable
     }
-    let Ok((dash, move_speed, mut vel, mut tf)) = q.get_single_mut() else {
-        return;
-    };
-    if dash.active {
-        vel.0 = dash.dir * dash.speed;
-    } else {
-        vel.0 = input.move_axis * move_speed.0.max(0.0);
-    }
-    vel.0 = clamp_length(vel.0, dash.speed.max(move_speed.0));
-    tf.translation += (vel.0 * time.delta_seconds()).extend(0.0);
+    for (input, dash, move_speed, mut vel, mut tf, ghost) in &mut q {
+        let move_scale = if matches!(ghost, Some(GhostState::Ghost)) {
+            0.85
+        } else {
+            1.0
+        };
+        if dash.active {
+            vel.0 = dash.dir * dash.speed;
+        } else {
+            vel.0 = input.move_axis * move_speed.0.max(0.0) * move_scale;
+        }
+        vel.0 = clamp_length(vel.0, dash.speed.max(move_speed.0));
+        tf.translation += (vel.0 * time.delta_seconds()).extend(0.0);
 
-    let clamped = clamp_in_room(
-        tf.translation.truncate(),
-        Vec2::new(ROOM_HALF_WIDTH, ROOM_HALF_HEIGHT),
-        28.0,
-    );
-    tf.translation.x = clamped.x;
-    tf.translation.y = clamped.y;
+        let clamped = clamp_in_room(
+            tf.translation.truncate(),
+            Vec2::new(ROOM_HALF_WIDTH, ROOM_HALF_HEIGHT),
+            28.0,
+        );
+        tf.translation.x = clamped.x;
+        tf.translation.y = clamped.y;
+    }
 }
 
 pub fn player_facing_system(
-    input: Res<PlayerInputState>,
-    mut q: Query<(&GlobalTransform, &mut FacingDirection, &Velocity), With<Player>>,
+    mut q: Query<
+        (&PlayerDriveInput, &GlobalTransform, &mut FacingDirection, &Velocity),
+        (With<Player>, Without<Replicated>),
+    >,
 ) {
-    let Ok((tf, mut facing, vel)) = q.get_single_mut() else {
-        return;
-    };
-    if let Some(world) = input.aim_world {
-        let dir = (world - tf.translation().truncate()).try_normalize();
-        if let Some(dir) = dir {
-            facing.0 = dir;
-            return;
+    for (input, tf, mut facing, vel) in &mut q {
+        if let Some(world) = input.aim_world {
+            let dir = (world - tf.translation().truncate()).try_normalize();
+            if let Some(dir) = dir {
+                facing.0 = dir;
+                continue;
+            }
         }
-    }
-    if vel.0.length_squared() > 1.0 {
-        if let Some(dir) = vel.0.try_normalize() {
-            facing.0 = dir;
+        if vel.0.length_squared() > 1.0 {
+            if let Some(dir) = vel.0.try_normalize() {
+                facing.0 = dir;
+            }
         }
     }
 }
 
 pub fn player_invincibility_system(
     time: Res<Time>,
-    mut q: Query<&mut InvincibilityTimer, With<Player>>,
+    mut q: Query<&mut InvincibilityTimer, (With<Player>, Without<Replicated>)>,
 ) {
-    let Ok(mut inv) = q.get_single_mut() else {
-        return;
-    };
-    inv.timer.tick(time.delta());
+    for mut inv in &mut q {
+        inv.timer.tick(time.delta());
+    }
 }
 
 pub fn player_death_system(
     mut death_events: EventReader<DeathEvent>,
-    player_q: Query<Entity, With<Player>>,
+    player_q: Query<Entity, (With<Player>, Without<Replicated>)>,
     mut next_state: ResMut<NextState<AppState>>,
 ) {
-    let Ok(player_e) = player_q.get_single() else {
-        return;
-    };
     for ev in death_events.read() {
-        if ev.entity == player_e {
+        if player_q.iter().any(|player_e| ev.entity == player_e) {
             next_state.set(AppState::GameOver);
+            return;
         }
     }
 }

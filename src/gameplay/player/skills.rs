@@ -4,7 +4,9 @@ use crate::core::input::PlayerInputState;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::Team;
 use crate::gameplay::combat::projectiles;
-use crate::gameplay::player::components::{AttackPower, Energy, Player, Skill1Cooldown};
+use crate::gameplay::player::components::{
+    AttackPower, ENERGY_SYSTEM_ENABLED, Energy, Player, Skill1Cooldown,
+};
 
 pub fn player_skill1_input_system(
     mut commands: Commands,
@@ -12,9 +14,19 @@ pub fn player_skill1_input_system(
     time: Res<Time>,
     data: Option<Res<GameDataRegistry>>,
     assets: Res<crate::core::assets::GameAssets>,
-    mut q: Query<(&GlobalTransform, &AttackPower, &mut Energy, &mut Skill1Cooldown), With<Player>>,
+    mut q: Query<
+        (
+            &GlobalTransform,
+            &AttackPower,
+            &mut Energy,
+            &mut Skill1Cooldown,
+        ),
+        With<Player>,
+    >,
 ) {
-    let Ok((tf, power, mut energy, mut cd)) = q.get_single_mut() else { return };
+    let Ok((tf, power, mut energy, mut cd)) = q.get_single_mut() else {
+        return;
+    };
 
     cd.timer.tick(time.delta());
     if !input.skill1_pressed || !cd.timer.finished() {
@@ -22,11 +34,15 @@ pub fn player_skill1_input_system(
     }
 
     let cfg = data.as_deref().map(|d| &d.player);
-    let cost = cfg.map(|c| c.skill1_energy_cost).unwrap_or(45.0);
-    if energy.current < cost {
-        return;
+    if ENERGY_SYSTEM_ENABLED {
+        let cost = cfg.map(|c| c.skill1_energy_cost).unwrap_or(45.0);
+        if energy.current < cost {
+            return;
+        }
+        energy.current = (energy.current - cost).max(0.0);
+    } else {
+        energy.current = energy.max;
     }
-    energy.current = (energy.current - cost).max(0.0);
     cd.timer.reset();
 
     let pos = tf.translation().truncate();
@@ -47,4 +63,3 @@ pub fn player_skill1_input_system(
         );
     }
 }
-

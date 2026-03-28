@@ -1,7 +1,10 @@
 use bevy::prelude::*;
+use lightyear::prelude::Replicated;
 
+use crate::coop::components::{
+    CoopDashVisualState, CoopPhase, CoopSessionEntity, CoopSessionState, GhostState,
+};
 use crate::core::assets::GameAssets;
-use crate::core::input::PlayerInputState;
 use crate::gameplay::combat::components::{Hitbox, Lifetime, Team};
 use crate::gameplay::effects::{afterimage, particles};
 use crate::gameplay::map::InGameEntity;
@@ -10,11 +13,12 @@ use super::components::*;
 
 pub fn player_dash_input_system(
     mut commands: Commands,
-    input: Res<PlayerInputState>,
     time: Res<Time>,
     assets: Res<GameAssets>,
+    session_q: Query<&CoopSessionState, With<CoopSessionEntity>>,
     mut q: Query<
         (
+            &PlayerDriveInput,
             &GlobalTransform,
             &mut DashCooldown,
             &mut DashState,
@@ -22,39 +26,55 @@ pub fn player_dash_input_system(
             &mut InvincibilityTimer,
             &Handle<Image>,
             &Sprite,
+            Option<&GhostState>,
+            Option<&mut CoopDashVisualState>,
         ),
-        With<Player>,
+        (With<Player>, Without<Replicated>),
     >,
 ) {
-    let Ok((tf, mut cd, mut dash, facing, mut inv, texture, sprite)) = q.get_single_mut() else {
-        return;
-    };
-    cd.timer.tick(time.delta());
-    if dash.active || !input.dash_pressed || !cd.timer.finished() {
-        return;
+    let phase = session_q
+        .get_single()
+        .map(|session| session.phase)
+        .unwrap_or(CoopPhase::None);
+    for (input, tf, mut cd, mut dash, facing, mut inv, texture, sprite, ghost, dash_visual) in
+        &mut q
+    {
+        cd.timer.tick(time.delta());
+        if dash.active
+            || !input.dash_pressed
+            || !cd.timer.finished()
+            || phase != CoopPhase::None
+            || matches!(ghost, Some(GhostState::Ghost))
+        {
+            continue;
+        }
+
+        cd.timer.reset();
+        dash.active = true;
+        dash.timer.reset();
+        dash.trail_timer.reset();
+        dash.dir = if input.move_axis.length_squared() > 0.0 {
+            input.move_axis.normalize()
+        } else {
+            facing.0
+        };
+        if let Some(mut dash_visual) = dash_visual {
+            dash_visual.active = true;
+            dash_visual.dir = dash.dir;
+        }
+
+        inv.timer.reset();
+        particles::spawn_dash_particles(&mut commands, &assets, tf.translation().truncate());
+
+        afterimage::spawn_afterimage(
+            &mut commands,
+            texture.clone(),
+            tf.translation().truncate(),
+            sprite.color.with_alpha(0.45),
+            sprite.custom_size.unwrap_or(Vec2::splat(32.0)),
+            sprite.flip_x,
+        );
     }
-
-    cd.timer.reset();
-    dash.active = true;
-    dash.timer.reset();
-    dash.trail_timer.reset();
-    dash.dir = if input.move_axis.length_squared() > 0.0 {
-        input.move_axis.normalize()
-    } else {
-        facing.0
-    };
-
-    inv.timer.reset();
-    particles::spawn_dash_particles(&mut commands, &assets, tf.translation().truncate());
-
-    afterimage::spawn_afterimage(
-        &mut commands,
-        texture.clone(),
-        tf.translation().truncate(),
-        sprite.color.with_alpha(0.45),
-        sprite.custom_size.unwrap_or(Vec2::splat(32.0)),
-        sprite.flip_x,
-    );
 }
 
 pub fn update_dash_state(
@@ -70,45 +90,55 @@ pub fn update_dash_state(
             &Sprite,
             &AttackPower,
             &RewardModifiers,
+            Option<&mut CoopDashVisualState>,
         ),
-        With<Player>,
+        (With<Player>, Without<Replicated>),
     >,
 ) {
-    let Ok((player_e, tf, mut dash, texture, sprite, attack_power, mods)) = q.get_single_mut()
-    else {
-        return;
-    };
-    if !dash.active {
-        return;
-    }
-
-    dash.timer.tick(time.delta());
-    if dash.timer.just_finished() {
-        dash.active = false;
-        return;
-    }
-
-    if mods.dash_damage_trail {
-        dash.trail_timer.tick(time.delta());
-        if dash.trail_timer.just_finished() {
-            spawn_dash_trail_hitbox(
-                &mut commands,
-                &assets,
-                player_e,
-                tf.translation().truncate() - dash.dir * 10.0,
-                attack_power.0 * 0.45,
-            );
+    for (player_e, tf, mut dash, texture, sprite, attack_power, mods, dash_visual) in &mut q {
+        if !dash.active {
+            if let Some(mut dash_visual) = dash_visual {
+                dash_visual.active = false;
+            }
+            continue;
         }
-    }
 
-    afterimage::spawn_afterimage(
-        &mut commands,
-        texture.clone(),
-        tf.translation().truncate(),
-        sprite.color.with_alpha(0.25),
-        sprite.custom_size.unwrap_or(Vec2::splat(32.0)),
-        sprite.flip_x,
-    );
+        dash.timer.tick(time.delta());
+        if dash.timer.just_finished() {
+            dash.active = false;
+            if let Some(mut dash_visual) = dash_visual {
+                dash_visual.active = false;
+                dash_visual.dir = dash.dir;
+            }
+            continue;
+        }
+        if let Some(mut dash_visual) = dash_visual {
+            dash_visual.active = true;
+            dash_visual.dir = dash.dir;
+        }
+
+        if mods.dash_damage_trail {
+            dash.trail_timer.tick(time.delta());
+            if dash.trail_timer.just_finished() {
+                spawn_dash_trail_hitbox(
+                    &mut commands,
+                    &assets,
+                    player_e,
+                    tf.translation().truncate() - dash.dir * 10.0,
+                    attack_power.0 * 0.45,
+                );
+            }
+        }
+
+        afterimage::spawn_afterimage(
+            &mut commands,
+            texture.clone(),
+            tf.translation().truncate(),
+            sprite.color.with_alpha(0.25),
+            sprite.custom_size.unwrap_or(Vec2::splat(32.0)),
+            sprite.flip_x,
+        );
+    }
 }
 
 fn spawn_dash_trail_hitbox(

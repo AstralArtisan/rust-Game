@@ -1,15 +1,23 @@
-use bevy::prelude::*;
+use std::collections::{HashMap, VecDeque};
 
+use bevy::prelude::*;
+use lightyear::prelude::Replicated;
+
+use crate::coop::components::{CoopSessionState, LocalControlled};
+use crate::coop::net::{CoopNetConfig, NetMode};
 use crate::core::assets::GameAssets;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::enemy::components::Enemy;
 use crate::gameplay::enemy::components::{EnemyKind, EnemyType};
-use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::VisitedRooms;
-use crate::gameplay::player::components::{DashCooldown, Health, Player};
+use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
+use crate::gameplay::player::components::{
+    DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Gold, Health, Player,
+};
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::states::RoomState;
 use crate::ui::widgets;
+use crate::utils::entity::safe_despawn_recursive;
 
 #[derive(Component)]
 pub struct HudUi;
@@ -19,6 +27,12 @@ pub struct HealthFill;
 
 #[derive(Component)]
 pub struct HealthText;
+
+#[derive(Component)]
+pub struct GoldText;
+
+#[derive(Component)]
+pub struct EnergyText;
 
 #[derive(Component)]
 pub struct DashText;
@@ -52,6 +66,9 @@ pub struct MinimapRoomNode(pub RoomId);
 
 #[derive(Component)]
 pub struct MinimapDynamic;
+
+#[derive(Component)]
+pub struct StageProgressText;
 
 pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
     commands
@@ -104,7 +121,29 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                         HealthFill,
                     ));
                 });
-                col.spawn((widgets::title_text(&assets, "HP: 100 / 100", 15.0), HealthText));
+                col.spawn((
+                    widgets::title_text(&assets, "HP: 100 / 100", 15.0),
+                    HealthText,
+                ));
+                col.spawn(NodeBundle {
+                    style: Style {
+                        margin: UiRect::top(Val::Px(6.0)),
+                        padding: UiRect::all(Val::Px(10.0)),
+                        row_gap: Val::Px(4.0),
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    },
+                    background_color: BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.22)),
+                    ..default()
+                })
+                .with_children(|panel| {
+                    panel.spawn(widgets::title_text(&assets, "属性", 15.0));
+                    panel.spawn((widgets::title_text(&assets, "金币: 0", 14.0), GoldText));
+                    panel.spawn((
+                        widgets::title_text(&assets, "能量: 100 / 100（暂未启用）", 14.0),
+                        EnergyText,
+                    ));
+                });
 
                 col.spawn(NodeBundle {
                     style: Style {
@@ -149,9 +188,15 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                     row.spawn((widgets::title_text(&assets, "冲刺：就绪", 16.0), DashText));
                 });
 
-                col.spawn((widgets::title_text(&assets, "楼层：第 1 层", 16.0), FloorText));
+                col.spawn((
+                    widgets::title_text(&assets, "楼层：第 1 层", 16.0),
+                    FloorText,
+                ));
                 col.spawn((widgets::title_text(&assets, "房间：起始", 16.0), RoomText));
-                col.spawn((widgets::title_text(&assets, "敌人：0", 16.0), EnemyCountText));
+                col.spawn((
+                    widgets::title_text(&assets, "敌人：0", 16.0),
+                    EnemyCountText,
+                ));
                 col.spawn((
                     widgets::title_text(
                         &assets,
@@ -211,13 +256,17 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                 Name::new("MinimapRoot"),
             ))
             .with_children(|mm| {
-                mm.spawn(widgets::title_text(&assets, "小地图", 16.0));
+                mm.spawn(widgets::title_text(&assets, "关卡进度", 16.0));
+                mm.spawn((
+                    widgets::title_text(&assets, "第1层：1/1", 15.0),
+                    StageProgressText,
+                ));
             });
         });
 }
 
 pub fn update_health_bar(
-    player_q: Query<&Health, With<Player>>,
+    player_q: Query<&Health, (With<Player>, With<LocalControlled>)>,
     mut fill_q: Query<&mut Style, With<HealthFill>>,
 ) {
     let Ok(hp) = player_q.get_single() else {
@@ -235,7 +284,7 @@ pub fn update_health_bar(
 }
 
 pub fn update_health_text(
-    player_q: Query<&Health, With<Player>>,
+    player_q: Query<&Health, (With<Player>, With<LocalControlled>)>,
     mut text_q: Query<&mut Text, With<HealthText>>,
 ) {
     let Ok(hp) = player_q.get_single() else {
@@ -247,8 +296,41 @@ pub fn update_health_text(
     text.sections[0].value = format!("HP: {:.0} / {:.0}", hp.current, hp.max);
 }
 
+pub fn update_gold_text(
+    player_q: Query<&Gold, (With<Player>, With<LocalControlled>)>,
+    mut text_q: Query<&mut Text, With<GoldText>>,
+) {
+    let Ok(gold) = player_q.get_single() else {
+        return;
+    };
+    let Ok(mut text) = text_q.get_single_mut() else {
+        return;
+    };
+    text.sections[0].value = format!("金币: {}", gold.0);
+}
+
+pub fn update_energy_text(
+    player_q: Query<&Energy, (With<Player>, With<LocalControlled>)>,
+    mut text_q: Query<&mut Text, With<EnergyText>>,
+) {
+    let Ok(energy) = player_q.get_single() else {
+        return;
+    };
+    let Ok(mut text) = text_q.get_single_mut() else {
+        return;
+    };
+    if ENERGY_SYSTEM_ENABLED {
+        text.sections[0].value = format!("能量: {:.0} / {:.0}", energy.current, energy.max);
+    } else {
+        text.sections[0].value = format!(
+            "能量: {:.0} / {:.0}（暂未启用）",
+            energy.current, energy.max
+        );
+    }
+}
+
 pub fn update_dash_cooldown_ui(
-    player_q: Query<&DashCooldown, With<Player>>,
+    player_q: Query<&DashCooldown, (With<Player>, With<LocalControlled>)>,
     mut text_q: Query<&mut Text, With<DashText>>,
     mut icon_q: Query<(&mut Style, &mut BackgroundColor), With<DashIconFill>>,
 ) {
@@ -287,12 +369,21 @@ pub fn update_dash_cooldown_ui(
 pub fn update_floor_text(
     floor: Option<Res<FloorNumber>>,
     data: Option<Res<GameDataRegistry>>,
+    session_q: Query<&CoopSessionState, With<Replicated>>,
     mut text_q: Query<&mut Text, With<FloorText>>,
 ) {
-    let Some(floor) = floor else {
+    let Ok(mut text) = text_q.get_single_mut() else {
         return;
     };
-    let Ok(mut text) = text_q.get_single_mut() else {
+    let Some(floor) = floor else {
+        let total_floors = data
+            .as_deref()
+            .map(|value| value.balance.total_floors.max(1))
+            .unwrap_or(4);
+        if let Ok(session) = session_q.get_single() {
+            text.sections[0].value =
+                format!("楼层：第 {} 层 / 共 {} 层", session.floor_number, total_floors);
+        }
         return;
     };
     let total_floors = data
@@ -306,12 +397,20 @@ pub fn update_room_text(
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
     room_state: Option<Res<RoomState>>,
+    session_q: Query<&CoopSessionState, With<Replicated>>,
     mut text_q: Query<&mut Text, With<RoomText>>,
 ) {
-    let (Some(layout), Some(current), Some(room_state)) = (layout, current, room_state) else {
+    let Ok(mut text) = text_q.get_single_mut() else {
         return;
     };
-    let Ok(mut text) = text_q.get_single_mut() else {
+    let (Some(layout), Some(current), Some(room_state)) = (layout, current, room_state) else {
+        if let Ok(session) = session_q.get_single() {
+            text.sections[0].value = format!(
+                "房间：{}（{}）",
+                coop_room_type_label(session.room_type),
+                coop_room_state_label(session.room_state)
+            );
+        }
         return;
     };
 
@@ -338,12 +437,26 @@ pub fn update_room_text(
 }
 
 pub fn update_enemy_count_text(
-    enemy_q: Query<(), With<Enemy>>,
+    config: Option<Res<CoopNetConfig>>,
+    authority_enemy_q: Query<(), (With<Enemy>, Without<Replicated>)>,
+    replicated_enemy_q: Query<(), (With<Enemy>, With<Replicated>)>,
     mut text_q: Query<&mut Text, With<EnemyCountText>>,
 ) {
     let Ok(mut text) = text_q.get_single_mut() else {
         return;
     };
+    struct CountProxy(usize);
+    impl CountProxy {
+        fn iter(&self) -> std::ops::Range<usize> {
+            0..self.0
+        }
+    }
+    let enemy_q = CountProxy(if config.as_deref().map(|value| value.mode) == Some(NetMode::Client)
+    {
+        replicated_enemy_q.iter().count()
+    } else {
+        authority_enemy_q.iter().count()
+    });
     text.sections[0].value = format!("敌人：{}", enemy_q.iter().count());
 }
 
@@ -351,12 +464,16 @@ pub fn update_hint_text(
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
     room_state: Option<Res<RoomState>>,
+    session_q: Query<&CoopSessionState, With<Replicated>>,
     mut text_q: Query<&mut Text, With<HintText>>,
 ) {
-    let (Some(layout), Some(current), Some(room_state)) = (layout, current, room_state) else {
+    let Ok(mut text) = text_q.get_single_mut() else {
         return;
     };
-    let Ok(mut text) = text_q.get_single_mut() else {
+    let (Some(layout), Some(current), Some(room_state)) = (layout, current, room_state) else {
+        if let Ok(session) = session_q.get_single() {
+            text.sections[0].value = coop_hint_text(session.room_type, session.room_state).to_string();
+        }
         return;
     };
 
@@ -377,6 +494,43 @@ pub fn update_hint_text(
     text.sections[0].value = hint.to_string();
 }
 
+pub fn update_stage_progress(
+    layout: Option<Res<FloorLayout>>,
+    current: Option<Res<CurrentRoom>>,
+    floor: Option<Res<FloorNumber>>,
+    session_q: Query<&CoopSessionState, With<Replicated>>,
+    mut text_q: Query<&mut Text, With<StageProgressText>>,
+) {
+    let Ok(mut text) = text_q.get_single_mut() else {
+        return;
+    };
+    let (Some(layout), Some(current)) = (layout, current) else {
+        if let Ok(session) = session_q.get_single() {
+            text.sections[0].value = format!(
+                "联机进度：第 {} 层 · 房间 {} · {}",
+                session.floor_number,
+                session.current_room + 1,
+                coop_room_type_label(session.room_type)
+            );
+        }
+        return;
+    };
+
+    let distances = room_distances_from_start(&layout);
+    let current_step = distances.get(&current.0).copied().unwrap_or(0) + 1;
+    let total_steps = layout
+        .rooms
+        .iter()
+        .filter(|room| room.room_type == RoomType::Boss)
+        .filter_map(|room| distances.get(&room.id).copied())
+        .min()
+        .unwrap_or_else(|| distances.values().copied().max().unwrap_or(0))
+        + 1;
+    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+
+    text.sections[0].value = format!("第{}层：{}/{}", floor_number, current_step, total_steps);
+}
+
 pub fn update_minimap(
     mut commands: Commands,
     assets: Res<GameAssets>,
@@ -384,15 +538,13 @@ pub fn update_minimap(
     current: Option<Res<CurrentRoom>>,
     visited: Option<Res<VisitedRooms>>,
     root_q: Query<Entity, With<MinimapRoot>>,
-    mut nodes_q: Query<
-        (
-            Entity,
-            &MinimapRoomNode,
-            &mut BackgroundColor,
-            &mut Style,
-            &mut BorderColor,
-        ),
-    >,
+    mut nodes_q: Query<(
+        Entity,
+        &MinimapRoomNode,
+        &mut BackgroundColor,
+        &mut Style,
+        &mut BorderColor,
+    )>,
     dynamic_q: Query<Entity, With<MinimapDynamic>>,
 ) {
     let (Some(layout), Some(current), Some(visited)) = (layout, current, visited) else {
@@ -406,11 +558,11 @@ pub fn update_minimap(
     if need_rebuild {
         let existing_nodes: Vec<Entity> = nodes_q.iter().map(|(e, _, _, _, _)| e).collect();
         for e in existing_nodes {
-            commands.entity(e).despawn_recursive();
+            safe_despawn_recursive(&mut commands, e);
         }
         let existing_dynamic: Vec<Entity> = dynamic_q.iter().collect();
         for e in existing_dynamic {
-            commands.entity(e).despawn_recursive();
+            safe_despawn_recursive(&mut commands, e);
         }
 
         commands.entity(root).with_children(|mm| {
@@ -484,6 +636,28 @@ pub fn update_minimap(
     }
 }
 
+fn room_distances_from_start(layout: &FloorLayout) -> HashMap<RoomId, u32> {
+    let mut distances = HashMap::new();
+    let mut queue = VecDeque::from([(RoomId(0), 0u32)]);
+
+    while let Some((room_id, distance)) = queue.pop_front() {
+        if distances.contains_key(&room_id) {
+            continue;
+        }
+        distances.insert(room_id, distance);
+
+        if let Some(room) = layout.room(room_id) {
+            for (_, next_room) in &room.connections.exits {
+                if !distances.contains_key(next_room) {
+                    queue.push_back((*next_room, distance + 1));
+                }
+            }
+        }
+    }
+
+    distances
+}
+
 fn room_color(room_type: RoomType) -> (Color, f32) {
     match room_type {
         RoomType::Start => (Color::srgb(0.50, 0.50, 0.55), 12.0),
@@ -496,9 +670,20 @@ fn room_color(room_type: RoomType) -> (Color, f32) {
 }
 
 pub fn update_boss_health_bar(
-    boss_q: Query<
+    config: Option<Res<CoopNetConfig>>,
+    authority_boss_q: Query<
         (&crate::gameplay::player::components::Health, &EnemyKind),
-        With<crate::gameplay::enemy::components::Enemy>,
+        (
+            With<crate::gameplay::enemy::components::Enemy>,
+            Without<Replicated>,
+        ),
+    >,
+    replicated_boss_q: Query<
+        (&crate::gameplay::player::components::Health, &EnemyKind),
+        (
+            With<crate::gameplay::enemy::components::Enemy>,
+            With<Replicated>,
+        ),
     >,
     mut boss_fill_q: Query<&mut Style, With<BossHealthFill>>,
     mut boss_bar_q: Query<&mut Visibility, With<BossHealthBar>>,
@@ -510,9 +695,15 @@ pub fn update_boss_health_bar(
         return;
     };
 
-    let boss = boss_q
-        .iter()
-        .find_map(|(hp, kind)| (kind.0 == EnemyType::Boss).then_some(hp));
+    let boss = if config.as_deref().map(|value| value.mode) == Some(NetMode::Client) {
+        replicated_boss_q
+            .iter()
+            .find_map(|(hp, kind)| (kind.0 == EnemyType::Boss).then_some(hp))
+    } else {
+        authority_boss_q
+            .iter()
+            .find_map(|(hp, kind)| (kind.0 == EnemyType::Boss).then_some(hp))
+    };
     let Some(hp) = boss else {
         *visibility = Visibility::Hidden;
         return;
@@ -527,8 +718,40 @@ pub fn update_boss_health_bar(
     style.width = Val::Percent(ratio * 100.0);
 }
 
+fn coop_room_type_label(room_type: RoomType) -> &'static str {
+    match room_type {
+        RoomType::Start => "起始",
+        RoomType::Normal => "战斗",
+        RoomType::Shop => "商店",
+        RoomType::Reward => "奖励",
+        RoomType::Puzzle => "事件",
+        RoomType::Boss => "首领",
+    }
+}
+
+fn coop_room_state_label(room_state: RoomState) -> &'static str {
+    match room_state {
+        RoomState::Idle => "可通行",
+        RoomState::Locked => "已封锁",
+        RoomState::Cleared => "已清空",
+        RoomState::BossFight => "首领战",
+    }
+}
+
+fn coop_hint_text(room_type: RoomType, room_state: RoomState) -> &'static str {
+    match (room_type, room_state) {
+        (RoomType::Start, _) => "提示：靠近房门并按 E，和队友一起推进。",
+        (RoomType::Reward, _) => "提示：奖励选择会在联机弹窗中显示。",
+        (RoomType::Shop, _) => "提示：商店购买与离开操作都在联机弹窗中进行。",
+        (RoomType::Boss, RoomState::BossFight) => "提示：保持走位、合理冲刺，抓住首领空档输出。",
+        (_, RoomState::Locked) => "提示：先清空房间，房门才会开启。",
+        (_, RoomState::Cleared) => "提示：房间已清空，靠近房门并按 E 前进。",
+        _ => "提示：尽量和队友保持同步推进。",
+    }
+}
+
 pub fn cleanup_hud(mut commands: Commands, q: Query<Entity, With<HudUi>>) {
     for entity in &q {
-        commands.entity(entity).despawn_recursive();
+        safe_despawn_recursive(&mut commands, entity);
     }
 }

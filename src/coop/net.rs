@@ -1,17 +1,85 @@
-use std::net::{SocketAddr, UdpSocket};
+use std::collections::HashMap;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::time::Duration;
 
 use bevy::prelude::*;
+use lightyear::client::config::{
+    ClientConfig as LyClientConfig, NetcodeConfig as LyClientNetcodeConfig,
+};
+use lightyear::connection::client::{Authentication as LyAuthentication, NetConfig as LyClientNetConfig};
+use lightyear::connection::server::NetConfig as LyServerNetConfig;
+use lightyear::prelude::client::{
+    ClientCommands as LyClientCommands, ClientPlugins as LyClientPlugins,
+    ClientTransport as LyClientTransport, ConnectionManager as LyClientConnectionManager,
+    InputManager as LyInputManager, IoConfig as LyClientIoConfig,
+    NetworkingState as LyClientNetworkingState,
+};
+use lightyear::prelude::server::{
+    ConnectEvent as LyServerConnectEvent, DisconnectEvent as LyServerDisconnectEvent,
+    IoConfig as LyServerIoConfig, MessageEvent as LyServerMessageEvent,
+    ServerCommands as LyServerCommands, ServerConfig as LyServerConfig,
+    ServerPlugins as LyServerPlugins, ServerTransport as LyServerTransport,
+};
+use lightyear::prelude::{
+    client::ConnectEvent as LyClientConnectEvent,
+    client::DisconnectEvent as LyClientDisconnectEvent,
+    AppChannelExt, AppComponentExt, AppMessageExt, Channel, ChannelDirection, ChannelMode,
+    ChannelSettings, ClientId, CompressionConfig, InputPlugin as LyInputPlugin, NetworkTarget,
+    ReliableSettings, Replicated, SharedConfig, TickConfig,
+};
+use lightyear::prelude::server::{ControlledBy, InputEvent as LyServerInputEvent, Replicate, SyncTarget};
+use lightyear::server::config::NetcodeConfig as LyServerNetcodeConfig;
+use lightyear::shared::replication::components::Controlled;
 use serde::{Deserialize, Serialize};
 
 use crate::core::input::PlayerInputState;
 use crate::gameplay::combat::components::Projectile;
-use crate::gameplay::enemy::components::{Enemy, EnemyKind, EnemyType};
-use crate::gameplay::map::room::CurrentRoom;
-use crate::gameplay::player::components::{Gold, Health, Player};
+use crate::gameplay::enemy::components::{Enemy, EnemyKind};
+use crate::gameplay::map::doors::Door;
+use crate::gameplay::player::components::{
+    AnimationState, FacingDirection, Gold, Health, MoveSpeed, Player,
+};
 use crate::states::AppState;
-use crate::coop::components::CoopPlayer;
+
+use super::components::{
+    CoopDashVisualState, CoopInputState, CoopMeleeFlashState, CoopNetPosition, CoopNetRotation,
+    CoopNetVelocity, CoopParticipant, CoopRewardSelectionGroup, CoopSessionState, GhostState,
+    PlayerSlot,
+};
 
 pub const COOP_PORT: u16 = 3457;
+const COOP_PROTOCOL_ID: u64 = 0x434F_4F50_5652_0002;
+const COOP_PRIVATE_KEY: [u8; 32] = [
+    0x19, 0x52, 0xA1, 0x44, 0x3E, 0x7B, 0xC0, 0x1D, 0x28, 0xB9, 0x66, 0xD3, 0x4A, 0xF5,
+    0x90, 0x2C, 0x9E, 0x15, 0x6A, 0xB4, 0x07, 0xD8, 0x3F, 0x51, 0xC2, 0x6E, 0x14, 0x88,
+    0xAF, 0x30, 0x5D, 0x71,
+];
+
+pub const HOST_CLIENT_ID: u64 = 1;
+pub const REMOTE_CLIENT_ID: u64 = 2;
+
+#[derive(Channel)]
+pub struct CoopCommandChannel;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum CoopCommandMessage {
+    SelectReward {
+        slot: PlayerSlot,
+        group: CoopRewardSelectionGroup,
+        index: u8,
+    },
+    SelectRps {
+        slot: PlayerSlot,
+        choice: super::components::CoopRpsChoice,
+    },
+    BuyShopItem {
+        slot: PlayerSlot,
+        index: u8,
+    },
+    RefreshShop {
+        slot: PlayerSlot,
+    },
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum NetMode {
@@ -27,282 +95,676 @@ pub struct CoopNetConfig {
     pub host_ip: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoopExitDestination {
+    Lobby,
+    MainMenu,
+    MultiplayerMenu,
+}
+
+#[derive(Debug, Clone)]
+pub struct CoopExitRequest {
+    pub destination: CoopExitDestination,
+    pub notice: Option<String>,
+    pub preserve_mode: bool,
+}
+
+#[derive(Resource, Debug, Default, Clone)]
+pub struct CoopSessionFlow {
+    pub pending_game_entry: bool,
+    pub lobby_notice: String,
+    pub pending_exit: Option<CoopExitRequest>,
+}
+
 #[derive(Resource, Debug, Default)]
 pub struct CoopNetState {
-    pub socket: Option<UdpSocket>,
     pub peer: Option<SocketAddr>,
     pub connected: bool,
-    pub my_id: Option<u8>,
-    pub last_input_from_client: Option<CoopInputMsg>,
-    pub last_snapshot: Option<CoopSnapshotMsg>,
+    pub local_connected: bool,
+    pub remote_connected: bool,
+    pub server_started: bool,
+    pub client_started: bool,
+    pub local_client_id: Option<ClientId>,
+    pub remote_client_id: Option<ClientId>,
+    pub latest_inputs: HashMap<ClientId, CoopInputState>,
+    pub received_commands: Vec<(ClientId, CoopCommandMessage)>,
+    pub pending_commands: Vec<CoopCommandMessage>,
 }
 
 #[derive(Resource, Debug, Default, Clone, Copy)]
-pub struct CoopRemoteInput(pub CoopInputMsg);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CoopMsg {
-    Hello,
-    Welcome { your_id: u8 },
-    Input(CoopInputMsg),
-    Snapshot(CoopSnapshotMsg),
+struct PendingCoopInputEdges {
+    attack_pressed: bool,
+    ranged_pressed: bool,
+    dash_pressed: bool,
+    interact_pressed: bool,
+    pause_pressed: bool,
+    shop_pressed: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-pub struct CoopInputMsg {
-    pub move_axis: (f32, f32),
-    pub attack_pressed: bool,
-    pub ranged_pressed: bool,
-    pub ranged_held: bool,
-    pub dash_pressed: bool,
-    pub skill1_pressed: bool,
-    pub heal_held: bool,
-    pub aim: (f32, f32),
-    pub aim_valid: bool,
-    pub interact_pressed: bool,
+impl PendingCoopInputEdges {
+    fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn capture(&mut self, input: &PlayerInputState) {
+        self.attack_pressed |= input.attack_pressed;
+        self.ranged_pressed |= input.ranged_pressed;
+        self.dash_pressed |= input.dash_pressed;
+        self.interact_pressed |= input.interact_pressed;
+        self.pause_pressed |= input.pause_pressed;
+        self.shop_pressed |= input.shop_pressed;
+    }
+
+    fn apply_to(self, input: &mut CoopInputState) {
+        input.attack_pressed |= self.attack_pressed;
+        input.ranged_pressed |= self.ranged_pressed;
+        input.dash_pressed |= self.dash_pressed;
+        input.interact_pressed |= self.interact_pressed;
+        input.pause_pressed |= self.pause_pressed;
+        input.shop_pressed |= self.shop_pressed;
+        input.menu_confirm_pressed |= self.attack_pressed || self.interact_pressed;
+        input.menu_cancel_pressed |= self.pause_pressed;
+    }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-pub struct CoopPlayerStateMsg {
-    pub id: u8,
-    pub pos: (f32, f32),
-    pub hp: f32,
-    pub gold: u32,
+pub struct CoopLightyearPlugin;
+
+impl Plugin for CoopLightyearPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(LyClientPlugins {
+            config: default_lightyear_client_config(),
+        })
+        .add_plugins(LyServerPlugins {
+            config: default_lightyear_server_config(),
+        })
+        .add_plugins(LyInputPlugin::<CoopInputState>::default())
+        .add_plugins(CoopProtocolPlugin)
+        .init_resource::<CoopNetConfig>()
+        .init_resource::<CoopNetState>()
+        .init_resource::<CoopSessionFlow>()
+        .init_resource::<PendingCoopInputEdges>()
+        .add_systems(
+            Update,
+            latch_local_input_edges.after(crate::core::input::collect_player_input),
+        )
+        .add_systems(
+            Update,
+            (
+                sync_coop_network_lifecycle,
+                sync_client_connect_events,
+                sync_server_connect_events,
+                sync_server_disconnect_events,
+                receive_coop_command_messages,
+                flush_pending_client_commands,
+                auto_advance_lobby_state,
+            ),
+        )
+        .add_systems(FixedPreUpdate, buffer_local_inputs)
+        .add_systems(FixedUpdate, capture_server_inputs);
+    }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-pub struct CoopEnemyStateMsg {
-    pub kind: u8,
-    pub pos: (f32, f32),
-    pub hp: f32,
+struct CoopProtocolPlugin;
+
+impl Plugin for CoopProtocolPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_channel::<CoopCommandChannel>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            send_frequency: Duration::default(),
+            priority: 3.0,
+        });
+        app.register_message::<CoopCommandMessage>(ChannelDirection::ClientToServer);
+
+        app.register_component::<Player>(ChannelDirection::ServerToClient);
+        app.register_component::<Health>(ChannelDirection::ServerToClient);
+        app.register_component::<Gold>(ChannelDirection::ServerToClient);
+        app.register_component::<MoveSpeed>(ChannelDirection::ServerToClient);
+        app.register_component::<FacingDirection>(ChannelDirection::ServerToClient);
+        app.register_component::<AnimationState>(ChannelDirection::ServerToClient);
+        app.register_component::<CoopParticipant>(ChannelDirection::ServerToClient);
+        app.register_component::<PlayerSlot>(ChannelDirection::ServerToClient);
+        app.register_component::<GhostState>(ChannelDirection::ServerToClient);
+        app.register_component::<CoopNetPosition>(ChannelDirection::ServerToClient);
+        app.register_component::<CoopNetVelocity>(ChannelDirection::ServerToClient);
+        app.register_component::<CoopNetRotation>(ChannelDirection::ServerToClient);
+        app.register_component::<CoopMeleeFlashState>(ChannelDirection::ServerToClient);
+        app.register_component::<CoopDashVisualState>(ChannelDirection::ServerToClient);
+        app.register_component::<CoopSessionState>(ChannelDirection::ServerToClient);
+        app.register_component::<Enemy>(ChannelDirection::ServerToClient);
+        app.register_component::<EnemyKind>(ChannelDirection::ServerToClient);
+        app.register_component::<Projectile>(ChannelDirection::ServerToClient);
+        app.register_component::<Door>(ChannelDirection::ServerToClient);
+    }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-pub struct CoopProjectileStateMsg {
-    pub pos: (f32, f32),
-    pub vel: (f32, f32),
-    pub team: u8,
+pub fn is_coop_authority(config: Res<CoopNetConfig>) -> bool {
+    config.mode == NetMode::Host
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct CoopSnapshotMsg {
-    pub tick: u32,
-    pub floor_room: u32,
-    pub p1: CoopPlayerStateMsg,
-    pub p2: CoopPlayerStateMsg,
-    pub enemies: Vec<CoopEnemyStateMsg>,
-    pub projectiles: Vec<CoopProjectileStateMsg>,
+pub fn local_client_id(mode: NetMode) -> ClientId {
+    match mode {
+        NetMode::Host => ClientId::Netcode(HOST_CLIENT_ID),
+        NetMode::Client => ClientId::Netcode(REMOTE_CLIENT_ID),
+        NetMode::None => ClientId::Netcode(HOST_CLIENT_ID),
+    }
 }
 
-fn bind_socket(bind: &str) -> anyhow::Result<UdpSocket> {
-    let socket = UdpSocket::bind(bind)?;
-    socket.set_nonblocking(true)?;
-    Ok(socket)
+pub fn remote_client_id() -> ClientId {
+    ClientId::Netcode(REMOTE_CLIENT_ID)
+}
+
+pub fn host_client_id() -> ClientId {
+    ClientId::Netcode(HOST_CLIENT_ID)
+}
+
+pub fn build_player_replication(controlled_by: ClientId) -> Replicate {
+    Replicate {
+        target: lightyear::prelude::ReplicationTarget {
+            target: NetworkTarget::All,
+        },
+        sync: SyncTarget {
+            prediction: NetworkTarget::Single(controlled_by),
+            interpolation: NetworkTarget::AllExceptSingle(controlled_by),
+        },
+        controlled_by: ControlledBy {
+            target: NetworkTarget::Single(controlled_by),
+            lifetime: lightyear::prelude::server::Lifetime::SessionBased,
+        },
+        ..default()
+    }
+}
+
+pub fn build_replicate_all() -> Replicate {
+    Replicate {
+        target: lightyear::prelude::ReplicationTarget {
+            target: NetworkTarget::All,
+        },
+        ..default()
+    }
+}
+
+pub fn take_received_commands(net: &mut CoopNetState) -> Vec<(ClientId, CoopCommandMessage)> {
+    std::mem::take(&mut net.received_commands)
+}
+
+pub fn latest_input_for(net: &CoopNetState, client_id: ClientId) -> CoopInputState {
+    net.latest_inputs.get(&client_id).copied().unwrap_or_default()
+}
+
+pub fn queue_command(net: &mut CoopNetState, command: CoopCommandMessage) {
+    net.pending_commands.push(command);
+}
+
+pub fn queue_exit_request(flow: &mut CoopSessionFlow, request: CoopExitRequest) {
+    if flow.pending_exit.is_none() {
+        flow.pending_exit = Some(request);
+    }
+}
+
+pub fn take_exit_request(flow: &mut CoopSessionFlow) -> Option<CoopExitRequest> {
+    flow.pending_exit.take()
+}
+
+pub fn reset_coop_flow(flow: &mut CoopSessionFlow) {
+    flow.pending_game_entry = false;
+    flow.lobby_notice.clear();
+    flow.pending_exit = None;
+}
+
+pub fn clear_coop_network_runtime(net: &mut CoopNetState) {
+    net.peer = None;
+    net.connected = false;
+    net.local_connected = false;
+    net.remote_connected = false;
+    net.server_started = false;
+    net.client_started = false;
+    net.local_client_id = None;
+    net.remote_client_id = None;
+    net.latest_inputs.clear();
+    net.received_commands.clear();
+    net.pending_commands.clear();
+}
+
+pub fn reset_coop_network(config: &mut CoopNetConfig, net: &mut CoopNetState) {
+    config.mode = NetMode::None;
+    config.host_ip.clear();
+    clear_coop_network_runtime(net);
+}
+
+pub fn validate_coop_host_ip(host_ip: &str) -> Result<Ipv4Addr, String> {
+    let trimmed = host_ip.trim();
+    if trimmed.is_empty() {
+        return Err("请输入房主局域网 IPv4 地址。".to_string());
+    }
+    if trimmed.contains(':') {
+        return Err(format!(
+            "联机地址只接受裸 IPv4，端口固定为 {}。",
+            COOP_PORT
+        ));
+    }
+    trimmed.parse::<Ipv4Addr>().map_err(|_| {
+        "请输入有效的局域网 IPv4 地址，例如 192.168.1.6。".to_string()
+    })
+}
+
+pub fn normalize_coop_host_ip(host_ip: &str) -> Result<String, String> {
+    validate_coop_host_ip(host_ip).map(|ip| ip.to_string())
+}
+
+pub fn begin_coop_lobby_session(
+    config: &CoopNetConfig,
+    net: &mut CoopNetState,
+    flow: &mut CoopSessionFlow,
+) -> Result<(), String> {
+    flow.pending_game_entry = true;
+    flow.pending_exit = None;
+    flow.lobby_notice.clear();
+
+    match config.mode {
+        NetMode::Host => start_host_socket(net).map_err(|err| err.to_string()),
+        NetMode::Client => {
+            let ip = validate_coop_host_ip(&config.host_ip)?;
+            start_client_socket(net).map_err(|err| err.to_string())?;
+            net.peer = Some(SocketAddr::new(ip.into(), COOP_PORT));
+            Ok(())
+        }
+        NetMode::None => Err("尚未选择联机模式。".to_string()),
+    }
 }
 
 pub fn start_host_socket(state: &mut CoopNetState) -> anyhow::Result<()> {
-    let sock = bind_socket(&format!("0.0.0.0:{COOP_PORT}"))?;
-    state.socket = Some(sock);
-    state.peer = None;
+    state.peer = Some(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), COOP_PORT));
     state.connected = false;
-    state.my_id = Some(1);
-    state.last_input_from_client = None;
-    state.last_snapshot = None;
+    state.local_connected = false;
+    state.remote_connected = false;
+    state.server_started = false;
+    state.client_started = false;
+    state.local_client_id = Some(host_client_id());
+    state.remote_client_id = Some(remote_client_id());
+    state.latest_inputs.clear();
+    state.received_commands.clear();
+    state.pending_commands.clear();
     Ok(())
 }
 
 pub fn start_client_socket(state: &mut CoopNetState) -> anyhow::Result<()> {
-    let sock = bind_socket("0.0.0.0:0")?;
-    state.socket = Some(sock);
-    state.peer = None;
     state.connected = false;
-    state.my_id = None;
-    state.last_input_from_client = None;
-    state.last_snapshot = None;
+    state.local_connected = false;
+    state.remote_connected = false;
+    state.server_started = false;
+    state.client_started = false;
+    state.local_client_id = Some(remote_client_id());
+    state.remote_client_id = Some(host_client_id());
+    state.latest_inputs.clear();
+    state.received_commands.clear();
+    state.pending_commands.clear();
     Ok(())
 }
 
-fn try_send_to(sock: &UdpSocket, peer: SocketAddr, msg: &CoopMsg) {
-    let Ok(payload) = bincode::serialize(msg) else { return };
-    let _ = sock.send_to(&payload, peer);
-}
-
-fn try_send(state: &CoopNetState, msg: &CoopMsg) {
-    let Some(sock) = state.socket.as_ref() else { return };
-    let Some(peer) = state.peer else { return };
-    try_send_to(sock, peer, msg);
-}
-
-pub fn coop_net_tick_system(
-    config: Res<CoopNetConfig>,
-    mut net: ResMut<CoopNetState>,
-    mut remote_input: ResMut<CoopRemoteInput>,
-    mut next: ResMut<NextState<AppState>>,
-    state: Res<State<AppState>>,
-) {
-    let Some(sock) = net.socket.as_ref().and_then(|s| s.try_clone().ok()) else { return };
-
-    // Client keep pinging Hello while in lobby.
-    if *state.get() == AppState::CoopLobby && config.mode == NetMode::Client && !net.connected {
-        if let Some(peer) = net.peer {
-            try_send_to(&sock, peer, &CoopMsg::Hello);
-        }
-    }
-
-    let mut buf = [0u8; 65507];
-    loop {
-        let Ok((n, from)) = sock.recv_from(&mut buf) else { break };
-        let Ok(msg) = bincode::deserialize::<CoopMsg>(&buf[..n]) else { continue };
-        match msg {
-            CoopMsg::Hello => {
-                if config.mode == NetMode::Host {
-                    net.peer = Some(from);
-                    net.connected = true;
-                    net.my_id = Some(1);
-                    try_send_to(&sock, from, &CoopMsg::Welcome { your_id: 2 });
-                }
-            }
-            CoopMsg::Welcome { your_id } => {
-                if config.mode == NetMode::Client {
-                    net.peer = Some(from);
-                    net.connected = true;
-                    net.my_id = Some(your_id);
-                    if *state.get() == AppState::CoopLobby {
-                        next.set(AppState::CoopGame);
-                    }
-                }
-            }
-            CoopMsg::Input(input) => {
-                if config.mode == NetMode::Host {
-                    net.last_input_from_client = Some(input);
-                    remote_input.0 = input;
-                }
-            }
-            CoopMsg::Snapshot(snapshot) => {
-                if config.mode == NetMode::Client {
-                    net.last_snapshot = Some(snapshot);
-                }
-            }
-        }
+fn coop_shared_config() -> SharedConfig {
+    SharedConfig {
+        server_replication_send_interval: Duration::from_secs_f64(1.0 / 20.0),
+        tick: TickConfig::new(Duration::from_secs_f64(1.0 / 60.0)),
+        ..default()
     }
 }
 
-pub fn coop_send_raw(net: &CoopNetState, msg: &CoopMsg) {
-    try_send(net, msg);
+fn build_lightyear_client_net_config(host_ip: &str, client_id: u64) -> Result<LyClientNetConfig, String> {
+    let server_addr = SocketAddr::new(validate_coop_host_ip(host_ip)?.into(), COOP_PORT);
+    Ok(LyClientNetConfig::Netcode {
+        auth: LyAuthentication::Manual {
+            server_addr,
+            client_id,
+            private_key: COOP_PRIVATE_KEY,
+            protocol_id: COOP_PROTOCOL_ID,
+        },
+        config: LyClientNetcodeConfig::default(),
+        io: LyClientIoConfig {
+            transport: LyClientTransport::UdpSocket(SocketAddr::new(
+                Ipv4Addr::UNSPECIFIED.into(),
+                0,
+            )),
+            conditioner: None,
+            compression: CompressionConfig::None,
+        },
+    })
 }
 
-pub fn coop_host_snapshot_system(
-    time: Res<Time>,
-    config: Res<CoopNetConfig>,
-    mut net: ResMut<CoopNetState>,
-    mut tick: Local<u32>,
-    mut send_timer: Local<Timer>,
-    player_q: Query<(&GlobalTransform, &Health, &Gold), With<Player>>,
-    coop_player_q: Query<(&GlobalTransform, &Health), With<CoopPlayer>>,
-    current_room: Option<Res<CurrentRoom>>,
-    enemies_q: Query<(&EnemyKind, &GlobalTransform, &crate::gameplay::player::components::Health), With<Enemy>>,
-    projectiles_q: Query<(&Projectile, &Transform)>,
-) {
-    if config.mode != NetMode::Host || !net.connected {
-        return;
-    }
-    if send_timer.duration().as_secs_f32() <= 0.0 {
-        *send_timer = Timer::from_seconds(1.0 / 15.0, TimerMode::Repeating);
-    }
-    send_timer.tick(time.delta());
-    if !send_timer.just_finished() {
-        return;
-    }
-
-    *tick = tick.wrapping_add(1);
-
-    let Some(sock) = net.socket.as_ref() else { return };
-    let Some(peer) = net.peer else { return };
-
-    let Ok((p1_tf, p1_hp, p1_gold)) = player_q.get_single() else { return };
-    let p1 = CoopPlayerStateMsg {
-        id: 1,
-        pos: (p1_tf.translation().x, p1_tf.translation().y),
-        hp: p1_hp.current,
-        gold: p1_gold.0,
-    };
-
-    let p2 = coop_player_q
-        .get_single()
-        .ok()
-        .map(|(tf, hp)| CoopPlayerStateMsg {
-            id: 2,
-            pos: (tf.translation().x, tf.translation().y),
-            hp: hp.current,
-            gold: p1_gold.0,
-        })
-        .unwrap_or(CoopPlayerStateMsg {
-            id: 2,
-            pos: (p1_tf.translation().x + 40.0, p1_tf.translation().y),
-            hp: p1_hp.current,
-            gold: p1_gold.0,
-        });
-
-    let mut enemies = Vec::new();
-    for (kind, tf, hp) in &enemies_q {
-        enemies.push(CoopEnemyStateMsg {
-            kind: enemy_kind_to_u8(kind.0),
-            pos: (tf.translation().x, tf.translation().y),
-            hp: hp.current,
-        });
-    }
-
-    let mut projectiles = Vec::new();
-    for (proj, tf) in &projectiles_q {
-        projectiles.push(CoopProjectileStateMsg {
-            pos: (tf.translation.x, tf.translation.y),
-            vel: (proj.velocity.x, proj.velocity.y),
-            team: match proj.team {
-                crate::gameplay::combat::components::Team::Player => 1,
-                crate::gameplay::combat::components::Team::Enemy => 2,
-                crate::gameplay::combat::components::Team::Pvp1 => 3,
-                crate::gameplay::combat::components::Team::Pvp2 => 4,
+fn build_lightyear_server_config() -> LyServerConfig {
+    LyServerConfig {
+        shared: coop_shared_config(),
+        net: vec![LyServerNetConfig::Netcode {
+            config: LyServerNetcodeConfig::default()
+                .with_protocol_id(COOP_PROTOCOL_ID)
+                .with_key(COOP_PRIVATE_KEY),
+            io: LyServerIoConfig {
+                transport: LyServerTransport::UdpSocket(SocketAddr::new(
+                    Ipv4Addr::UNSPECIFIED.into(),
+                    COOP_PORT,
+                )),
+                conditioner: None,
+                compression: CompressionConfig::None,
             },
-        });
-    }
-
-    let floor_room = current_room.as_deref().map(|r| r.0 .0).unwrap_or(0);
-    let snapshot = CoopSnapshotMsg {
-        tick: *tick,
-        floor_room,
-        p1,
-        p2,
-        enemies,
-        projectiles,
-    };
-    let msg = CoopMsg::Snapshot(snapshot);
-    try_send_to(sock, peer, &msg);
-}
-
-fn enemy_kind_to_u8(kind: EnemyType) -> u8 {
-    match kind {
-        EnemyType::MeleeChaser => 1,
-        EnemyType::RangedShooter => 2,
-        EnemyType::Charger => 3,
-        EnemyType::Boss => 4,
+        }],
+        ..default()
     }
 }
 
-pub fn build_client_input(input: &PlayerInputState) -> CoopInputMsg {
-    let (aim, aim_valid) = match input.aim_world {
-        Some(v) => (v, true),
-        None => (Vec2::ZERO, false),
-    };
-    CoopInputMsg {
-        move_axis: (input.move_axis.x, input.move_axis.y),
+fn default_lightyear_client_config() -> LyClientConfig {
+    LyClientConfig {
+        shared: coop_shared_config(),
+        net: build_lightyear_client_net_config("127.0.0.1", REMOTE_CLIENT_ID)
+            .expect("loopback IPv4 must be valid"),
+        ..default()
+    }
+}
+
+fn default_lightyear_server_config() -> LyServerConfig {
+    build_lightyear_server_config()
+}
+
+fn sync_coop_network_lifecycle(
+    mut commands: Commands,
+    state: Res<State<AppState>>,
+    config: Res<CoopNetConfig>,
+    flow: Res<CoopSessionFlow>,
+    mut net: ResMut<CoopNetState>,
+    mut client_config: ResMut<LyClientConfig>,
+    mut server_config: ResMut<LyServerConfig>,
+    client_state: Res<State<LyClientNetworkingState>>,
+) {
+    let wants_lobby_runtime = *state.get() == AppState::CoopLobby && flow.pending_game_entry;
+    let wants_game_runtime = *state.get() == AppState::CoopGame;
+    let wants_host_runtime = config.mode == NetMode::Host && (wants_lobby_runtime || wants_game_runtime);
+    let wants_client_runtime = config.mode != NetMode::None && (wants_lobby_runtime || wants_game_runtime);
+
+    if wants_host_runtime && !net.server_started {
+        *server_config = build_lightyear_server_config();
+        commands.start_server();
+        net.server_started = true;
+    } else if !wants_host_runtime && net.server_started {
+        commands.stop_server();
+        net.server_started = false;
+        net.remote_connected = false;
+        net.local_connected = false;
+    }
+
+    if wants_client_runtime && !net.client_started {
+        let host_ip = if config.mode == NetMode::Host {
+            "127.0.0.1".to_string()
+        } else {
+            config.host_ip.clone()
+        };
+        let client_id = if config.mode == NetMode::Host {
+            HOST_CLIENT_ID
+        } else {
+            REMOTE_CLIENT_ID
+        };
+        match build_lightyear_client_net_config(&host_ip, client_id) {
+            Ok(net_config) => {
+                client_config.net = net_config;
+                commands.connect_client();
+                net.client_started = true;
+            }
+            Err(err) => {
+                warn!("Unable to start coop client runtime: {err}");
+                net.client_started = false;
+                net.connected = false;
+            }
+        }
+    } else if !wants_client_runtime && net.client_started {
+        commands.disconnect_client();
+        net.client_started = false;
+        net.connected = false;
+    }
+
+    if *client_state.get() == LyClientNetworkingState::Disconnected && !wants_client_runtime {
+        net.connected = false;
+    }
+}
+
+fn sync_client_connect_events(
+    mut connect_events: EventReader<LyClientConnectEvent>,
+    mut disconnect_events: EventReader<LyClientDisconnectEvent>,
+    state: Res<State<AppState>>,
+    config: Res<CoopNetConfig>,
+    mut net: ResMut<CoopNetState>,
+    mut flow: ResMut<CoopSessionFlow>,
+    session_q: Query<&CoopSessionState, With<Replicated>>,
+) {
+    for event in connect_events.read() {
+        net.connected = true;
+        net.local_connected = true;
+        net.local_client_id = Some(event.client_id());
+        if config.mode == NetMode::Client {
+            net.remote_client_id = Some(host_client_id());
+        }
+    }
+
+    for _ in disconnect_events.read() {
+        net.connected = false;
+        net.local_connected = false;
+        net.latest_inputs.clear();
+        net.pending_commands.clear();
+
+        if config.mode == NetMode::Client
+            && matches!(*state.get(), AppState::CoopLobby | AppState::CoopGame)
+        {
+            let ended_match = *state.get() == AppState::CoopGame
+                && session_q
+                    .get_single()
+                    .map(|session| session.match_over)
+                    .unwrap_or(false);
+            queue_exit_request(
+                &mut flow,
+                CoopExitRequest {
+                    destination: if ended_match {
+                        CoopExitDestination::MainMenu
+                    } else {
+                        CoopExitDestination::Lobby
+                    },
+                    notice: (!ended_match)
+                        .then_some("与房主断开连接，已退出合作会话。".to_string()),
+                    preserve_mode: !ended_match,
+                },
+            );
+        }
+    }
+}
+
+fn sync_server_connect_events(
+    mut connect_events: EventReader<LyServerConnectEvent>,
+    config: Res<CoopNetConfig>,
+    mut net: ResMut<CoopNetState>,
+) {
+    if config.mode != NetMode::Host {
+        return;
+    }
+
+    for event in connect_events.read() {
+        let client_id = event.client_id;
+        if client_id == host_client_id() {
+            net.local_connected = true;
+            net.local_client_id = Some(client_id);
+        } else {
+            net.remote_connected = true;
+            net.remote_client_id = Some(client_id);
+        }
+    }
+}
+
+fn sync_server_disconnect_events(
+    mut disconnect_events: EventReader<LyServerDisconnectEvent>,
+    config: Res<CoopNetConfig>,
+    mut net: ResMut<CoopNetState>,
+) {
+    if config.mode != NetMode::Host {
+        return;
+    }
+
+    for event in disconnect_events.read() {
+        if Some(event.client_id) == net.remote_client_id {
+            net.remote_connected = false;
+            net.latest_inputs.remove(&event.client_id);
+        }
+        if Some(event.client_id) == net.local_client_id {
+            net.local_connected = false;
+        }
+    }
+}
+
+fn auto_advance_lobby_state(
+    state: Res<State<AppState>>,
+    config: Res<CoopNetConfig>,
+    flow: Res<CoopSessionFlow>,
+    net: Res<CoopNetState>,
+    session_q: Query<(), (With<CoopSessionState>, With<Replicated>)>,
+    door_q: Query<(), (With<Door>, With<Replicated>)>,
+    player_q: Query<(&PlayerSlot, Option<&Controlled>), (With<Player>, With<Replicated>)>,
+    mut next_state: ResMut<NextState<AppState>>,
+) {
+    if *state.get() != AppState::CoopLobby || !flow.pending_game_entry {
+        return;
+    }
+
+    match config.mode {
+        NetMode::Host if net.local_connected && net.remote_connected => {
+            next_state.set(AppState::CoopGame);
+        }
+        NetMode::Client if net.connected => {
+            let local_slot_ready = player_q
+                .iter()
+                .any(|(slot, controlled)| *slot == PlayerSlot::P2 && controlled.is_some());
+            let session_ready = session_q.iter().next().is_some();
+            let door_ready = door_q.iter().next().is_some();
+            if session_ready && local_slot_ready && door_ready {
+                next_state.set(AppState::CoopGame);
+            }
+        }
+        NetMode::None => {}
+        _ => {}
+    }
+}
+
+fn latch_local_input_edges(
+    input: Res<PlayerInputState>,
+    config: Res<CoopNetConfig>,
+    state: Res<State<AppState>>,
+    mut pending: ResMut<PendingCoopInputEdges>,
+) {
+    if config.mode == NetMode::None
+        || !matches!(*state.get(), AppState::CoopLobby | AppState::CoopGame)
+    {
+        pending.clear();
+        return;
+    }
+
+    pending.capture(&input);
+}
+
+fn buffer_local_inputs(
+    input: Res<PlayerInputState>,
+    config: Res<CoopNetConfig>,
+    state: Res<State<AppState>>,
+    tick_manager: Res<lightyear::prelude::TickManager>,
+    mut pending: ResMut<PendingCoopInputEdges>,
+    mut input_manager: ResMut<LyInputManager<CoopInputState>>,
+) {
+    if config.mode == NetMode::None
+        || !matches!(*state.get(), AppState::CoopLobby | AppState::CoopGame)
+    {
+        pending.clear();
+        return;
+    }
+
+    let mut buffered_input = build_input_state(&input);
+    pending.apply_to(&mut buffered_input);
+    input_manager.add_input(buffered_input, tick_manager.tick());
+    pending.clear();
+}
+
+fn capture_server_inputs(
+    config: Res<CoopNetConfig>,
+    mut input_events: EventReader<LyServerInputEvent<CoopInputState>>,
+    mut net: ResMut<CoopNetState>,
+) {
+    if config.mode != NetMode::Host {
+        return;
+    }
+
+    for event in input_events.read() {
+        if let Some(input) = event.input() {
+            net.latest_inputs.insert(*event.context(), *input);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bare_ipv4_is_accepted_and_normalized() {
+        assert_eq!(
+            validate_coop_host_ip("192.168.1.6").unwrap(),
+            Ipv4Addr::new(192, 168, 1, 6)
+        );
+        assert_eq!(
+            normalize_coop_host_ip(" 10.0.0.25 ").unwrap(),
+            "10.0.0.25".to_string()
+        );
+    }
+
+    #[test]
+    fn host_port_and_invalid_text_are_rejected() {
+        assert!(validate_coop_host_ip("192.168.1.6:3457").is_err());
+        assert!(validate_coop_host_ip("localhost").is_err());
+        assert!(validate_coop_host_ip("").is_err());
+    }
+}
+
+fn receive_coop_command_messages(
+    config: Res<CoopNetConfig>,
+    mut events: EventReader<LyServerMessageEvent<CoopCommandMessage>>,
+    mut net: ResMut<CoopNetState>,
+) {
+    if config.mode != NetMode::Host {
+        return;
+    }
+
+    for event in events.read() {
+        net.received_commands
+            .push((*event.context(), event.message().clone()));
+    }
+}
+
+fn flush_pending_client_commands(
+    config: Res<CoopNetConfig>,
+    mut net: ResMut<CoopNetState>,
+    mut connection: ResMut<LyClientConnectionManager>,
+) {
+    if config.mode == NetMode::None || net.pending_commands.is_empty() || !net.connected {
+        return;
+    }
+
+    for mut command in std::mem::take(&mut net.pending_commands) {
+        let _ = connection.send_message::<CoopCommandChannel, _>(&mut command);
+    }
+}
+
+pub fn build_input_state(input: &PlayerInputState) -> CoopInputState {
+    CoopInputState {
+        move_axis: input.move_axis,
+        aim_world: input.aim_world,
         attack_pressed: input.attack_pressed,
+        attack_held: input.attack_held,
         ranged_pressed: input.ranged_pressed,
         ranged_held: input.ranged_held,
         dash_pressed: input.dash_pressed,
-        skill1_pressed: input.skill1_pressed,
-        heal_held: input.heal_held,
-        aim: (aim.x, aim.y),
-        aim_valid,
         interact_pressed: input.interact_pressed,
+        pause_pressed: input.pause_pressed,
+        shop_pressed: input.shop_pressed,
+        menu_confirm_pressed: input.attack_pressed || input.interact_pressed,
+        menu_cancel_pressed: input.pause_pressed,
     }
 }

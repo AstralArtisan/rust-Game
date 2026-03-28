@@ -65,7 +65,11 @@ impl Plugin for AchievementsPlugin {
     }
 }
 
-fn unlock_once(ach: &mut Achievements, out: &mut EventWriter<AchievementUnlockedEvent>, id: AchievementId) {
+fn unlock_once(
+    ach: &mut Achievements,
+    out: &mut EventWriter<AchievementUnlockedEvent>,
+    id: AchievementId,
+) {
     if ach.unlocked.insert(id) {
         out.send(AchievementUnlockedEvent { id });
         info!("Achievement unlocked: {id:?}");
@@ -97,7 +101,9 @@ fn track_combo_and_gold(
     mut ach: ResMut<Achievements>,
     mut unlocked: EventWriter<AchievementUnlockedEvent>,
 ) {
-    let Ok((combo, gold)) = player_q.get_single() else { return };
+    let Ok((combo, gold)) = player_q.get_single() else {
+        return;
+    };
     if combo.count >= 10 {
         unlock_once(&mut ach, &mut unlocked, AchievementId::Combo10);
     }
@@ -119,7 +125,7 @@ fn track_shop_purchase(
 fn track_room_entry_no_hit(current: Option<Res<CurrentRoom>>, mut tracker: ResMut<NoHitRoom>) {
     let Some(current) = current else { return };
     if current.is_changed() {
-        tracker.room = Some(current.0 .0);
+        tracker.room = Some(current.0.0);
         tracker.took_damage = false;
     }
 }
@@ -129,7 +135,9 @@ fn track_damage_taken_no_hit(
     mut damage: EventReader<DamageAppliedEvent>,
     mut tracker: ResMut<NoHitRoom>,
 ) {
-    let Ok(player_e) = player_q.get_single() else { return };
+    let Ok(player_e) = player_q.get_single() else {
+        return;
+    };
     for ev in damage.read() {
         if ev.attacker_team == Team::Enemy && ev.target == player_e {
             tracker.took_damage = true;
@@ -148,7 +156,9 @@ fn track_room_clear(
     for ev in cleared.read() {
         let room_type = layout.room(ev.room).map(|r| r.room_type);
         match room_type {
-            Some(RoomType::Puzzle) => unlock_once(&mut ach, &mut unlocked, AchievementId::PuzzleSolver),
+            Some(RoomType::Puzzle) => {
+                unlock_once(&mut ach, &mut unlocked, AchievementId::PuzzleSolver)
+            }
             Some(RoomType::Boss) => unlock_once(&mut ach, &mut unlocked, AchievementId::BossSlayer),
             _ => {}
         }
@@ -159,7 +169,9 @@ fn track_room_clear(
     }
 }
 
-fn unlock_victory(mut ach: ResMut<Achievements>, mut unlocked: EventWriter<AchievementUnlockedEvent>) {
+fn unlock_victory(
+    mut ach: ResMut<Achievements>,
+    mut unlocked: EventWriter<AchievementUnlockedEvent>,
+) {
     unlock_once(&mut ach, &mut unlocked, AchievementId::Victory);
 }
-

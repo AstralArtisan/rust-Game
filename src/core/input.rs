@@ -56,8 +56,9 @@ pub fn collect_player_input(
     input.dash_pressed = keyboard.just_pressed(KeyCode::Space);
     input.interact_pressed = keyboard.just_pressed(KeyCode::KeyE);
     input.pause_pressed = keyboard.just_pressed(KeyCode::Escape);
-    input.skill1_pressed = keyboard.just_pressed(KeyCode::KeyQ);
-    input.heal_held = keyboard.pressed(KeyCode::KeyF);
+    // Energy/skill gameplay is currently disabled; keep these inputs inert.
+    input.skill1_pressed = false;
+    input.heal_held = false;
     input.shop_pressed = keyboard.just_pressed(KeyCode::KeyB);
 
     input.aim_world = map_mouse_to_aim_world(windows, camera_q);

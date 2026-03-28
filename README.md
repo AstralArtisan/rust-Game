@@ -1,44 +1,99 @@
-# Echoes in the Fog（迷雾回响）
+# 勇闯方块城 / Block City Adventure
 
-Rust + Bevy 的 2D 俯视角动作 / 轻度 Roguelike 小游戏课程项目（占位美术，玩法与架构优先）。
+`勇闯方块城` 是一个使用 Rust + Bevy 开发的 2D 俯视角动作 Roguelike 课程项目。项目以“房间推进、战斗成长、多人扩展、模块化架构”为核心，当前版本已经包含单人主循环、合作联机原型、PVP 原型、奖励与商店系统、存档与成就系统。
+
+## 项目定位
+- 题材：2D 俯视角动作 / 轻度 Roguelike / 房间探索
+- 世界观：玩家闯入由方块机关与封锁街区组成的试炼之城，在多层房间中推进、强化并挑战 Boss
+- 开发目标：优先保证玩法闭环、系统拆分清晰、后续方便继续扩展
 
 ## 技术栈
-- Rust
-- Bevy
-- serde + ron（配置驱动）
-- rand（随机）
+- Rust 2024
+- Bevy 0.14
+- bevy_rapier2d 0.27
+- bevy_kira_audio 0.20
+- serde + ron
+- bincode
+- rand
 
 ## 运行方式
 ```bash
-运行main.rs
+cargo run
 ```
 
-## 操作
+发布构建：
+
+```bash
+cargo run --release
+```
+
+源码构建后的默认二进制名为 `block_city_adventure`。
+
+## 基本操作
 - `WASD` / 方向键：移动
-- 鼠标左键：普通攻击
-- `Space` / 鼠标右键：冲刺
-- `E`：与门交互切房间
-- `Esc`：暂停/继续
+- 鼠标左键 / `J`：近战攻击
+- 鼠标右键：远程攻击
+- `Space`：冲刺
+- `E`：交互、进门、确认房间内关键对象
+- `B`：在商店房内打开商店
+- `Esc`：暂停 / 继续
+- `F5`：保存当前进度
+- `F9`：读取存档
 
-## 目录结构（按需求文档）
-见 `rust_game_codex_requirements.txt` 中的建议结构；代码已按 `src/core`、`src/gameplay`、`src/ui`、`src/data` 等模块拆分。
+## 当前玩法内容
+- 单人主循环：主菜单 -> 楼层生成 -> 房间推进 -> 奖励 / 商店 -> Boss -> 下一层
+- 房间类型：起始房、普通战斗房、奖励房、解谜房、商店房、Boss 房
+- 玩家系统：移动、朝向、近战、远程、冲刺、连击、暴击、金币、奖励成长、死亡
+- 战斗系统：Hitbox / Hurtbox、伤害事件、击退、受击闪白、粒子、伤害数字、投射物
+- 敌人系统：近战追击、远程射击、冲锋、侧袭、狙击、辅助、精英敌人、分层 Boss
+- 奖励系统：近战强化、远程强化、攻速、攻击力、生命、暴击、移速、Dash 相关强化
+- 商店系统：商店房自动生成与手动打开、价格成长、购买记录缓存
+- 进度系统：楼层难度成长、胜利 / 失败结算、成就、存档 / 读档
 
-## 当前实现功能（MVP）
-- 状态：Loading / MainMenu / InGame / Paused / RewardSelect / GameOver / Victory
-- 玩家：移动、朝向、近战攻击、冲刺、无敌帧、死亡
-- 战斗：Hitbox/Hurtbox、伤害事件、击退、受击闪白、粒子
-- 敌人：近战追击、远程射击、冲锋、Boss（三阶段弹幕差异）
-- 房间：房间序列、门交互、锁门清怪开门、淡入淡出切换
-- 奖励：三选一（8 种）并真实影响数值/行为
-- UI：主菜单、HUD、暂停、奖励选择、失败/胜利
+## 多人内容
+- 合作模式：大厅、主机 / 客户端、输入同步、快照同步、合作奖励面板、选门投票、合作交互
+- PVP 模式：大厅、双人对战场景、状态同步、结果页
+- 本地联调脚本：
+  - `local_debug/run_coop_local_debug.ps1`
+  - `local_debug/run_pvp_local_debug.ps1`
+  - `local_debug/cleanup_local_debug.ps1`
+
+## 项目结构
+- `src/main.rs`：程序入口与窗口初始化
+- `src/app.rs`：统一注册插件与全局资源
+- `src/states.rs`：游戏状态与房间状态
+- `src/core/`：资源、输入、相机、事件、音频、存档、成就、本地联调
+- `src/data/`：RON 配置定义、加载与全局注册表
+- `src/gameplay/`：玩家、战斗、敌人、地图、奖励、解谜、商店、成长
+- `src/coop/`：合作模式组件、网络、会话与 UI
+- `src/pvp/`：PVP 组件、网络、系统与 UI
+- `src/ui/`：主菜单、HUD、暂停、奖励选择、商店、通知、结算界面
+- `assets/`：字体、贴图、配置文件
 
 ## 配置驱动
-`assets/configs/*.ron`：
-- `player.ron`、`enemies.ron`、`boss.ron`、`rewards.ron`、`rooms.ron`、`game_balance.ron`
+项目主要数值通过 `assets/configs/*.ron` 管理：
+
+- `player.ron`
+- `enemies.ron`
+- `boss.ron`
+- `rewards.ron`
+- `rooms.ron`
+- `game_balance.ron`
+
+## 资源与表现状态
+- 当前以占位美术和程序生成 UI 为主，重点放在玩法和系统组织
+- 音频接口已经预留，但完整音频资源和播放流程仍可继续补全
+- `assets/textures/effects/` 已包含部分战斗特效贴图，玩家与 UI 使用统一素材风格
+
+## 开发说明
+- 需求基线见 `rust_game_codex_requirements.txt`
+- 代码按插件和模块拆分，避免把大量逻辑堆进单文件
+- 当前仓库包含正在整合的多人调试内容，联机相关模块仍在持续完善
 
 ## 后续可扩展方向
-- 真随机房间图生成（RoomGraph）
-- 更完善的机关/解谜房
-- 存档/读档
-- 替换美术与音频资源、加入更丰富动画与 Shader
+- 更丰富的房间图生成与分支地图
+- 更完整的解谜与机关交互
+- 更成熟的音频、动画与 Shader 表现
+- 更多 Boss、敌人组合与奖励分支
+- 更稳定的联机同步与房间事件处理
 

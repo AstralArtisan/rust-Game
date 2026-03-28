@@ -1,9 +1,12 @@
 use bevy::prelude::*;
+use lightyear::prelude::Replicated;
 
+use crate::coop::components::{CoopNetPosition, CoopNetRotation, CoopNetVelocity};
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::assets::GameAssets;
 use crate::gameplay::combat::components::{Hitbox, Lifetime, Projectile, Team};
 use crate::gameplay::map::InGameEntity;
+use crate::utils::entity::safe_despawn_recursive;
 
 pub fn spawn_projectile(
     commands: &mut Commands,
@@ -96,6 +99,9 @@ fn spawn_projectile_with_hitbox(
                 ..default()
             },
             Projectile { team, velocity },
+            CoopNetPosition(pos),
+            CoopNetVelocity(velocity),
+            CoopNetRotation(velocity.y.atan2(velocity.x)),
             Hitbox {
                 owner,
                 team,
@@ -113,7 +119,10 @@ fn spawn_projectile_with_hitbox(
         .id()
 }
 
-pub fn move_projectiles(time: Res<Time>, mut q: Query<(&Projectile, &mut Transform)>) {
+pub fn move_projectiles(
+    time: Res<Time>,
+    mut q: Query<(&Projectile, &mut Transform), Without<Replicated>>,
+) {
     for (proj, mut tf) in &mut q {
         tf.translation += (proj.velocity * time.delta_seconds()).extend(0.0);
     }
@@ -127,20 +136,20 @@ pub fn despawn_expired_projectiles(
     for (e, mut lifetime) in &mut q {
         lifetime.0.tick(time.delta());
         if lifetime.0.finished() {
-            commands.entity(e).despawn_recursive();
+            safe_despawn_recursive(&mut commands, e);
         }
     }
 }
 
 pub fn despawn_out_of_room_projectiles(
     mut commands: Commands,
-    q: Query<(Entity, &Transform), With<Projectile>>,
+    q: Query<(Entity, &Transform), (With<Projectile>, Without<Replicated>)>,
 ) {
     let half = Vec2::new(ROOM_HALF_WIDTH + 160.0, ROOM_HALF_HEIGHT + 120.0);
     for (e, tf) in &q {
         let p = tf.translation.truncate();
         if p.x.abs() > half.x || p.y.abs() > half.y {
-            commands.entity(e).despawn_recursive();
+            safe_despawn_recursive(&mut commands, e);
         }
     }
 }

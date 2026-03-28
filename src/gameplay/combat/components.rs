@@ -1,6 +1,7 @@
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Team {
     Player,
     Enemy,
@@ -34,7 +35,7 @@ pub struct ArcHitbox {
     pub half_angle_rad: f32,
 }
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Projectile {
     pub team: Team,
     pub velocity: Vec2,
@@ -45,3 +46,11 @@ pub struct Lifetime(pub Timer);
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Knockback(pub Vec2);
+
+#[derive(Component, Debug, Clone)]
+pub struct RuptureDot {
+    pub source: Option<Entity>,
+    pub damage_per_tick: f32,
+    pub ticks_remaining: u8,
+    pub timer: Timer,
+}

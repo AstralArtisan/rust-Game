@@ -23,18 +23,12 @@ pub fn setup_main_menu(mut commands: Commands, assets: Res<GameAssets>) {
         .with_children(|root| {
             root.spawn(widgets::panel_node(Color::srgba(0.05, 0.06, 0.10, 0.9)))
                 .with_children(|panel| {
-                    panel.spawn(widgets::title_text(&assets, "迷雾回响", 52.0));
+                    panel.spawn(widgets::title_text(&assets, "勇闯方块城", 52.0));
                     panel.spawn(widgets::title_text(
                         &assets,
-                        "鼠标左键：近战   鼠标右键：远程   Space：冲刺   E：交互   ESC：暂停",
+                        "鼠标左键：近战  鼠标右键：远程  Space：冲刺  E：交互  ESC：暂停",
                         18.0,
                     ));
-                    panel.spawn(widgets::title_text(
-                        &assets,
-                        "当前支持多层随机流程，单人玩法与联机入口都会保留。",
-                        16.0,
-                    ));
-
                     panel
                         .spawn((widgets::button_bundle(), MenuButton::SinglePlayer))
                         .with_children(|button| {

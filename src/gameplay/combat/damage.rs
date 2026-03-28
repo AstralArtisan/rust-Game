@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::coop::components::GhostState;
 use crate::core::events::{DamageAppliedEvent, DamageEvent, DeathEvent};
 use crate::gameplay::combat::components::{Hurtbox, Knockback, Team};
 use crate::gameplay::effects::flash::Flash;
@@ -14,17 +15,22 @@ pub fn apply_damage_events(
         &mut Health,
         Option<&mut InvincibilityTimer>,
         Option<&Hurtbox>,
+        Option<&GhostState>,
         Option<&mut Flash>,
         &mut Knockback,
         &GlobalTransform,
     )>,
 ) {
     for ev in damage_events.read() {
-        let Ok((entity, mut health, inv_opt, hurtbox, flash_opt, mut knockback, tf)) =
+        let Ok((entity, mut health, inv_opt, hurtbox, ghost, flash_opt, mut knockback, tf)) =
             q.get_mut(ev.target)
         else {
             continue;
         };
+
+        if matches!(ghost, Some(GhostState::Ghost)) {
+            continue;
+        }
 
         if let Some(mut inv) = inv_opt {
             if !inv.timer.finished() {

@@ -3,13 +3,13 @@ use bevy::prelude::*;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH, UI_Z};
 use crate::core::assets::GameAssets;
 use crate::core::input::PlayerInputState;
-use crate::gameplay::map::doors::Door;
-use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId};
 use crate::gameplay::map::VisitedRooms;
+use crate::gameplay::map::doors::Door;
+use crate::gameplay::map::room::{CurrentRoom, Direction, FloorLayout, RoomId};
 use crate::gameplay::player::components::Player;
-use crate::coop::components::CoopPlayer;
 use crate::states::{AppState, RoomState};
 use crate::utils::easing::ease_in_out;
+use crate::utils::entity::safe_despawn_recursive;
 
 pub struct TransitionsPlugin;
 
@@ -26,6 +26,7 @@ impl Plugin for TransitionsPlugin {
 pub struct RoomTransition {
     pub active: bool,
     pub to: RoomId,
+    pub entry_from: Direction,
     pub phase: TransitionPhase,
     pub timer: Timer,
 }
@@ -35,6 +36,7 @@ impl Default for RoomTransition {
         Self {
             active: false,
             to: RoomId(0),
+            entry_from: Direction::Left,
             phase: TransitionPhase::FadeOut,
             timer: Timer::from_seconds(0.25, TimerMode::Once),
         }
@@ -85,6 +87,7 @@ pub fn detect_room_exit(
         if player_pos.distance(door_pos) < 70.0 {
             transition.active = true;
             transition.to = *to;
+            transition.entry_from = opposite_direction(*dir);
             transition.phase = TransitionPhase::FadeOut;
             transition.timer.reset();
             return;
@@ -98,6 +101,7 @@ pub fn detect_room_exit(
             if player_pos.distance(tf.translation().truncate()) < 70.0 {
                 transition.active = true;
                 transition.to = door.to;
+                transition.entry_from = opposite_direction(door.dir);
                 transition.phase = TransitionPhase::FadeOut;
                 transition.timer.reset();
                 return;
@@ -115,8 +119,7 @@ pub fn fade_transition_system(
     layout: Res<FloorLayout>,
     mut overlay_q: Query<(&mut Sprite, Entity), With<TransitionOverlay>>,
     mut room_state: ResMut<RoomState>,
-    mut player_q: Query<&mut Transform, (With<Player>, Without<CoopPlayer>)>,
-    mut coop_player_q: Query<&mut Transform, (With<CoopPlayer>, Without<Player>)>,
+    mut player_q: Query<&mut Transform, With<Player>>,
     mut visited: Option<ResMut<VisitedRooms>>,
 ) {
     if !transition.active {
@@ -160,10 +163,7 @@ pub fn fade_transition_system(
                 }
                 if let Ok(mut player_tf) = player_q.get_single_mut() {
                     player_tf.translation =
-                        Vec3::new(-ROOM_HALF_WIDTH * 0.6, 0.0, player_tf.translation.z);
-                }
-                for mut tf in &mut coop_player_q {
-                    tf.translation = Vec3::new(-ROOM_HALF_WIDTH * 0.45, -40.0, tf.translation.z);
+                        player_spawn_position(transition.entry_from, player_tf.translation.z, 0.0);
                 }
                 let room_type = layout.room(current_room.0).map(|r| r.room_type);
                 *room_state = match room_type {
@@ -179,8 +179,26 @@ pub fn fade_transition_system(
             overlay_sprite.color.set_alpha(1.0 - eased);
             if transition.timer.finished() {
                 transition.active = false;
-                commands.entity(overlay_entity).despawn_recursive();
+                safe_despawn_recursive(&mut commands, overlay_entity);
             }
         }
+    }
+}
+
+fn opposite_direction(dir: Direction) -> Direction {
+    match dir {
+        Direction::Up => Direction::Down,
+        Direction::Down => Direction::Up,
+        Direction::Left => Direction::Right,
+        Direction::Right => Direction::Left,
+    }
+}
+
+fn player_spawn_position(entry_from: Direction, z: f32, y_offset: f32) -> Vec3 {
+    match entry_from {
+        Direction::Left => Vec3::new(-ROOM_HALF_WIDTH * 0.6, y_offset, z),
+        Direction::Right => Vec3::new(ROOM_HALF_WIDTH * 0.6, y_offset, z),
+        Direction::Up => Vec3::new(0.0, ROOM_HALF_HEIGHT * 0.55 + y_offset, z),
+        Direction::Down => Vec3::new(0.0, -ROOM_HALF_HEIGHT * 0.55 + y_offset, z),
     }
 }

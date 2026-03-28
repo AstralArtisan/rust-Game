@@ -22,7 +22,10 @@ impl Aabb2 {
 }
 
 pub fn aabb_from_transform_size(transform: &GlobalTransform, size: Vec2) -> Aabb2 {
-    Aabb2::from_center_size(transform.translation().truncate(), scaled_size_from_transform(transform, size))
+    Aabb2::from_center_size(
+        transform.translation().truncate(),
+        scaled_size_from_transform(transform, size),
+    )
 }
 
 pub fn scaled_size_from_transform(transform: &GlobalTransform, size: Vec2) -> Vec2 {

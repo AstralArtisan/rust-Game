@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::gameplay::combat::components::Team;
 
-#[derive(Component)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Enemy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -11,10 +11,13 @@ pub enum EnemyType {
     MeleeChaser,
     RangedShooter,
     Charger,
+    Flanker,
+    Sniper,
+    SupportCaster,
     Boss,
 }
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct EnemyKind(pub EnemyType);
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -45,11 +48,63 @@ pub struct BossPhase(pub u8);
 #[derive(Component, Debug, Clone)]
 pub struct BossPatternTimer(pub Timer);
 
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BossArchetype {
+    Floor1Guardian,
+    MirrorWarden,
+    TideHunter,
+    CubeCore,
+}
+
+impl BossArchetype {
+    pub fn from_floor(floor: u32) -> Self {
+        match floor {
+            0 | 1 => Self::Floor1Guardian,
+            2 => Self::MirrorWarden,
+            3 => Self::TideHunter,
+            _ => Self::CubeCore,
+        }
+    }
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct BossCycleState {
+    pub step: u8,
+    pub anchor_index: usize,
+    pub rotation: f32,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct BossSummoned;
+
+#[derive(Component, Debug, Clone)]
+pub struct EnemyBuffState {
+    pub speed_mult: f32,
+    pub cooldown_mult: f32,
+    pub timer: Timer,
+}
+
 #[derive(Component, Debug, Clone)]
 pub struct ChargerState {
     pub phase: ChargerPhase,
     pub timer: Timer,
     pub dir: Vec2,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct FlankerState {
+    pub phase: FlankerPhase,
+    pub timer: Timer,
+    pub dir: Vec2,
+    pub strafe_sign: f32,
+    pub repath_timer: Timer,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct SniperState {
+    pub phase: SniperPhase,
+    pub timer: Timer,
+    pub aim_dir: Vec2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,4 +113,19 @@ pub enum ChargerPhase {
     Windup,
     Charging,
     Stunned,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlankerPhase {
+    Stalk,
+    Windup,
+    Lunging,
+    Recover,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SniperPhase {
+    Idle,
+    Aiming,
+    Recover,
 }

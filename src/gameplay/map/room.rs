@@ -4,8 +4,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RoomId(pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum RoomType {
+    #[default]
     Start,
     Normal,
     Shop,
@@ -14,8 +15,9 @@ pub enum RoomType {
     Boss,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Direction {
+    #[default]
     Up,
     Down,
     Left,
@@ -47,6 +49,7 @@ pub struct RoomBounds {
 pub struct RoomData {
     pub id: RoomId,
     pub room_type: RoomType,
+    pub mystery: bool,
     pub connections: RoomConnections,
     pub bounds: RoomBounds,
 }

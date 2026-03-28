@@ -43,7 +43,7 @@ pub enum PvpMsg {
     Result { winner: u8 },
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq)]
 pub struct PvpInputMsg {
     pub move_axis: (f32, f32),
     pub melee: bool,
@@ -57,6 +57,7 @@ pub struct PvpPlayerStateMsg {
     pub pos: (f32, f32),
     pub hp: f32,
     pub lives: u8,
+    pub melee_flash: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -104,14 +105,20 @@ pub fn start_client_socket(state: &mut PvpNetState) -> anyhow::Result<()> {
 }
 
 fn try_send(state: &PvpNetState, msg: &PvpMsg) {
-    let Some(sock) = state.socket.as_ref() else { return };
+    let Some(sock) = state.socket.as_ref() else {
+        return;
+    };
     let Some(peer) = state.peer else { return };
-    let Ok(payload) = bincode::serialize(msg) else { return };
+    let Ok(payload) = bincode::serialize(msg) else {
+        return;
+    };
     let _ = sock.send_to(&payload, peer);
 }
 
 fn try_send_to(sock: &UdpSocket, peer: SocketAddr, msg: &PvpMsg) {
-    let Ok(payload) = bincode::serialize(msg) else { return };
+    let Ok(payload) = bincode::serialize(msg) else {
+        return;
+    };
     let _ = sock.send_to(&payload, peer);
 }
 
@@ -121,11 +128,7 @@ pub fn pvp_net_tick_system(
     mut next: ResMut<NextState<AppState>>,
     state: Res<State<AppState>>,
 ) {
-    let Some(sock) = net
-        .socket
-        .as_ref()
-        .and_then(|s| s.try_clone().ok())
-    else {
+    let Some(sock) = net.socket.as_ref().and_then(|s| s.try_clone().ok()) else {
         return;
     };
 
@@ -138,8 +141,12 @@ pub fn pvp_net_tick_system(
 
     let mut buf = [0u8; 2048];
     loop {
-        let Ok((n, from)) = sock.recv_from(&mut buf) else { break };
-        let Ok(msg) = bincode::deserialize::<PvpMsg>(&buf[..n]) else { continue };
+        let Ok((n, from)) = sock.recv_from(&mut buf) else {
+            break;
+        };
+        let Ok(msg) = bincode::deserialize::<PvpMsg>(&buf[..n]) else {
+            continue;
+        };
         match msg {
             PvpMsg::Hello => {
                 if config.mode == NetMode::Host {
@@ -194,6 +201,7 @@ pub fn pvp_net_tick_system(
 // Additional mutable field for host input capture.
 impl PvpNetState {
     pub fn clear_runtime(&mut self) {
+        self.last_input_from_client = None;
         self.last_state = None;
         self.fire_events.clear();
         self.winner = None;
@@ -219,9 +227,18 @@ impl PvpNetState {
 // Host-only: last received client input (updated in net tick).
 // Kept as a free field to avoid extra resources.
 impl PvpNetState {
-    pub(crate) fn take_client_input(&mut self) -> Option<PvpInputMsg> {
-        self.last_input_from_client.take()
+    pub(crate) fn client_input(&self) -> PvpInputMsg {
+        self.last_input_from_client.unwrap_or_default()
     }
+}
+
+pub fn reset_pvp_network(config: &mut PvpNetConfig, net: &mut PvpNetState) {
+    config.mode = NetMode::None;
+    net.socket = None;
+    net.peer = None;
+    net.connected = false;
+    net.my_id = None;
+    net.clear_runtime();
 }
 
 // Hidden field (Rust requires it declared on struct; keep at end of file with Update File patch in-place).
