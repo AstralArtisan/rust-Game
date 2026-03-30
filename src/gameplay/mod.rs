@@ -6,6 +6,7 @@ pub mod player;
 pub mod progression;
 pub mod puzzle;
 pub mod rewards;
+pub mod session_core;
 pub mod shop;
 
 use bevy::prelude::*;

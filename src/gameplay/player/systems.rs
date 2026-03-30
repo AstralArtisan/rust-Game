@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 
-use crate::coop::components::{GhostState, LocalControlled};
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
+use crate::coop::components::{CoopPhase, CoopSessionEntity, CoopSessionState};
+use crate::coop::components::{GhostState, LocalControlled};
 use crate::core::assets::GameAssets;
 use crate::core::events::DeathEvent;
 use crate::core::input::PlayerInputState;
@@ -10,6 +11,7 @@ use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{Hurtbox, Knockback, Team};
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::map::InGameEntity;
+use crate::gameplay::session_core::{DeathDecision, SessionMode, evaluate_death};
 use crate::states::{AppState, RoomState};
 use crate::utils::math::{clamp_in_room, clamp_length};
 
@@ -108,7 +110,10 @@ pub fn spawn_player(
 
 pub fn push_local_input_to_players(
     input: Res<PlayerInputState>,
-    mut player_q: Query<&mut PlayerDriveInput, (With<Player>, With<LocalControlled>, Without<Replicated>)>,
+    mut player_q: Query<
+        &mut PlayerDriveInput,
+        (With<Player>, With<LocalControlled>, Without<Replicated>),
+    >,
 ) {
     for mut drive in &mut player_q {
         *drive = PlayerDriveInput {
@@ -149,7 +154,10 @@ pub fn player_energy_regen_system(
 pub fn player_heal_channel_system(
     time: Res<Time>,
     data: Option<Res<GameDataRegistry>>,
-    mut q: Query<(&PlayerDriveInput, &mut Health, &mut Energy), (With<Player>, Without<Replicated>)>,
+    mut q: Query<
+        (&PlayerDriveInput, &mut Health, &mut Energy),
+        (With<Player>, Without<Replicated>),
+    >,
 ) {
     if !ENERGY_SYSTEM_ENABLED {
         return;
@@ -185,15 +193,28 @@ pub fn player_heal_channel_system(
 pub fn player_move_system(
     time: Res<Time>,
     room_state: Res<RoomState>,
+    session_q: Query<&CoopSessionState, With<CoopSessionEntity>>,
     mut q: Query<
-        (&PlayerDriveInput, &DashState, &MoveSpeed, &mut Velocity, &mut Transform, Option<&GhostState>),
+        (
+            &PlayerDriveInput,
+            &DashState,
+            &MoveSpeed,
+            &mut Velocity,
+            &mut Transform,
+            Option<&GhostState>,
+        ),
         (With<Player>, Without<Replicated>),
     >,
 ) {
+    let coop_phase = session_q.get_single().ok().map(|session| session.phase);
     if matches!(*room_state, RoomState::BossFight) {
         // still movable
     }
     for (input, dash, move_speed, mut vel, mut tf, ghost) in &mut q {
+        if coop_phase.is_some_and(coop_phase_blocks_player_movement) {
+            vel.0 = Vec2::ZERO;
+            continue;
+        }
         let move_scale = if matches!(ghost, Some(GhostState::Ghost)) {
             0.85
         } else {
@@ -217,9 +238,25 @@ pub fn player_move_system(
     }
 }
 
+fn coop_phase_blocks_player_movement(phase: CoopPhase) -> bool {
+    matches!(
+        phase,
+        CoopPhase::Paused
+            | CoopPhase::Reward
+            | CoopPhase::Rps
+            | CoopPhase::Shop
+            | CoopPhase::MatchOver
+    )
+}
+
 pub fn player_facing_system(
     mut q: Query<
-        (&PlayerDriveInput, &GlobalTransform, &mut FacingDirection, &Velocity),
+        (
+            &PlayerDriveInput,
+            &GlobalTransform,
+            &mut FacingDirection,
+            &Velocity,
+        ),
         (With<Player>, Without<Replicated>),
     >,
 ) {
@@ -255,8 +292,25 @@ pub fn player_death_system(
 ) {
     for ev in death_events.read() {
         if player_q.iter().any(|player_e| ev.entity == player_e) {
-            next_state.set(AppState::GameOver);
+            if evaluate_death(SessionMode::Solo, 0) == DeathDecision::GameOver {
+                next_state.set(AppState::GameOver);
+            }
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coop_door_choice_does_not_block_movement() {
+        assert!(!coop_phase_blocks_player_movement(CoopPhase::DoorChoice));
+    }
+
+    #[test]
+    fn coop_reward_still_blocks_movement() {
+        assert!(coop_phase_blocks_player_movement(CoopPhase::Reward));
     }
 }

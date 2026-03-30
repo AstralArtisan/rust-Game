@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::coop::net::is_coop_authority;
 use crate::coop::runtime::is_coop_simulation_active;
-use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::assets::GameAssets;
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, Direction, FloorLayout, RoomId, RoomType};
@@ -16,12 +16,11 @@ impl Plugin for DoorsPlugin {
         app.add_systems(
             Update,
             (spawn_room_doors_if_missing, update_door_visuals).run_if(
-                in_state(AppState::InGame)
-                    .or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                in_state(AppState::InGame).or_else(
+                    in_state(AppState::CoopGame)
+                        .and_then(is_coop_authority)
+                        .and_then(is_coop_simulation_active),
+                ),
             ),
         );
     }

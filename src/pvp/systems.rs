@@ -657,7 +657,9 @@ pub fn pvp_client_apply_state_system(
         return;
     };
 
-    for (id, mut tf, mut hp, mut lives, mut vel, mut cds, mut target, local, mut flash) in &mut players {
+    for (id, mut tf, mut hp, mut lives, mut vel, mut cds, mut target, local, mut flash) in
+        &mut players
+    {
         let src = if id.0 == 1 { st.p1 } else { st.p2 };
         let server_pos = Vec2::new(src.pos.0, src.pos.1);
         target.pos = server_pos;
@@ -853,8 +855,7 @@ pub fn update_pvp_overlay_ui_system(
     let Ok(mut text) = text_q.get_single_mut() else {
         return;
     };
-    text.sections[0].value =
-        "PVP 暂停\nESC：继续游戏\nM：回到主菜单\nQ：退出游戏".to_string();
+    text.sections[0].value = "PVP 暂停\nESC：继续游戏\nM：回到主菜单\nQ：退出游戏".to_string();
 }
 
 pub fn pvp_bullet_visual_system_move_and_despawn(

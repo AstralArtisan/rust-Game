@@ -22,9 +22,7 @@ pub enum AppState {
     Victory,
 }
 
-#[derive(
-    Resource, Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize,
-)]
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum RoomState {
     #[default]
     Idle,

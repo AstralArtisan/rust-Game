@@ -27,17 +27,20 @@ pub fn update_enemy_ai(
     player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
     mut enemies: ParamSet<(
         Query<(Entity, &EnemyKind, &Transform), Without<Replicated>>,
-        Query<(
-            Entity,
-            &EnemyKind,
-            &EnemyStats,
-            &mut Transform,
-            &mut super::systems::EnemyVelocity,
-            Option<&mut ChargerState>,
-            Option<&mut FlankerState>,
-            Option<&SniperState>,
-            Option<&EnemyBuffState>,
-        ), Without<Replicated>>,
+        Query<
+            (
+                Entity,
+                &EnemyKind,
+                &EnemyStats,
+                &mut Transform,
+                &mut super::systems::EnemyVelocity,
+                Option<&mut ChargerState>,
+                Option<&mut FlankerState>,
+                Option<&SniperState>,
+                Option<&EnemyBuffState>,
+            ),
+            Without<Replicated>,
+        >,
     )>,
 ) {
     let player_positions: Vec<Vec2> = player_q

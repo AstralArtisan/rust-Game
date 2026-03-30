@@ -33,15 +33,13 @@ impl Plugin for MapPlugin {
             )
             .add_systems(
                 Update,
-                (track_visited_rooms, reward_room_gold_bonus_on_enter)
-                    .run_if(
-                        in_state(AppState::InGame)
-                            .or_else(
-                                in_state(AppState::CoopGame)
-                                    .and_then(is_coop_authority)
-                                    .and_then(is_coop_simulation_active),
-                            ),
+                (track_visited_rooms, reward_room_gold_bonus_on_enter).run_if(
+                    in_state(AppState::InGame).or_else(
+                        in_state(AppState::CoopGame)
+                            .and_then(is_coop_authority)
+                            .and_then(is_coop_simulation_active),
                     ),
+                ),
             );
     }
 }

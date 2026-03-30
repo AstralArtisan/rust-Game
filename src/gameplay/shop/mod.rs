@@ -8,13 +8,13 @@ use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Gold,
-    Health, MoveSpeed, Player, RangedCooldown, RewardModifiers,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Gold, Health, MoveSpeed, Player,
+    RangedCooldown, RewardModifiers,
 };
 use crate::gameplay::progression::floor::FloorNumber;
-use crate::gameplay::rewards::apply::{
-    attack_power_gain, attack_speed_gain_s, crit_gain, dash_cooldown_gain_s, max_health_gain,
-    move_speed_gain,
+use crate::gameplay::session_core::{
+    PlayerRuleEffects, SharedShopItem, ShopDraft, ShopPurchaseResult, apply_shop_purchase,
+    build_shop_draft, next_refresh_cost as shared_next_refresh_cost, refresh_shop_draft,
 };
 use crate::states::AppState;
 use crate::utils::rng::GameRng;
@@ -285,8 +285,9 @@ fn generate_shop_offers(
     }
 
     offers.room = Some(room);
-    offers.refresh_count = 0;
-    offers.lines = build_shop_lines(data, rng, floor_number, mods);
+    let draft = build_shop_draft(floor_number, mods, rng);
+    offers.refresh_count = draft.refresh_count;
+    offers.lines = build_shop_lines_from_draft(data, &draft);
     cache.rooms.insert(
         room,
         CachedShopState {
@@ -306,8 +307,9 @@ fn refresh_shop_offers(
     mods: RewardModifiers,
 ) {
     offers.room = Some(room);
-    offers.refresh_count = offers.refresh_count.saturating_add(1);
-    offers.lines = build_shop_lines(data, rng, floor_number, mods);
+    let draft = refresh_shop_draft(offers.refresh_count, floor_number, mods, rng);
+    offers.refresh_count = draft.refresh_count;
+    offers.lines = build_shop_lines_from_draft(data, &draft);
     cache.rooms.insert(
         room,
         CachedShopState {
@@ -317,100 +319,8 @@ fn refresh_shop_offers(
     );
 }
 
-fn build_shop_lines(
-    data: Option<&GameDataRegistry>,
-    rng: &mut GameRng,
-    floor_number: u32,
-    mods: RewardModifiers,
-) -> Vec<ShopLine> {
-    let mut pool = vec![
-        ShopItem::Heal,
-        ShopItem::IncreaseMaxHealth,
-        ShopItem::IncreaseAttackPower,
-        ShopItem::ReduceDashCooldown,
-        ShopItem::IncreaseMoveSpeed,
-        ShopItem::IncreaseCritChance,
-        ShopItem::IncreaseAttackSpeed,
-    ];
-    if ENERGY_SYSTEM_ENABLED {
-        pool.push(ShopItem::IncreaseEnergyMax);
-    }
-    rng.shuffle(&mut pool);
-    pool.truncate(3);
-
-    let _ = data;
-    let base_cost = shop_base_cost(floor_number);
-    let mut lines = Vec::with_capacity(pool.len());
-
-    for item in pool {
-        let (title, desc, _) = describe_item_local(item, base_cost);
-        lines.push(ShopLine {
-            title: title.to_string(),
-            description: desc.to_string(),
-            cost: shop_item_cost(item, floor_number, base_cost, mods),
-            item,
-            purchased: false,
-        });
-    }
-    lines
-}
-
 pub fn next_refresh_cost(refresh_count: u32) -> u32 {
-    if refresh_count == 0 {
-        0
-    } else {
-        refresh_count.saturating_mul(50)
-    }
-}
-
-fn shop_base_cost(floor_number: u32) -> u32 {
-    match floor_number {
-        1 => 55,
-        2 => 65,
-        3 => 75,
-        _ => 85,
-    }
-}
-
-fn shop_item_extra_cost(item: ShopItem) -> u32 {
-    match item {
-        ShopItem::Heal => 0,
-        ShopItem::IncreaseMaxHealth => 15,
-        ShopItem::IncreaseAttackPower => 18,
-        ShopItem::ReduceDashCooldown => 18,
-        ShopItem::IncreaseMoveSpeed => 15,
-        ShopItem::IncreaseEnergyMax => 12,
-        ShopItem::IncreaseCritChance => 20,
-        ShopItem::IncreaseAttackSpeed => 20,
-    }
-}
-
-fn shop_purchase_count(mods: RewardModifiers, item: ShopItem) -> u8 {
-    match item {
-        ShopItem::Heal | ShopItem::IncreaseEnergyMax => 0,
-        ShopItem::IncreaseMaxHealth => mods.shop_max_health_purchases,
-        ShopItem::IncreaseAttackPower => mods.shop_attack_power_purchases,
-        ShopItem::ReduceDashCooldown => mods.shop_dash_purchases,
-        ShopItem::IncreaseMoveSpeed => mods.shop_move_speed_purchases,
-        ShopItem::IncreaseCritChance => mods.shop_crit_purchases,
-        ShopItem::IncreaseAttackSpeed => mods.shop_attack_speed_purchases,
-    }
-}
-
-fn shop_repeat_price_mult(purchases: u8) -> f32 {
-    match purchases {
-        0 => 1.00,
-        1 => 1.35,
-        2 => 1.75,
-        _ => 2.15,
-    }
-}
-
-fn shop_item_cost(item: ShopItem, floor_number: u32, base_cost: u32, mods: RewardModifiers) -> u32 {
-    let base = base_cost + shop_item_extra_cost(item);
-    let _ = floor_number;
-    let purchases = shop_purchase_count(mods, item);
-    ((base as f32) * shop_repeat_price_mult(purchases)).round() as u32
+    shared_next_refresh_cost(refresh_count)
 }
 
 fn describe_item(item: ShopItem, base_cost: u32) -> (&'static str, &'static str, u32) {
@@ -540,19 +450,23 @@ pub fn handle_shop_purchase_input(
         warn!("金币不足：需要 {}，当前 {}", line.cost, gold.0);
         return;
     }
-    if !apply_item(
-        line.item,
+    let mut effects = PlayerRuleEffects {
+        health: &mut hp,
+        energy: &mut energy,
+        move_speed: &mut move_speed,
+        attack_power: &mut power,
+        crit: &mut crit,
+        dash_cooldown: &mut dash_cd,
+        attack_cooldown: &mut atk_cd,
+        ranged_cooldown: &mut ranged_cd,
+        mods: &mut mods,
+    };
+    if apply_shop_purchase(
+        shared_shop_item_from_shop_item(line.item),
         floor_number,
-        &mut hp,
-        &mut energy,
-        &mut move_speed,
-        &mut power,
-        &mut crit,
-        &mut dash_cd,
-        &mut atk_cd,
-        &mut ranged_cd,
-        &mut mods,
-    ) {
+        &mut effects,
+    ) != ShopPurchaseResult::Applied
+    {
         return;
     }
     gold.0 -= line.cost;
@@ -573,77 +487,49 @@ pub fn handle_shop_purchase_input(
     next.set(AppState::InGame);
 }
 
-fn apply_item(
-    item: ShopItem,
-    floor_number: u32,
-    hp: &mut Health,
-    energy: &mut Energy,
-    move_speed: &mut MoveSpeed,
-    power: &mut AttackPower,
-    crit: &mut CritChance,
-    dash_cd: &mut DashCooldown,
-    atk_cd: &mut AttackCooldown,
-    ranged_cd: &mut RangedCooldown,
-    mods: &mut RewardModifiers,
-) -> bool {
+fn build_shop_lines_from_draft(
+    _data: Option<&GameDataRegistry>,
+    draft: &ShopDraft,
+) -> Vec<ShopLine> {
+    draft
+        .offers
+        .iter()
+        .map(|offer| {
+            let item = shop_item_from_shared(offer.item);
+            let (title, desc, _) = describe_item_local(item, 0);
+            ShopLine {
+                title: title.to_string(),
+                description: desc.to_string(),
+                cost: offer.cost,
+                item,
+                purchased: offer.purchased,
+            }
+        })
+        .collect()
+}
+
+fn shop_item_from_shared(item: SharedShopItem) -> ShopItem {
     match item {
-        ShopItem::Heal => {
-            hp.current = (hp.current + 35.0).min(hp.max);
-            true
-        }
-        ShopItem::IncreaseMaxHealth => {
-            let gain = max_health_gain(floor_number);
-            hp.max += gain;
-            hp.current = (hp.current + gain).min(hp.max);
-            mods.shop_max_health_purchases = mods.shop_max_health_purchases.saturating_add(1);
-            true
-        }
-        ShopItem::IncreaseAttackPower => {
-            power.0 += attack_power_gain(floor_number);
-            mods.shop_attack_power_purchases = mods.shop_attack_power_purchases.saturating_add(1);
-            true
-        }
-        ShopItem::ReduceDashCooldown => {
-            let remain = (0.20 - mods.shop_dash_cooldown_reduction_s).max(0.0);
-            if remain <= 0.0 {
-                return false;
-            }
-            mods.shop_dash_cooldown_reduction_s += dash_cooldown_gain_s(floor_number).min(remain);
-            dash_cd.apply_reduction(mods.total_dash_cooldown_reduction());
-            mods.shop_dash_purchases = mods.shop_dash_purchases.saturating_add(1);
-            true
-        }
-        ShopItem::IncreaseMoveSpeed => {
-            let gain = move_speed_gain(floor_number) * 0.75;
-            move_speed.0 += gain;
-            mods.shop_move_speed_purchases = mods.shop_move_speed_purchases.saturating_add(1);
-            true
-        }
-        ShopItem::IncreaseEnergyMax => {
-            energy.max += 25.0;
-            energy.current = (energy.current + 25.0).min(energy.max);
-            true
-        }
-        ShopItem::IncreaseCritChance => {
-            let gain = crit_gain(floor_number) * 0.75;
-            let new_crit = (crit.0 + gain).clamp(0.0, 1.0);
-            if (new_crit - crit.0).abs() < f32::EPSILON {
-                return false;
-            }
-            crit.0 = new_crit;
-            mods.shop_crit_purchases = mods.shop_crit_purchases.saturating_add(1);
-            true
-        }
-        ShopItem::IncreaseAttackSpeed => {
-            let remain = (0.18 - mods.shop_attack_speed_reduction_s).max(0.0);
-            if remain <= 0.0 {
-                return false;
-            }
-            mods.shop_attack_speed_reduction_s += attack_speed_gain_s(floor_number).min(remain);
-            atk_cd.apply_speed_bonus(mods.total_melee_speed_bonus());
-            ranged_cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
-            mods.shop_attack_speed_purchases = mods.shop_attack_speed_purchases.saturating_add(1);
-            true
-        }
+        SharedShopItem::Heal => ShopItem::Heal,
+        SharedShopItem::IncreaseMaxHealth => ShopItem::IncreaseMaxHealth,
+        SharedShopItem::IncreaseAttackPower => ShopItem::IncreaseAttackPower,
+        SharedShopItem::ReduceDashCooldown => ShopItem::ReduceDashCooldown,
+        SharedShopItem::IncreaseMoveSpeed => ShopItem::IncreaseMoveSpeed,
+        SharedShopItem::IncreaseEnergyMax => ShopItem::IncreaseEnergyMax,
+        SharedShopItem::IncreaseCritChance => ShopItem::IncreaseCritChance,
+        SharedShopItem::IncreaseAttackSpeed => ShopItem::IncreaseAttackSpeed,
+    }
+}
+
+fn shared_shop_item_from_shop_item(item: ShopItem) -> SharedShopItem {
+    match item {
+        ShopItem::Heal => SharedShopItem::Heal,
+        ShopItem::IncreaseMaxHealth => SharedShopItem::IncreaseMaxHealth,
+        ShopItem::IncreaseAttackPower => SharedShopItem::IncreaseAttackPower,
+        ShopItem::ReduceDashCooldown => SharedShopItem::ReduceDashCooldown,
+        ShopItem::IncreaseMoveSpeed => SharedShopItem::IncreaseMoveSpeed,
+        ShopItem::IncreaseEnergyMax => SharedShopItem::IncreaseEnergyMax,
+        ShopItem::IncreaseCritChance => SharedShopItem::IncreaseCritChance,
+        ShopItem::IncreaseAttackSpeed => SharedShopItem::IncreaseAttackSpeed,
     }
 }

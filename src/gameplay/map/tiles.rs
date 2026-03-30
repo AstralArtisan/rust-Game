@@ -1,8 +1,8 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 
-use crate::coop::components::CoopSessionState;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
+use crate::coop::components::CoopSessionState;
 use crate::core::assets::GameAssets;
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};

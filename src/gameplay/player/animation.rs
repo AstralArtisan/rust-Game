@@ -27,7 +27,10 @@ pub fn update_player_animation_state(
         (With<Player>, Without<Replicated>),
     >,
 ) {
-    let damaged = damage_events.read().map(|event| event.target).collect::<Vec<_>>();
+    let damaged = damage_events
+        .read()
+        .map(|event| event.target)
+        .collect::<Vec<_>>();
     for (player_e, input, vel, dash, health, mut anim, anim_state) in &mut q {
         anim.timer.tick(time.delta());
 

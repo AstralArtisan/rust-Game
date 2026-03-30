@@ -24,12 +24,11 @@ impl Plugin for CombatSystemsPlugin {
                 hitbox::despawn_expired_hitboxes,
             )
                 .run_if(
-                    in_state(AppState::InGame)
-                        .or_else(
-                            in_state(AppState::CoopGame)
-                                .and_then(is_coop_authority)
-                                .and_then(is_coop_simulation_active),
-                        ),
+                    in_state(AppState::InGame).or_else(
+                        in_state(AppState::CoopGame)
+                            .and_then(is_coop_authority)
+                            .and_then(is_coop_simulation_active),
+                    ),
                 ),
         );
     }

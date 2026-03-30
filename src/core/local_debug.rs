@@ -4,14 +4,14 @@ use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowPosition};
 
 use crate::coop::net::{
-    begin_coop_lobby_session, normalize_coop_host_ip, reset_coop_network, CoopNetConfig,
-    CoopNetState, CoopSessionFlow, NetMode as CoopNetMode,
+    CoopNetConfig, CoopNetState, CoopSessionFlow, NetMode as CoopNetMode, begin_coop_lobby_session,
+    normalize_coop_host_ip, reset_coop_network,
 };
 use crate::gameplay::enemy::systems::EnemySpawnCount;
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::pvp::net::{
+    NetMode as PvpNetMode, PVP_PORT, PvpNetConfig, PvpNetState, reset_pvp_network,
     start_client_socket as start_pvp_client_socket, start_host_socket as start_pvp_host_socket,
-    reset_pvp_network, NetMode as PvpNetMode, PvpNetConfig, PvpNetState, PVP_PORT,
 };
 use crate::states::AppState;
 
@@ -78,20 +78,20 @@ impl LocalNetDebugConfig {
                 return Self::default();
             }
 
-            let mode = raw_mode
-                .as_deref()
-                .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+            let mode = raw_mode.as_deref().and_then(|value| {
+                match value.trim().to_ascii_lowercase().as_str() {
                     "coop" => Some(LocalNetDebugMode::Coop),
                     "pvp" => Some(LocalNetDebugMode::Pvp),
                     _ => None,
-                });
-            let role = raw_role
-                .as_deref()
-                .and_then(|value| match value.trim().to_ascii_lowercase().as_str() {
+                }
+            });
+            let role = raw_role.as_deref().and_then(|value| {
+                match value.trim().to_ascii_lowercase().as_str() {
                     "host" => Some(LocalNetDebugRole::Host),
                     "client" => Some(LocalNetDebugRole::Client),
                     _ => None,
-                });
+                }
+            });
 
             if mode.is_none() || role.is_none() {
                 return Self::default();
@@ -99,7 +99,8 @@ impl LocalNetDebugConfig {
 
             let mode = mode.unwrap();
             let role = role.unwrap();
-            let host_ip = env::var("LOCAL_NET_DEBUG_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+            let host_ip =
+                env::var("LOCAL_NET_DEBUG_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
             let mode_label = match mode {
                 LocalNetDebugMode::Coop => "Coop",
                 LocalNetDebugMode::Pvp => "PVP",

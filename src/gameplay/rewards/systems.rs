@@ -8,13 +8,17 @@ use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, Health, MoveSpeed, Player,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Health, MoveSpeed, Player,
     RangedCooldown, RewardModifiers,
 };
-use crate::gameplay::progression::difficulty::is_final_floor;
 use crate::gameplay::progression::floor::FloorNumber;
-use crate::gameplay::rewards::apply::apply_reward_to_player_components;
 use crate::gameplay::rewards::data::RewardType;
+use crate::gameplay::session_core::{
+    PlayerRuleEffects, PlayerRuleSnapshot, PostRewardDecision, RewardDraft, RewardDraftMode,
+    RewardOptionDraft, RewardSelection, SessionMode, SessionRuleContext,
+    apply_reward_selection as apply_shared_reward_selection, build_reward_draft, on_room_cleared,
+    on_room_enter,
+};
 use crate::states::{AppState, RoomState};
 use crate::utils::entity::safe_despawn_recursive;
 use crate::utils::rng::GameRng;
@@ -56,7 +60,10 @@ impl Plugin for RewardsSystemsPlugin {
             .init_resource::<RewardRoomClaims>()
             .init_resource::<RewardFlow>()
             .init_resource::<GameRng>()
-            .add_systems(Update, enter_reward_selection.run_if(in_state(AppState::InGame)))
+            .add_systems(
+                Update,
+                enter_reward_selection.run_if(in_state(AppState::InGame)),
+            )
             .add_systems(
                 Update,
                 offer_reward_in_reward_room.run_if(in_state(AppState::InGame)),
@@ -98,7 +105,7 @@ fn offer_reward_in_reward_room(
     mut rng: ResMut<GameRng>,
     mut flow: ResMut<RewardFlow>,
     mut next_state: ResMut<NextState<AppState>>,
-    mut player_q: Query<(&RewardModifiers, &mut Health), With<Player>>,
+    player_q: Query<&RewardModifiers, With<Player>>,
 ) {
     if transition
         .as_deref()
@@ -128,24 +135,43 @@ fn offer_reward_in_reward_room(
         return;
     }
 
-    flow.go_next_floor = false;
-    flow.go_victory = false;
-    flow.mode = RewardFlowMode::SingleBuff;
-    flow.reward_scale = 1.0;
-    flow.selected_primary = None;
-    flow.selected_secondary = None;
-    let (mods, health) = player_q
-        .get_single()
-        .map(|(mods, health)| (*mods, *health))
-        .unwrap_or((
-            RewardModifiers::default(),
-            Health {
-                current: 100.0,
-                max: 100.0,
-            },
-        ));
-    choices.primary = generate_reward_choices(&mut rng, mods, &[]);
-    choices.secondary.clear();
+    reset_reward_flow(&mut flow);
+    let mode = on_room_enter(
+        SessionRuleContext {
+            mode: SessionMode::Solo,
+            floor: 1,
+            total_floors: data
+                .as_deref()
+                .map(|registry| registry.balance.total_floors.max(1))
+                .unwrap_or(4),
+            boss_gives_victory: data
+                .as_deref()
+                .map(|registry| registry.balance.boss_room_gives_victory)
+                .unwrap_or(false),
+            room_type: room.room_type,
+        },
+        true,
+    )
+    .reward_mode;
+    let Some(mode) = mode else {
+        return;
+    };
+
+    flow.mode = reward_flow_mode_from_draft(mode);
+    flow.reward_scale = reward_scale_for_draft(mode);
+
+    let mods = player_q.get_single().copied().unwrap_or_default();
+    let draft = build_reward_draft(
+        SessionMode::Solo,
+        mode,
+        &mut rng,
+        &[PlayerRuleSnapshot {
+            player_index: 0,
+            alive: true,
+            mods,
+        }],
+    );
+    apply_solo_reward_draft(&draft, &mut choices);
     next_state.set(AppState::RewardSelect);
 }
 
@@ -165,124 +191,66 @@ fn enter_reward_selection(
         return;
     };
 
-    flow.go_next_floor = false;
-    flow.go_victory = false;
-    flow.mode = RewardFlowMode::SingleBuff;
-    flow.reward_scale = 1.0;
-    flow.selected_primary = None;
-    flow.selected_secondary = None;
+    reset_reward_flow(&mut flow);
 
-    if let (Some(layout), Some(current)) = (layout.as_deref(), current.as_deref()) {
-        if ev.room == current.0 {
-            if let Some(room) = layout.room(current.0) {
-                if room.room_type == RoomType::Reward {
-                    return;
-                }
-                if room.room_type != RoomType::Normal
-                    && room.room_type != RoomType::Boss
-                    && room.room_type != RoomType::Puzzle
-                {
-                    return;
-                }
-                if room.room_type == RoomType::Boss {
-                    flow.mode = RewardFlowMode::DualBuff;
-                    flow.reward_scale = 1.50;
-                    let boss_gives_victory = data
-                        .as_deref()
-                        .map(|d| d.balance.boss_room_gives_victory)
-                        .unwrap_or(false);
-                    let current_floor = floor.as_deref().map(|value| value.0).unwrap_or(1);
-                    let reached_final_floor = data
-                        .as_deref()
-                        .map(|registry| is_final_floor(registry, current_floor))
-                        .unwrap_or(current_floor >= 4);
+    let (Some(layout), Some(current)) = (layout.as_deref(), current.as_deref()) else {
+        return;
+    };
+    if ev.room != current.0 {
+        return;
+    }
 
-                    if let Ok((_, mut health)) = player_q.get_single_mut() {
-                        let heal = health.max * 0.80;
-                        health.current = (health.current + heal).min(health.max);
-                    }
+    let Some(room) = layout.room(current.0) else {
+        return;
+    };
+    if room.room_type == RoomType::Reward {
+        return;
+    }
 
-                    if boss_gives_victory || reached_final_floor {
-                        flow.go_victory = true;
-                    } else {
-                        flow.go_next_floor = true;
-                    }
-                } else {
-                    flow.mode = RewardFlowMode::HealOrBuff;
-                }
-            }
+    let decision = on_room_cleared(SessionRuleContext {
+        mode: SessionMode::Solo,
+        floor: floor.as_deref().map(|value| value.0).unwrap_or(1),
+        total_floors: data
+            .as_deref()
+            .map(|registry| registry.balance.total_floors.max(1))
+            .unwrap_or(4),
+        boss_gives_victory: data
+            .as_deref()
+            .map(|registry| registry.balance.boss_room_gives_victory)
+            .unwrap_or(false),
+        room_type: room.room_type,
+    });
+    let Some(mode) = decision.reward_mode else {
+        return;
+    };
+
+    if decision.heal_alive_fraction > 0.0 {
+        if let Ok((_, mut health)) = player_q.get_single_mut() {
+            let heal = health.max * decision.heal_alive_fraction;
+            health.current = (health.current + heal).min(health.max);
         }
     }
 
-    let (mods, _) = player_q
+    flow.mode = reward_flow_mode_from_draft(mode);
+    flow.reward_scale = reward_scale_for_draft(mode);
+    set_post_reward_flags(&mut flow, decision.post_reward);
+
+    let mods = player_q
         .get_single()
-        .map(|(mods, health)| (*mods, *health))
-        .unwrap_or((
-            RewardModifiers::default(),
-            Health {
-                current: 100.0,
-                max: 100.0,
-            },
-        ));
-    match flow.mode {
-        RewardFlowMode::DualBuff => {
-            let (primary, secondary) = generate_dual_reward_choices(&mut rng, mods);
-            choices.primary = primary;
-            choices.secondary = secondary;
-        }
-        RewardFlowMode::HealOrBuff | RewardFlowMode::SingleBuff => {
-            choices.primary = generate_reward_choices(&mut rng, mods, &[]);
-            choices.secondary.clear();
-        }
-    }
+        .map(|(mods, _)| *mods)
+        .unwrap_or_default();
+    let draft = build_reward_draft(
+        SessionMode::Solo,
+        mode,
+        &mut rng,
+        &[PlayerRuleSnapshot {
+            player_index: 0,
+            alive: true,
+            mods,
+        }],
+    );
+    apply_solo_reward_draft(&draft, &mut choices);
     next_state.set(AppState::RewardSelect);
-}
-
-fn generate_reward_choices(
-    rng: &mut GameRng,
-    mods: RewardModifiers,
-    excluded: &[RewardType],
-) -> Vec<RewardType> {
-    let mut pool = reward_pool()
-        .into_iter()
-        .filter(|reward| !mods.reward_at_max(*reward) && !excluded.contains(reward))
-        .collect::<Vec<_>>();
-    if pool.len() < 3 {
-        pool = reward_pool()
-            .into_iter()
-            .filter(|reward| !excluded.contains(reward))
-            .collect::<Vec<_>>();
-    }
-    rng.shuffle(&mut pool);
-    pool.truncate(3);
-    pool
-}
-
-fn generate_dual_reward_choices(
-    rng: &mut GameRng,
-    mods: RewardModifiers,
-) -> (Vec<RewardType>, Vec<RewardType>) {
-    let primary = generate_reward_choices(rng, mods, &[]);
-    let mut secondary = generate_reward_choices(rng, mods, &primary);
-    if secondary.len() < 3 {
-        secondary = generate_reward_choices(rng, mods, &[]);
-    }
-    (primary, secondary)
-}
-
-fn reward_pool() -> Vec<RewardType> {
-    vec![
-        RewardType::EnhanceMeleeWeapon,
-        RewardType::IncreaseAttackSpeed,
-        RewardType::IncreaseAttackPower,
-        RewardType::IncreaseMaxHealth,
-        RewardType::ReduceDashCooldown,
-        RewardType::LifeStealOnKill,
-        RewardType::IncreaseCritChance,
-        RewardType::IncreaseMoveSpeed,
-        RewardType::DashDamageTrail,
-        RewardType::EnhanceRangedWeapon,
-    ]
 }
 
 fn handle_reward_choice_input(
@@ -340,11 +308,11 @@ fn apply_reward_choice(
     mut next_state: ResMut<NextState<AppState>>,
     mut flow: ResMut<RewardFlow>,
     mut choices: ResMut<RewardChoices>,
-    mut rng: ResMut<GameRng>,
     mut player_q: Query<
         (
             &mut RewardModifiers,
             &mut Health,
+            &mut Energy,
             &mut MoveSpeed,
             &mut DashCooldown,
             &mut RangedCooldown,
@@ -381,6 +349,7 @@ fn apply_reward_choice(
         if let Ok((
             mut mods,
             mut health,
+            mut energy,
             mut move_speed,
             mut dash_cd,
             mut ranged_cd,
@@ -389,25 +358,40 @@ fn apply_reward_choice(
             mut attack_power,
         )) = player_q.get_single_mut()
         {
-            apply_reward_to_player_components(
-                ev.reward,
-                floor_number,
-                if ev.reward == RewardType::RecoverHealth {
-                    1.0
-                } else {
-                    flow.reward_scale
+            let selection = RewardSelection {
+                mode: reward_draft_mode_from_flow(flow.mode),
+                primary: match ev.group {
+                    RewardChoiceGroup::Heal | RewardChoiceGroup::Primary => {
+                        Some(reward_option_from_choice(ev.reward, ev.group))
+                    }
+                    RewardChoiceGroup::Secondary => None,
                 },
-                &mut mods,
-                &mut health,
-                &mut move_speed,
-                &mut dash_cd,
-                &mut ranged_cd,
-                &mut crit,
-                &mut atk_cd,
-                &mut attack_power,
+                secondary: match ev.group {
+                    RewardChoiceGroup::Secondary => {
+                        Some(reward_option_from_choice(ev.reward, ev.group))
+                    }
+                    _ => None,
+                },
+            };
+            let mut effects = PlayerRuleEffects {
+                health: &mut health,
+                energy: &mut energy,
+                move_speed: &mut move_speed,
+                attack_power: &mut attack_power,
+                crit: &mut crit,
+                dash_cooldown: &mut dash_cd,
+                attack_cooldown: &mut atk_cd,
+                ranged_cooldown: &mut ranged_cd,
+                mods: &mut mods,
+            };
+            let _ = apply_shared_reward_selection(
+                selection,
+                floor_number,
+                &mut effects,
+                PostRewardDecision::ResumeRun,
             );
         } else {
-            warn!("奖励已选择，但没有找到玩家实体。");
+            warn!("reward chosen but no player entity was found");
         }
 
         match flow.mode {
@@ -478,4 +462,85 @@ fn map_reward_key(
         }
     }
     None
+}
+
+fn reset_reward_flow(flow: &mut RewardFlow) {
+    flow.go_next_floor = false;
+    flow.go_victory = false;
+    flow.mode = RewardFlowMode::SingleBuff;
+    flow.reward_scale = 1.0;
+    flow.selected_primary = None;
+    flow.selected_secondary = None;
+}
+
+fn reward_flow_mode_from_draft(mode: RewardDraftMode) -> RewardFlowMode {
+    match mode {
+        RewardDraftMode::SingleBuff | RewardDraftMode::LoneSurvivor => RewardFlowMode::SingleBuff,
+        RewardDraftMode::HealOrBuff => RewardFlowMode::HealOrBuff,
+        RewardDraftMode::DualBuff => RewardFlowMode::DualBuff,
+    }
+}
+
+fn reward_draft_mode_from_flow(mode: RewardFlowMode) -> RewardDraftMode {
+    match mode {
+        RewardFlowMode::SingleBuff => RewardDraftMode::SingleBuff,
+        RewardFlowMode::HealOrBuff => RewardDraftMode::HealOrBuff,
+        RewardFlowMode::DualBuff => RewardDraftMode::DualBuff,
+    }
+}
+
+fn reward_scale_for_draft(mode: RewardDraftMode) -> f32 {
+    match mode {
+        RewardDraftMode::DualBuff => 1.50,
+        _ => 1.0,
+    }
+}
+
+fn set_post_reward_flags(flow: &mut RewardFlow, post_reward: PostRewardDecision) {
+    match post_reward {
+        PostRewardDecision::ResumeRun => {
+            flow.go_next_floor = false;
+            flow.go_victory = false;
+        }
+        PostRewardDecision::NextFloor => {
+            flow.go_next_floor = true;
+            flow.go_victory = false;
+        }
+        PostRewardDecision::Victory => {
+            flow.go_next_floor = false;
+            flow.go_victory = true;
+        }
+    }
+}
+
+fn apply_solo_reward_draft(draft: &RewardDraft, choices: &mut RewardChoices) {
+    let Some(player) = draft.players.first() else {
+        choices.primary.clear();
+        choices.secondary.clear();
+        return;
+    };
+    choices.primary = player
+        .primary_options
+        .iter()
+        .filter_map(|option| match option {
+            RewardOptionDraft::Buff(reward) => Some(*reward),
+            _ => None,
+        })
+        .collect();
+    choices.secondary = player
+        .secondary_options
+        .iter()
+        .filter_map(|option| match option {
+            RewardOptionDraft::Buff(reward) => Some(*reward),
+            _ => None,
+        })
+        .collect();
+}
+
+fn reward_option_from_choice(reward: RewardType, group: RewardChoiceGroup) -> RewardOptionDraft {
+    if group == RewardChoiceGroup::Heal || reward == RewardType::RecoverHealth {
+        RewardOptionDraft::Rest
+    } else {
+        RewardOptionDraft::Buff(reward)
+    }
 }
