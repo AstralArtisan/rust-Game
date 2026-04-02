@@ -2,6 +2,7 @@
 
 最后更新：2026-04-02
 
+
 ## 本轮目标
 
 - 收紧 authority / replicated 的玩法边界
@@ -57,3 +58,68 @@
 
 - 本轮没有做图形化双开或局域网双机验收
 - 远端近战刀光 / dash 残影链路在代码上已完成基线校验，但仍缺少真实运行时截图或录像级验证
+## 本轮目标
+
+- 阶段 1：修复 RPS 永久等待问题，并清理 `src/coop/ui.rs` 中残留的英文联机文案。
+
+## 本轮代码改动
+
+- `src/coop/components.rs`
+  - 为 `CoopRpsState` 新增 `input_timeout_s`，用于记录双方出拳等待倒计时。
+- `src/coop/runtime.rs`
+  - 为 RPS 等待阶段加入 12 秒超时兜底。
+  - 超时后为未出拳玩家自动补全出拳，并在平局重开时重置倒计时。
+- `src/coop/ui.rs`
+  - 为 RPS 弹窗加入剩余倒计时提示。
+  - 将联机菜单、大厅、暂停弹窗、商店刷新项等残留英文统一改为中文。
+
+## 新增测试（如有）
+
+- `default_rps_state_starts_with_timeout_budget`
+- `reset_rps_input_round_clears_choices_and_restores_timeout`
+- `fill_missing_rps_choices_assigns_missing_inputs`
+
+## 验证结果
+
+- `cargo test --quiet` 通过（32/32）
+- `cargo check --quiet` 通过
+- 双机联调尚未执行；RPS 超时、联机 UI 中文化目前仅完成代码级与单元测试验证
+
+## 本轮目标
+
+- 阶段 2：修复联机近战刀光起点使用插值坐标导致的偏移。
+
+## 本轮代码改动
+
+- `src/coop/ui.rs`
+  - 远端玩家触发近战刀光时，优先使用 `CoopNetPosition` 的权威坐标计算刀光起点；仅在复制坐标缺失时回退到本地 `Transform`。
+
+## 新增测试（如有）
+
+- 无
+
+## 验证结果
+
+- `cargo test --quiet` 通过（32/32）
+- `cargo check --quiet` 通过
+- 双机联调尚未执行；刀光位置修复目前完成代码级验证
+
+## 本轮目标
+
+- 阶段 3：修复远端玩家冲刺残影在网络抖动下的单帧闪烁。
+
+## 本轮代码改动
+
+- `src/coop/ui.rs`
+  - 为 `ReplicatedPlayerVisualState` 增加 dash 结束 grace 窗口状态。
+  - 将残影激活判断改为“有效 dash 状态”，仅在连续超过 90ms 的非激活后才确认 dash 结束并重置残影计时器。
+
+## 新增测试（如有）
+
+- 无
+
+## 验证结果
+
+- `cargo test --quiet` 通过（32/32）
+- `cargo check --quiet` 通过
+- 双机联调尚未执行；残影平滑修复目前完成代码级验证
