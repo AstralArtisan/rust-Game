@@ -2,6 +2,8 @@
 
 本文件为 Claude Code (claude.ai/code) 在此仓库中工作提供指导。
 
+@AGENTS.md
+
 ## 常用命令
 
 ```bash
@@ -67,6 +69,7 @@ src/states.rs        → AppState + RoomState 枚举
 src/core/            → 基础设施：资源、输入、音频、相机、存档、成就、本地联调
 src/data/            → 配置：RON 文件加载器 → GameDataRegistry 资源
 src/gameplay/        → 共享游戏逻辑（单机与 Coop 均使用）
+src/gameplay/player/ → 玩家组件、战斗、冲刺、连击、技能系统
 src/coop/            → 基于 Lightyear 的主机权威 Coop 网络层
 src/pvp/             → 自定义 UDP PVP 网络层
 src/ui/              → 所有菜单、HUD、暂停、通知
@@ -88,6 +91,8 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 - **解谜系统**（`src/gameplay/puzzle/`）仅在 `AppState::InGame`（单机）中运行，不会复制到 Coop。
 - **Coop 采用主机权威**：`src/coop/runtime.rs` 在主机端运行所有模拟；客户端发送输入并接收状态。这是仓库中最复杂的文件。
 - **`InGameEntity` 标记**（`src/utils/entity.rs`）添加到所有需要在状态切换时被销毁的实体上。
+- **战斗蓄力系统**：能量不自然回复，通过战斗行为充能（近战命中+8、远程+4、击杀+12等），蓄满后按 1/2/3 释放终结技（剑气斩/标记猎杀/闪电冲刺）。配置在 `player.ron` 的 `charge_*` 字段。
+- **技能槽位**：数字键 1-4 对应 HUD 底部技能栏。`SkillSlots` 组件记录解锁状态，`PlayerSkillState` 管理释放中的技能状态。
 
 ### 关键实现细节
 
@@ -134,6 +139,41 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 ### 质量说明
 
 - 当前实现存在编译警告（未使用代码、弃用 API），已在项目文档中记录
-- 24 个单元测试覆盖核心游戏系统
+- 33 个单元测试覆盖核心游戏系统
 - 主执行二进制名为 `block_city_adventure`
 - 窗口标题为"勇闯方块城"
+
+## Plan-to-Codex 工作流
+
+本仓库使用 Claude 规划 + Codex 执行的分工模式。
+
+### 角色分工
+
+| 角色 | 职责 |
+|------|------|
+| Claude | 分析仓库、理解需求、编写计划（`PLANS.md`）、审查 Codex 产出 |
+| Codex | 按计划实现代码、保持最小 diff、运行验证、报告结果 |
+
+### 工作流程
+
+1. **Claude 规划**：使用 `plan-to-codex` skill，分析任务后写入 `PLANS.md`
+2. **Codex 执行**：运行 `./scripts/codex-from-plan.ps1`（或 `.sh`），Codex 读取 `AGENTS.md` + `PLANS.md` 并实现
+3. **Claude 审查**：对比 `PLANS.md` 与实际改动，检查范围、质量、回归
+4. **收尾**：执行 `doc-maintenance` 和 `git-maintenance` skills
+
+### 关键文件
+
+| 文件 | 用途 |
+|------|------|
+| `AGENTS.md` | Codex 的执行契约（范围、代码风格、报告格式） |
+| `PLANS.md` | 任务交接模板，Claude 写入，Codex 读取 |
+| `scripts/codex-from-plan.sh` | Bash 启动脚本 |
+| `scripts/codex-from-plan.ps1` | PowerShell 启动脚本 |
+
+### 默认行为
+
+Claude 在此仓库中默认为规划者和审查者。除非用户明确要求"直接实现"或"自己动手"，否则 Claude 应：
+- 先检查再规划
+- 优先写计划而非写代码
+- 定义精确的影响范围和验证命令
+- 将实现委托给 Codex

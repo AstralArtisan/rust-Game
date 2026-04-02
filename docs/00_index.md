@@ -62,7 +62,7 @@
 
 ## 当前质量结论
 - `cargo check` 可通过，但仍存在大量告警
-- `cargo test` 当前通过 24 个单元测试
+- `cargo test` 当前通过 33 个单元测试
 - 现有测试主要集中在 `session_core`、`coop::net`、`coop::runtime` 与部分玩家行为约束
 - 多人文档已从旧的“0 tests”阶段演进，阅读旧文档时必须注意时间背景
 
