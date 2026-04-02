@@ -109,6 +109,27 @@ impl Plugin for EnemySystemsPlugin {
             )
             .add_systems(
                 Update,
+                (
+                    boss::boss_guardian_facing_system,
+                    boss::boss_decoy_system,
+                    boss::tide_hunter_state_machine,
+                    boss::tide_hunter_parry_check.after(boss::tide_hunter_state_machine),
+                    ai::boss_movement_override.after(ai::update_enemy_ai),
+                    boss::boss_subcore_orbit,
+                    boss::boss_core_shield_update,
+                    boss::boss_core_phase_respawn.after(boss::boss_phase_controller),
+                    boss::boss_mechanic_hint_system,
+                )
+                    .run_if(
+                        in_state(AppState::InGame).or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        ),
+                    ),
+            )
+            .add_systems(
+                Update,
                 boss_contact_damage_system.run_if(
                     in_state(AppState::InGame).or_else(
                         in_state(AppState::CoopGame)
@@ -513,10 +534,11 @@ pub fn spawn_boss(
         max_hp: stats.max_hp * coop_hp_mult.max(1.0),
         ..stats
     };
-    let hurtbox_size = if archetype == BossArchetype::CubeCore {
-        66.0
-    } else {
-        60.0
+    let (sprite_size, hurtbox_size) = match archetype {
+        BossArchetype::Floor1Guardian => (72.0_f32, 68.0_f32),
+        BossArchetype::MirrorWarden => (60.0, 56.0),
+        BossArchetype::TideHunter => (32.0, 30.0),
+        BossArchetype::CubeCore => (84.0, 80.0),
     };
     let id = commands
         .spawn((
@@ -525,11 +547,7 @@ pub fn spawn_boss(
                 transform: Transform::from_translation(Vec3::new(220.0, 0.0, 45.0)),
                 sprite: Sprite {
                     color: boss::boss_color(archetype),
-                    custom_size: Some(Vec2::splat(if archetype == BossArchetype::CubeCore {
-                        68.0
-                    } else {
-                        64.0
-                    })),
+                    custom_size: Some(Vec2::splat(sprite_size)),
                     ..default()
                 },
                 ..default()
@@ -561,6 +579,39 @@ pub fn spawn_boss(
     commands
         .entity(id)
         .insert((kind, archetype, phase, timer, cycle));
+    match archetype {
+        BossArchetype::Floor1Guardian => {
+            commands.entity(id).insert(BossDirectionalDefense {
+                facing: Vec2::NEG_X,
+            });
+        }
+        BossArchetype::TideHunter => {
+            commands.entity(id).insert(TideHunterState {
+                phase: TideHunterPhase::Stalk,
+                timer: Timer::from_seconds(0.1, TimerMode::Once),
+                lunge_dir: Vec2::NEG_X,
+                parry_window_active: false,
+            });
+        }
+        BossArchetype::CubeCore => {
+            let boss_pos = Vec2::new(220.0, 0.0);
+            commands.entity(id).insert(BossCoreShield { cores_alive: 4 });
+            for i in 0..4u8 {
+                let angle = i as f32 / 4.0 * std::f32::consts::TAU;
+                let spawn_pos = boss_pos + Vec2::new(angle.cos(), angle.sin()) * 85.0;
+                boss::spawn_cube_core_subcore(
+                    commands,
+                    assets,
+                    id,
+                    spawn_pos,
+                    angle,
+                    0.55,
+                    70.0,
+                );
+            }
+        }
+        BossArchetype::MirrorWarden => {}
+    }
     id
 }
 
@@ -799,9 +850,12 @@ pub fn enemy_death_system(
             (With<Player>, Without<Replicated>),
         >,
     )>,
-    enemy_info_q: Query<(&EnemyKind, Option<&Elite>)>,
-    enemies_left: Query<Entity, (With<Enemy>, Without<Replicated>)>,
-    boss_summoned_q: Query<Entity, With<BossSummoned>>,
+    enemy_queries: (
+        Query<(&EnemyKind, Option<&Elite>)>,
+        Query<(), With<BossSubCore>>,
+        Query<Entity, (With<Enemy>, Without<Replicated>)>,
+        Query<Entity, With<BossSummoned>>,
+    ),
     mut grace: ResMut<ClearGrace>,
     mut spawn_count: ResMut<EnemySpawnCount>,
     data: Res<GameDataRegistry>,
@@ -814,13 +868,16 @@ pub fn enemy_death_system(
             continue;
         }
 
-        let (kind, is_elite) = enemy_info_q
+        let (kind, is_elite) = enemy_queries
+            .0
             .get(ev.entity)
             .ok()
             .map(|(k, e)| (Some(k.0), e.is_some()))
             .unwrap_or((None, false));
+        let is_sub_core = enemy_queries.1.get(ev.entity).is_ok();
+        let reward_kind = if is_sub_core { None } else { kind };
         let floor_number = floor.as_deref().map(|f| f.0).unwrap_or(1);
-        let base_gold = match kind {
+        let base_gold = match reward_kind {
             Some(EnemyType::Boss) => match floor_number {
                 1 => 28,
                 2 => 30,
@@ -867,8 +924,8 @@ pub fn enemy_death_system(
             }
         }
         safe_despawn_recursive(&mut commands, ev.entity);
-        if matches!(kind, Some(EnemyType::Boss)) {
-            for summoned in &boss_summoned_q {
+        if matches!(kind, Some(EnemyType::Boss)) && !is_sub_core {
+            for summoned in &enemy_queries.3 {
                 if summoned != ev.entity {
                     safe_despawn_recursive(&mut commands, summoned);
                 }
@@ -900,7 +957,7 @@ pub fn enemy_death_system(
             return;
         }
 
-        let any_enemy_left = enemies_left.iter().next().is_some();
+        let any_enemy_left = enemy_queries.2.iter().next().is_some();
         if !any_enemy_left {
             *room_state = RoomState::Cleared;
             room_cleared.send(RoomClearedEvent {

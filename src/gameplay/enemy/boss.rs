@@ -8,14 +8,20 @@ use crate::coop::net::{CoopNetConfig, NetMode};
 use crate::core::events::BossPhaseChangeEvent;
 use crate::data::definitions::BossFloorConfig;
 use crate::data::registry::GameDataRegistry;
-use crate::gameplay::combat::components::Team;
+use crate::gameplay::combat::components::{
+    DamageKind, Hitbox, Hurtbox, Knockback, Lifetime, Team,
+};
 use crate::gameplay::combat::projectiles;
+use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
 use crate::gameplay::enemy::components::{
-    BossArchetype, BossCycleState, BossPatternTimer, BossPhase, BossSummoned, EnemyKind,
-    EnemyStats, EnemyType,
+    BossArchetype, BossCoreShield, BossCycleState, BossDecoy, BossDirectionalDefense,
+    BossPatternTimer, BossPhase, BossSubCore, BossSummoned, EnemyKind, EnemyStats, EnemyType,
+    TeamMarker, TideHunterPhase, TideHunterState,
 };
-use crate::gameplay::player::components::{Health, Player};
+use crate::gameplay::map::InGameEntity;
+use crate::gameplay::player::components::{DashState, Health, Player};
+use crate::ui::tutorial::{TutorialFlags, TutorialNotification};
 use crate::utils::math::direction_to;
 
 pub fn boss_phase_controller(
@@ -208,6 +214,274 @@ pub fn boss_color(archetype: BossArchetype) -> Color {
     }
 }
 
+pub fn boss_guardian_facing_system(
+    player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
+    mut q: Query<
+        (&Transform, &mut BossDirectionalDefense, &mut Sprite),
+        With<BossDirectionalDefense>,
+    >,
+) {
+    let player_positions: Vec<Vec2> = player_q
+        .iter()
+        .filter_map(|(tf, ghost)| {
+            (!matches!(ghost, Some(GhostState::Ghost))).then_some(tf.translation().truncate())
+        })
+        .collect();
+    if player_positions.is_empty() {
+        return;
+    }
+
+    for (tf, mut defense, mut sprite) in &mut q {
+        let boss_pos = tf.translation.truncate();
+        let player_pos = player_positions
+            .iter()
+            .copied()
+            .min_by(|a, b| boss_pos.distance(*a).total_cmp(&boss_pos.distance(*b)))
+            .unwrap();
+        let dir = direction_to(boss_pos, player_pos);
+        defense.facing = defense.facing.lerp(dir, 0.06).normalize_or_zero();
+
+        let facing_strength = defense.facing.dot(dir).clamp(0.0, 1.0);
+        sprite.color = Color::srgb(
+            0.85 + 0.08 * facing_strength,
+            0.25 + 0.12 * facing_strength,
+            0.95 + 0.03 * facing_strength,
+        );
+    }
+}
+
+pub fn boss_decoy_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut BossDecoy)>,
+) {
+    for (entity, mut decoy) in &mut q {
+        decoy.lifetime.tick(time.delta());
+        if decoy.lifetime.finished() {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
+}
+
+pub fn tide_hunter_state_machine(
+    mut commands: Commands,
+    time: Res<Time>,
+    assets: Res<crate::core::assets::GameAssets>,
+    player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
+    mut q: Query<
+        (Entity, &Transform, &EnemyStats, &mut TideHunterState, &mut Sprite),
+        With<TideHunterState>,
+    >,
+) {
+    let player_positions: Vec<Vec2> = player_q
+        .iter()
+        .filter_map(|(tf, ghost)| {
+            (!matches!(ghost, Some(GhostState::Ghost))).then_some(tf.translation().truncate())
+        })
+        .collect();
+    if player_positions.is_empty() {
+        return;
+    }
+
+    for (boss_entity, tf, stats, mut state, mut sprite) in &mut q {
+        let pos = tf.translation.truncate();
+        let player_pos = player_positions
+            .iter()
+            .copied()
+            .min_by(|a, b| pos.distance(*a).total_cmp(&pos.distance(*b)))
+            .unwrap();
+        let dist = pos.distance(player_pos);
+        state.timer.tick(time.delta());
+
+        match state.phase {
+            TideHunterPhase::Stalk => {
+                if dist < 120.0 {
+                    state.phase = TideHunterPhase::WindupTelegraph;
+                    state.timer = Timer::from_seconds(0.38, TimerMode::Once);
+                    state.timer.reset();
+                    state.parry_window_active = true;
+                }
+            }
+            TideHunterPhase::WindupTelegraph => {
+                if state.timer.finished() {
+                    state.phase = TideHunterPhase::Lunge;
+                    state.timer = Timer::from_seconds(0.22, TimerMode::Once);
+                    state.timer.reset();
+                    state.lunge_dir = direction_to(pos, player_pos);
+                    state.parry_window_active = false;
+                    spawn_melee_hitbox(
+                        &mut commands,
+                        &assets,
+                        boss_entity,
+                        pos,
+                        state.lunge_dir,
+                        stats.attack_damage,
+                    );
+                }
+            }
+            TideHunterPhase::Lunge => {
+                if state.timer.finished() {
+                    state.phase = TideHunterPhase::Cooldown;
+                    state.timer = Timer::from_seconds(0.55, TimerMode::Once);
+                    state.timer.reset();
+                }
+            }
+            TideHunterPhase::Cooldown => {
+                if state.timer.finished() {
+                    state.phase = TideHunterPhase::Stalk;
+                }
+            }
+            TideHunterPhase::Stunned => {
+                if state.timer.finished() {
+                    state.phase = TideHunterPhase::Stalk;
+                }
+            }
+        }
+
+        sprite.color = match state.phase {
+            TideHunterPhase::WindupTelegraph => Color::srgb(1.0, 0.55, 0.1),
+            TideHunterPhase::Stunned => Color::srgb(0.82, 0.82, 0.82),
+            TideHunterPhase::Stalk | TideHunterPhase::Lunge | TideHunterPhase::Cooldown => {
+                boss_color(BossArchetype::TideHunter)
+            }
+        };
+    }
+}
+
+pub fn tide_hunter_parry_check(
+    player_q: Query<
+        (&GlobalTransform, &DashState, Option<&GhostState>),
+        (With<Player>, Without<Replicated>),
+    >,
+    mut boss_q: Query<
+        (&Transform, &mut TideHunterState, &mut Sprite, Option<&mut Flash>),
+        With<TideHunterState>,
+    >,
+) {
+    for (boss_tf, mut state, mut sprite, flash_opt) in &mut boss_q {
+        if !state.parry_window_active {
+            continue;
+        }
+        let boss_pos = boss_tf.translation.truncate();
+        for (player_tf, dash, ghost) in &player_q {
+            if matches!(ghost, Some(GhostState::Ghost)) {
+                continue;
+            }
+            let player_pos = player_tf.translation().truncate();
+            if dash.active && boss_pos.distance(player_pos) < 65.0 {
+                state.phase = TideHunterPhase::Stunned;
+                state.timer = Timer::from_seconds(1.6, TimerMode::Once);
+                state.timer.reset();
+                state.parry_window_active = false;
+                sprite.color = Color::srgb(0.82, 0.82, 0.82);
+                if let Some(mut flash) = flash_opt {
+                    flash.trigger(1.6);
+                }
+                break;
+            }
+        }
+    }
+}
+
+pub fn boss_subcore_orbit(
+    time: Res<Time>,
+    boss_q: Query<&Transform, (With<BossArchetype>, Without<BossSubCore>)>,
+    mut core_q: Query<(&mut BossSubCore, &mut Transform), Without<BossArchetype>>,
+) {
+    for (mut core, mut tf) in &mut core_q {
+        let Ok(boss_tf) = boss_q.get(core.boss_entity) else {
+            continue;
+        };
+        core.orbit_angle += core.orbit_speed * time.delta_seconds();
+        let boss_pos = boss_tf.translation.truncate();
+        let new_pos = boss_pos + Vec2::new(core.orbit_angle.cos(), core.orbit_angle.sin()) * 85.0;
+        tf.translation.x = new_pos.x;
+        tf.translation.y = new_pos.y;
+    }
+}
+
+pub fn boss_core_shield_update(
+    core_q: Query<&BossSubCore>,
+    mut boss_q: Query<(Entity, &mut BossCoreShield, &mut Sprite, Option<&mut Flash>)>,
+) {
+    for (boss_entity, mut shield, mut sprite, flash_opt) in &mut boss_q {
+        let alive = core_q.iter().filter(|core| core.boss_entity == boss_entity).count() as u8;
+        if alive < shield.cores_alive && shield.cores_alive > 0 {
+            if let Some(mut flash) = flash_opt {
+                flash.trigger(0.25);
+            }
+        }
+        shield.cores_alive = alive;
+        sprite.color = if alive > 0 {
+            Color::srgba(0.60, 0.42, 0.50, 0.92)
+        } else {
+            boss_color(BossArchetype::CubeCore)
+        };
+    }
+}
+
+pub fn boss_core_phase_respawn(
+    mut commands: Commands,
+    assets: Res<crate::core::assets::GameAssets>,
+    mut phase_events: EventReader<BossPhaseChangeEvent>,
+    boss_q: Query<(Entity, &Transform, &BossArchetype)>,
+) {
+    for ev in phase_events.read() {
+        if ev.phase < 2 {
+            continue;
+        }
+        for (boss_entity, boss_tf, archetype) in &boss_q {
+            if *archetype != BossArchetype::CubeCore {
+                continue;
+            }
+            let boss_pos = boss_tf.translation.truncate();
+            let count = 2u8;
+            for i in 0..count {
+                let angle = i as f32 / count as f32 * std::f32::consts::TAU;
+                let spawn_pos = boss_pos + Vec2::new(angle.cos(), angle.sin()) * 85.0;
+                let core_hp = 70.0 + ev.phase as f32 * 20.0;
+                spawn_cube_core_subcore(
+                    &mut commands,
+                    &assets,
+                    boss_entity,
+                    spawn_pos,
+                    angle,
+                    0.65,
+                    core_hp,
+                );
+            }
+        }
+    }
+}
+
+pub fn boss_mechanic_hint_system(
+    mut phase_events: EventReader<BossPhaseChangeEvent>,
+    mut flags: ResMut<TutorialFlags>,
+    mut tutorial_ev: EventWriter<TutorialNotification>,
+    decoy_q: Query<(), With<BossDecoy>>,
+    tide_q: Query<&TideHunterState>,
+) {
+    let _phase_changed = phase_events.read().last().is_some();
+
+    if !flags.boss_mirror_warden_mechanic_shown && !decoy_q.is_empty() {
+        tutorial_ev.send(TutorialNotification(
+            "找到真身！命中真身会闪光，幻象不会".to_string(),
+        ));
+        flags.boss_mirror_warden_mechanic_shown = true;
+    }
+
+    if !flags.boss_tide_hunter_mechanic_shown
+        && tide_q
+            .iter()
+            .any(|state| state.phase == TideHunterPhase::WindupTelegraph)
+    {
+        tutorial_ev.send(TutorialNotification(
+            "格挡机会！蓄力时用【空格】冲刺穿越".to_string(),
+        ));
+        flags.boss_tide_hunter_mechanic_shown = true;
+    }
+}
+
 fn boss_config<'a>(data: &'a GameDataRegistry, archetype: BossArchetype) -> &'a BossFloorConfig {
     match archetype {
         BossArchetype::Floor1Guardian => &data.bosses.floor_1,
@@ -314,6 +588,7 @@ fn run_floor_2_pattern(
             timer.reset();
             let anchor = mirror_anchor(cycle.anchor_index);
             cycle.anchor_index = (cycle.anchor_index + 1) % 3;
+            spawn_mirror_decoy(commands, assets, boss_pos, stats, dir, phase);
             boss_tf.translation.x = anchor.x;
             boss_tf.translation.y = anchor.y;
             if cycle.step % 2 == 0 {
@@ -346,6 +621,7 @@ fn run_floor_2_pattern(
             timer.reset();
             let anchor = mirror_anchor(cycle.anchor_index);
             cycle.anchor_index = (cycle.anchor_index + 1) % 3;
+            spawn_mirror_decoy(commands, assets, boss_pos, stats, dir, phase);
             boss_tf.translation.x = anchor.x;
             boss_tf.translation.y = anchor.y;
             spawn_fan(
@@ -392,22 +668,8 @@ fn run_floor_3_pattern(
 ) {
     match phase {
         1 => {
-            *timer = Timer::from_seconds(1.02, TimerMode::Once);
+            *timer = Timer::from_seconds(2.0, TimerMode::Once);
             timer.reset();
-            let sidestep =
-                Vec2::new(-dir.y, dir.x) * if cycle.step % 2 == 0 { 84.0 } else { -84.0 };
-            let moved = clamp_room_position(boss_pos + sidestep, 46.0);
-            boss_tf.translation.x = moved.x;
-            boss_tf.translation.y = moved.y;
-            spawn_fan(
-                commands,
-                assets,
-                moved + dir * 22.0,
-                dir,
-                stats.projectile_speed * 0.96,
-                stats.attack_damage * 0.44,
-                &[-0.32, -0.12, 0.0, 0.12, 0.32],
-            );
         }
         2 => {
             *timer = Timer::from_seconds(1.08, TimerMode::Once);
@@ -582,6 +844,129 @@ fn run_floor_4_pattern(
             });
         }
     }
+}
+
+fn spawn_mirror_decoy(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    pos: Vec2,
+    stats: &EnemyStats,
+    dir: Vec2,
+    phase: u8,
+) {
+    commands.spawn((
+        SpriteBundle {
+            texture: assets.textures.white.clone(),
+            transform: Transform::from_translation(pos.extend(44.0)),
+            sprite: Sprite {
+                color: Color::srgba(0.58, 0.82, 1.0, 0.45),
+                custom_size: Some(Vec2::splat(60.0)),
+                ..default()
+            },
+            ..default()
+        },
+        BossDecoy {
+            lifetime: Timer::from_seconds(2.8, TimerMode::Once),
+        },
+        InGameEntity,
+        Name::new("MirrorDecoy"),
+    ));
+    spawn_cross(
+        commands,
+        assets,
+        pos,
+        stats.projectile_speed * 0.75,
+        stats.attack_damage * 0.35,
+    );
+    if phase >= 3 {
+        spawn_fan(
+            commands,
+            assets,
+            pos + dir * 16.0,
+            dir,
+            stats.projectile_speed * 0.9,
+            stats.attack_damage * 0.3,
+            &[-0.22, 0.0, 0.22],
+        );
+    }
+}
+
+fn spawn_melee_hitbox(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    owner: Entity,
+    pos: Vec2,
+    dir: Vec2,
+    damage: f32,
+) {
+    commands.spawn((
+        SpriteBundle {
+            texture: assets.textures.white.clone(),
+            transform: Transform::from_translation((pos + dir * 30.0).extend(40.0)),
+            sprite: Sprite {
+                color: Color::NONE,
+                custom_size: Some(Vec2::splat(38.0)),
+                ..default()
+            },
+            ..default()
+        },
+        Hitbox {
+            owner: Some(owner),
+            team: Team::Enemy,
+            damage_kind: DamageKind::Enemy,
+            size: Vec2::splat(38.0),
+            damage,
+            knockback: 260.0,
+            can_crit: false,
+            crit_chance: 0.0,
+            crit_multiplier: 1.0,
+        },
+        Lifetime(Timer::from_seconds(0.10, TimerMode::Once)),
+        InGameEntity,
+        Name::new("TideHunterLungeHitbox"),
+    ));
+}
+
+pub fn spawn_cube_core_subcore(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    boss_entity: Entity,
+    spawn_pos: Vec2,
+    orbit_angle: f32,
+    orbit_speed: f32,
+    core_hp: f32,
+) {
+    commands.spawn((
+        SpriteBundle {
+            texture: assets.textures.white.clone(),
+            transform: Transform::from_translation(spawn_pos.extend(44.0)),
+            sprite: Sprite {
+                color: Color::srgb(1.0, 0.55, 0.75),
+                custom_size: Some(Vec2::splat(18.0)),
+                ..default()
+            },
+            ..default()
+        },
+        BossSubCore {
+            boss_entity,
+            orbit_angle,
+            orbit_speed,
+        },
+        Health {
+            current: core_hp,
+            max: core_hp,
+        },
+        EnemyKind(EnemyType::Boss),
+        TeamMarker(Team::Enemy),
+        Hurtbox {
+            team: Team::Enemy,
+            size: Vec2::splat(16.0),
+        },
+        Flash::new(0.0),
+        Knockback(Vec2::ZERO),
+        InGameEntity,
+        Name::new("CubeCoreSubCore"),
+    ));
 }
 
 fn spawn_fan(

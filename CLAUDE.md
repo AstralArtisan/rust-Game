@@ -177,3 +177,12 @@ Claude 在此仓库中默认为规划者和审查者。除非用户明确要求"
 - 优先写计划而非写代码
 - 定义精确的影响范围和验证命令
 - 将实现委托给 Codex
+
+### 计划同步（必须执行）
+
+**每次 `ExitPlanMode` 被用户批准后，必须立即执行以下操作：**
+1. 读取批准的计划文件（路径显示在 ExitPlanMode 返回信息中，位于 `C:\Users\OMEN\.claude\plans\*.md`）
+2. 将其完整内容写入项目根目录的 `PLANS.md`
+3. 告知用户："计划已同步到 `PLANS.md`，可以运行 Codex。"
+
+这确保 Codex 运行 `./scripts/codex-from-plan.ps1` 时能读取到最新计划。

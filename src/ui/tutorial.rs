@@ -22,6 +22,10 @@ pub struct TutorialFlags {
     pub shop_hint_shown: bool,
     pub elite_hint_shown: bool,
     pub unlock_hints_shown: [bool; 4],
+    pub boss_guardian_mechanic_shown: bool,
+    pub boss_mirror_warden_mechanic_shown: bool,
+    pub boss_tide_hunter_mechanic_shown: bool,
+    pub boss_cube_core_mechanic_shown: bool,
 }
 
 impl Default for TutorialFlags {
@@ -32,6 +36,10 @@ impl Default for TutorialFlags {
             shop_hint_shown: false,
             elite_hint_shown: false,
             unlock_hints_shown: [false; 4],
+            boss_guardian_mechanic_shown: false,
+            boss_mirror_warden_mechanic_shown: false,
+            boss_tide_hunter_mechanic_shown: false,
+            boss_cube_core_mechanic_shown: false,
         }
     }
 }
@@ -48,6 +56,9 @@ pub struct ActiveBanner {
     pub timer: Timer,
 }
 
+#[derive(Event, Debug, Clone)]
+pub struct TutorialNotification(pub String);
+
 #[derive(Component)]
 pub struct TutorialUi;
 
@@ -63,6 +74,7 @@ impl Plugin for TutorialPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TutorialFlags>()
             .init_resource::<TutorialBannerQueue>()
+            .add_event::<TutorialNotification>()
             .add_systems(Startup, load_tutorial_flags)
             .add_systems(OnEnter(crate::states::AppState::InGame), setup_tutorial_ui)
             .add_systems(
@@ -77,6 +89,7 @@ impl Plugin for TutorialPlugin {
                     queue_shop_hint,
                     queue_elite_hint,
                     queue_skill_unlock_hints,
+                    queue_tutorial_notifications,
                     update_tutorial_banner,
                     persist_tutorial_flags,
                 )
@@ -212,6 +225,15 @@ pub fn queue_skill_unlock_hints(
             format!("已解锁 {name}！按 {} 释放", event.slot.key_label()),
         );
         flags.unlock_hints_shown[idx] = true;
+    }
+}
+
+pub fn queue_tutorial_notifications(
+    mut events: EventReader<TutorialNotification>,
+    mut queue: ResMut<TutorialBannerQueue>,
+) {
+    for event in events.read() {
+        enqueue_banner(&mut queue, event.0.clone());
     }
 }
 

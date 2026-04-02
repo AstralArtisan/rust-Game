@@ -5,8 +5,8 @@ use lightyear::prelude::Replicated;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::coop::components::GhostState;
 use crate::gameplay::enemy::components::{
-    ChargerPhase, ChargerState, EnemyBuffState, EnemyKind, EnemyStats, EnemyType, FlankerPhase,
-    FlankerState, SniperPhase, SniperState,
+    BossArchetype, ChargerPhase, ChargerState, EnemyBuffState, EnemyKind, EnemyStats, EnemyType,
+    FlankerPhase, FlankerState, SniperPhase, SniperState, TideHunterPhase, TideHunterState,
 };
 use crate::gameplay::player::components::Player;
 use crate::utils::math::{clamp_in_room, clamp_length, direction_to};
@@ -282,6 +282,61 @@ pub fn update_enemy_ai(
         );
         tf.translation.x = clamped.x;
         tf.translation.y = clamped.y;
+    }
+}
+
+pub fn boss_movement_override(
+    _time: Res<Time>,
+    player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
+    mut q: Query<
+        (
+            &BossArchetype,
+            &EnemyStats,
+            &Transform,
+            &mut super::systems::EnemyVelocity,
+            Option<&TideHunterState>,
+        ),
+        Without<Replicated>,
+    >,
+) {
+    let player_positions: Vec<Vec2> = player_q
+        .iter()
+        .filter_map(|(tf, ghost)| {
+            (!matches!(ghost, Some(GhostState::Ghost))).then_some(tf.translation().truncate())
+        })
+        .collect();
+    if player_positions.is_empty() {
+        return;
+    }
+
+    for (archetype, stats, tf, mut vel, tide_state) in &mut q {
+        let pos = tf.translation.truncate();
+        let player_pos = player_positions
+            .iter()
+            .copied()
+            .min_by(|a, b| pos.distance(*a).total_cmp(&pos.distance(*b)))
+            .unwrap();
+        let dir = direction_to(pos, player_pos);
+        let speed = stats.move_speed;
+
+        match archetype {
+            BossArchetype::TideHunter => {
+                if let Some(state) = tide_state {
+                    vel.0 = match state.phase {
+                        TideHunterPhase::Lunge => state.lunge_dir * speed * 5.0,
+                        TideHunterPhase::Stunned | TideHunterPhase::WindupTelegraph => Vec2::ZERO,
+                        TideHunterPhase::Stalk | TideHunterPhase::Cooldown => {
+                            let orbit = Vec2::new(-dir.y, dir.x) * 1.6;
+                            (dir * 0.6 + orbit).normalize_or_zero() * speed
+                        }
+                    };
+                }
+            }
+            BossArchetype::CubeCore => {
+                vel.0 = dir * speed * 0.85;
+            }
+            BossArchetype::Floor1Guardian | BossArchetype::MirrorWarden => {}
+        }
     }
 }
 

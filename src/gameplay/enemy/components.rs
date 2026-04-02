@@ -77,6 +77,49 @@ pub struct BossCycleState {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BossSummoned;
 
+/// Boss face direction. Hits from the guarded front arc deal reduced damage.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct BossDirectionalDefense {
+    pub facing: Vec2,
+}
+
+/// MirrorWarden decoy. It can fire but cannot be damaged.
+#[derive(Component, Debug, Clone)]
+pub struct BossDecoy {
+    pub lifetime: Timer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TideHunterPhase {
+    Stalk,
+    WindupTelegraph,
+    Lunge,
+    Cooldown,
+    Stunned,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct TideHunterState {
+    pub phase: TideHunterPhase,
+    pub timer: Timer,
+    pub lunge_dir: Vec2,
+    pub parry_window_active: bool,
+}
+
+/// CubeCore satellite core that orbits the main boss body.
+#[derive(Component, Debug, Clone)]
+pub struct BossSubCore {
+    pub boss_entity: Entity,
+    pub orbit_angle: f32,
+    pub orbit_speed: f32,
+}
+
+/// CubeCore shield state. The main body is immune while any cores remain.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct BossCoreShield {
+    pub cores_alive: u8,
+}
+
 #[derive(Component, Debug, Clone)]
 pub struct EnemyBuffState {
     pub speed_mult: f32,
