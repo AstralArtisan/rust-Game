@@ -54,6 +54,7 @@ use super::net::{
 
 const DOOR_INTERACT_RANGE: f32 = 76.0;
 const REVIVE_HEALTH_FRACTION: f32 = 0.5;
+const COOP_RPS_INPUT_TIMEOUT_S: f32 = 12.0;
 
 fn normalize_coop_room_type(room_type: RoomType) -> RoomType {
     if room_type == RoomType::Puzzle {
@@ -360,7 +361,7 @@ fn host_handle_pause_requests(
 
 fn host_buffer_player_inputs(
     local_input: Res<PlayerInputState>,
-    net: Res<CoopNetState>,
+    mut net: ResMut<CoopNetState>,
     mut players: Query<
         (&PlayerSlot, &mut BufferedCoopInput, &mut PlayerDriveInput),
         (With<CoopParticipant>, Without<Replicated>),
@@ -386,6 +387,13 @@ fn host_buffer_player_inputs(
             menu_confirm_pressed: input.menu_confirm_pressed,
             menu_cancel_pressed: input.menu_cancel_pressed,
         };
+        // 消费边缘事件后清除，防止跨帧重复触发
+        // （持续量 move_axis/held 无需清除，每帧由 capture_server_inputs 用最新值覆盖）
+        if *slot == PlayerSlot::P2 {
+            if let Some(stored) = net.latest_inputs.get_mut(&slot_client_id(PlayerSlot::P2)) {
+                stored.clear_edge_events();
+            }
+        }
     }
 }
 
@@ -934,6 +942,7 @@ fn host_handle_door_interactions(
 
 fn host_tick_rps_resolution(
     time: Res<Time>,
+    mut rng: ResMut<GameRng>,
     mut runtime: ResMut<CoopRuntimeState>,
     layout: Option<Res<FloorLayout>>,
     mut current_room: Option<ResMut<CurrentRoom>>,
@@ -961,9 +970,14 @@ fn host_tick_rps_resolution(
                     session.rps.reveal_timer_s = 0.8;
                 }
                 None => {
-                    session.rps.p1_choice = None;
-                    session.rps.p2_choice = None;
+                    reset_rps_input_round(&mut session.rps);
                 }
+            }
+        } else {
+            session.rps.input_timeout_s =
+                (session.rps.input_timeout_s - time.delta_seconds()).max(0.0);
+            if session.rps.input_timeout_s <= 0.0 {
+                fill_missing_rps_choices(&mut session.rps, &mut rng);
             }
         }
         return;
@@ -1325,6 +1339,30 @@ fn default_rps_state() -> super::components::CoopRpsState {
         winner: None,
         winning_door: None,
         reveal_timer_s: 0.0,
+        input_timeout_s: COOP_RPS_INPUT_TIMEOUT_S,
+    }
+}
+
+fn reset_rps_input_round(rps: &mut super::components::CoopRpsState) {
+    rps.p1_choice = None;
+    rps.p2_choice = None;
+    rps.input_timeout_s = COOP_RPS_INPUT_TIMEOUT_S;
+}
+
+fn fill_missing_rps_choices(rps: &mut super::components::CoopRpsState, rng: &mut GameRng) {
+    let mut choices = [
+        CoopRpsChoice::Rock,
+        CoopRpsChoice::Paper,
+        CoopRpsChoice::Scissors,
+    ];
+
+    if rps.p1_choice.is_none() {
+        rng.shuffle(&mut choices);
+        rps.p1_choice = Some(choices[0]);
+    }
+    if rps.p2_choice.is_none() {
+        rng.shuffle(&mut choices);
+        rps.p2_choice = Some(choices[0]);
     }
 }
 
@@ -2708,5 +2746,41 @@ mod tests {
 
         assert_eq!(layout.rooms[0].room_type, RoomType::Normal);
         assert_eq!(layout.rooms[1].room_type, RoomType::Reward);
+    }
+
+    #[test]
+    fn default_rps_state_starts_with_timeout_budget() {
+        let state = default_rps_state();
+
+        assert_eq!(state.input_timeout_s, COOP_RPS_INPUT_TIMEOUT_S);
+        assert!(state.p1_choice.is_none());
+        assert!(state.p2_choice.is_none());
+        assert!(state.winner.is_none());
+    }
+
+    #[test]
+    fn reset_rps_input_round_clears_choices_and_restores_timeout() {
+        let mut state = default_rps_state();
+        state.p1_choice = Some(CoopRpsChoice::Rock);
+        state.p2_choice = Some(CoopRpsChoice::Scissors);
+        state.input_timeout_s = 0.0;
+
+        reset_rps_input_round(&mut state);
+
+        assert!(state.p1_choice.is_none());
+        assert!(state.p2_choice.is_none());
+        assert_eq!(state.input_timeout_s, COOP_RPS_INPUT_TIMEOUT_S);
+    }
+
+    #[test]
+    fn fill_missing_rps_choices_assigns_missing_inputs() {
+        let mut rng = seeded_rng(9);
+        let mut state = default_rps_state();
+        state.input_timeout_s = 0.0;
+
+        fill_missing_rps_choices(&mut state, &mut rng);
+
+        assert!(state.p1_choice.is_some());
+        assert!(state.p2_choice.is_some());
     }
 }

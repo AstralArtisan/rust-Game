@@ -36,6 +36,7 @@ use super::net::{
 const REMOTE_BAR_WIDTH: f32 = 34.0;
 const REMOTE_BAR_HEIGHT: f32 = 4.0;
 const REPLICATED_DASH_AFTERIMAGE_INTERVAL_S: f32 = 0.05;
+const REPLICATED_DASH_DEACTIVATE_GRACE_S: f32 = 0.09;
 
 #[derive(Component, Debug, Clone)]
 pub(crate) struct ReplicatedPlayerVisualState {
@@ -43,6 +44,7 @@ pub(crate) struct ReplicatedPlayerVisualState {
     last_dash_active: bool,
     last_effectively_alive: bool,
     dash_afterimage_timer: Timer,
+    dash_deactivate_grace_s: f32,
 }
 
 impl Default for ReplicatedPlayerVisualState {
@@ -55,6 +57,7 @@ impl Default for ReplicatedPlayerVisualState {
                 REPLICATED_DASH_AFTERIMAGE_INTERVAL_S,
                 TimerMode::Repeating,
             ),
+            dash_deactivate_grace_s: 0.0,
         }
     }
 }
@@ -214,7 +217,7 @@ pub struct CoopJoinIp {
 pub fn setup_coop_menu(mut commands: Commands, assets: Res<GameAssets>) {
     commands.insert_resource(CoopJoinIp {
         ip: String::new(),
-        notice: format!("Enter host LAN IPv4 only. UDP port {} is fixed.", COOP_PORT),
+        notice: format!("请输入房主的局域网 IPv4 地址，UDP 端口 {} 固定不变。", COOP_PORT),
     });
     commands
         .spawn((widgets::root_node(), CoopMenuUi, Name::new("CoopMenuRoot")))
@@ -321,9 +324,9 @@ pub fn coop_menu_input_system(
     }
 
     if ip.ip.trim().is_empty() {
-        ip.notice = format!("Enter host LAN IPv4 only. UDP port {} is fixed.", COOP_PORT);
+        ip.notice = format!("请输入房主的局域网 IPv4 地址，UDP 端口 {} 固定不变。", COOP_PORT);
     } else {
-        ip.notice = format!("Target host: {} (UDP {} fixed)", ip.ip.trim(), COOP_PORT);
+        ip.notice = format!("目标主机：{}（UDP {} 固定）", ip.ip.trim(), COOP_PORT);
     }
 
     let mut action = None;
@@ -365,7 +368,7 @@ pub fn coop_menu_input_system(
         }
         Some(CoopMenuAction::Join) => {
             if ip.ip.trim().is_empty() {
-                ip.notice = "Enter the host LAN IPv4 first.".to_string();
+                ip.notice = "请先输入房主的局域网 IPv4 地址。".to_string();
             } else {
                 match normalize_coop_host_ip(ip.ip.trim()) {
                     Ok(host_ip) => {
@@ -389,7 +392,7 @@ pub fn coop_menu_input_system(
 
     if let Ok(mut ip_text) = text_q.p0().get_single_mut() {
         ip_text.sections[0].value = if ip.ip.trim().is_empty() {
-            "No host IP".to_string()
+            "未输入房主 IP".to_string()
         } else {
             ip.ip.clone()
         };
@@ -441,7 +444,7 @@ pub fn setup_coop_lobby(mut commands: Commands, assets: Res<GameAssets>) {
                     panel.spawn((
                         widgets::muted_text(
                             &assets,
-                            "Port 3457 is fixed. Use bare LAN IPv4 only.",
+                            "端口 3457 固定不变，请仅使用纯 IPv4 地址。",
                             15.0,
                         ),
                         CoopLobbyText,
@@ -463,7 +466,7 @@ pub fn setup_coop_lobby(mut commands: Commands, assets: Res<GameAssets>) {
                                     CoopLobbyStartButton,
                                 ))
                                 .with_children(|button| {
-                                    button.spawn(widgets::title_text(&assets, "Start / Retry", 20.0));
+                                    button.spawn(widgets::title_text(&assets, "开始 / 重试", 20.0));
                                 });
                             buttons
                                 .spawn((
@@ -471,7 +474,7 @@ pub fn setup_coop_lobby(mut commands: Commands, assets: Res<GameAssets>) {
                                     CoopLobbyBackButton,
                                 ))
                                 .with_children(|button| {
-                                    button.spawn(widgets::title_text(&assets, "Back", 20.0));
+                                    button.spawn(widgets::title_text(&assets, "返回", 20.0));
                                 });
                         });
                 });
@@ -489,6 +492,8 @@ pub fn coop_lobby_ui_system(
         Query<&mut Text, With<CoopLobbyText>>,
     )>,
 ) {
+    let session_armed = coop_bool_word(flow.pending_game_entry);
+
     if let Ok(mut mode_text) = text_q.p0().get_single_mut() {
         mode_text.sections[0].value = format!("模式：{}", coop_mode_label(config.mode));
     }
@@ -496,8 +501,8 @@ pub fn coop_lobby_ui_system(
     if let Ok(mut status_text) = text_q.p1().get_single_mut() {
         status_text.sections[0].value = match config.mode {
             NetMode::Host => format!(
-                "Session armed: {}\nLocal client: {}\nRemote player: {}",
-                if flow.pending_game_entry { "yes" } else { "no" },
+                "会话已就绪：{}\n本地客户端：{}\n远端玩家：{}",
+                session_armed,
                 coop_connection_word(net.local_connected),
                 if net.remote_connected {
                     "已连接"
@@ -506,8 +511,8 @@ pub fn coop_lobby_ui_system(
                 },
             ),
             NetMode::Client => format!(
-                "Session armed: {}\nTarget host: {}\nConnection: {}",
-                if flow.pending_game_entry { "yes" } else { "no" },
+                "会话已就绪：{}\n目标主机：{}\n连接状态：{}",
+                session_armed,
                 config.host_ip,
                 if net.connected { "已连接" } else { "连接中" },
             ),
@@ -519,17 +524,16 @@ pub fn coop_lobby_ui_system(
         share_text.sections[0].value = match config.mode {
             NetMode::Host => {
                 let share_ip = best_effort_host_share_ip()
-                    .map(|ip| format!("Share this IPv4 with your teammate: {}", ip))
-                    .unwrap_or_else(|| "Share your LAN IPv4 with your teammate.".to_string());
+                    .map(|ip| format!("请将此局域网 IPv4 地址分享给队友：{}", ip))
+                    .unwrap_or_else(|| "请将此局域网 IPv4 地址分享给队友：".to_string());
                 format!(
-                    "{}\nPort {} is fixed. Do not send 127.0.0.1 / localhost to your teammate.",
-                    share_ip
-                    ,
+                    "{}\n端口 {} 固定不变，请勿将 127.0.0.1 或 localhost 发给队友。",
+                    share_ip,
                     COOP_PORT
                 )
             }
             NetMode::Client => format!(
-                "Connecting to host {}\nPort {} is fixed. Only bare IPv4 is accepted.",
+                "正在连接主机 {}\n端口 {} 固定不变，仅接受纯 IPv4 地址。",
                 config.host_ip,
                 COOP_PORT
             ),
@@ -543,22 +547,22 @@ pub fn coop_lobby_ui_system(
         } else if flow.pending_game_entry {
             match config.mode {
                 NetMode::Host if net.remote_connected => {
-                    "Session is armed. The match will start automatically once sync is ready."
+                    "会话已就绪，双方同步完成后对局将自动开始。"
                         .to_string()
                 }
                 NetMode::Host => {
-                    "Waiting for your teammate. Use bare LAN IPv4 only; port 3457 stays fixed."
+                    "等待队友加入，请分享局域网 IPv4（不含端口）。"
                         .to_string()
                 }
                 NetMode::Client if net.connected => {
-                    "Connected to host. Waiting for session state and doors to replicate."
+                    "已连接主机，等待会话状态与地图复制完成。"
                         .to_string()
                 }
-                NetMode::Client => "Connecting to host. Please wait.".to_string(),
-                NetMode::None => "Choose host or client first.".to_string(),
+                NetMode::Client => "正在连接主机，请稍候。".to_string(),
+                NetMode::None => "请先选择房主或客户端模式。".to_string(),
             }
         } else {
-            "Press Start / Retry to re-arm the coop session. Esc returns to the multiplayer menu."
+            "按“开始 / 重试”激活合作会话，Esc 返回联机菜单。"
                 .to_string()
         };
     }
@@ -1110,7 +1114,9 @@ pub fn sync_replicated_visuals(
         (With<CoopVisualReady>, Without<Player>),
     >,
 ) {
-    let smooth = 1.0 - (-14.0 * time.delta_seconds()).exp();
+    // 远程玩家：系数 14 平滑抖动；本地玩家：系数 55 近似即时跟随，消除视觉滞后
+    let smooth_remote = 1.0 - (-14.0 * time.delta_seconds()).exp();
+    let smooth_local = 1.0 - (-55.0 * time.delta_seconds()).exp();
     let swing = melee_swing_profile(RewardModifiers::default());
     for (
         _slot,
@@ -1137,6 +1143,11 @@ pub fn sync_replicated_visuals(
                 transform.translation.x = pos.0.x;
                 transform.translation.y = pos.0.y;
             } else {
+                let smooth = if local_controlled.is_some() {
+                    smooth_local
+                } else {
+                    smooth_remote
+                };
                 let current = transform.translation.truncate();
                 let next = current.lerp(pos.0, smooth);
                 transform.translation.x = next.x;
@@ -1169,6 +1180,7 @@ pub fn sync_replicated_visuals(
         if revived_this_frame {
             cache.last_melee_sequence = melee_flash.map_or(0, |state| state.sequence);
             cache.last_dash_active = false;
+            cache.dash_deactivate_grace_s = 0.0;
             cache.dash_afterimage_timer.reset();
         }
 
@@ -1179,7 +1191,10 @@ pub fn sync_replicated_visuals(
                 && melee_flash.sequence != cache.last_melee_sequence
             {
                 let direction = Vec2::from_angle(melee_flash.slash_angle_rad);
-                let slash_origin = transform.translation.truncate() + direction * swing.center_offset;
+                let auth_pos = pos
+                    .map(|position| position.0)
+                    .unwrap_or(transform.translation.truncate());
+                let slash_origin = auth_pos + direction * swing.center_offset;
                 spawn_melee_slash_visual(
                     &mut commands,
                     &assets,
@@ -1197,33 +1212,50 @@ pub fn sync_replicated_visuals(
 
         if effectively_alive {
             if let Some(dash_visual) = dash_visual {
-                cache.dash_afterimage_timer.tick(time.delta());
-                if *visibility != Visibility::Hidden
-                    && dash_visual.active
-                    && (!cache.last_dash_active || cache.dash_afterimage_timer.just_finished())
-                {
-                    afterimage::spawn_afterimage(
-                        &mut commands,
-                        texture.clone(),
-                        transform.translation.truncate(),
-                        sprite.color.with_alpha(0.28),
-                        sprite.custom_size.unwrap_or(Vec2::splat(32.0)),
-                        sprite.flip_x,
-                    );
-                }
-                if dash_visual.active && !cache.last_dash_active {
+                let dash_started = dash_visual.active && !cache.last_dash_active;
+                let dash_effectively_active = if dash_visual.active {
+                    cache.dash_deactivate_grace_s = 0.0;
+                    true
+                } else if cache.last_dash_active {
+                    cache.dash_deactivate_grace_s += time.delta_seconds();
+                    if cache.dash_deactivate_grace_s < REPLICATED_DASH_DEACTIVATE_GRACE_S {
+                        true
+                    } else {
+                        cache.dash_deactivate_grace_s = 0.0;
+                        cache.dash_afterimage_timer.reset();
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if dash_started {
                     cache.dash_afterimage_timer.reset();
                 }
-                if !dash_visual.active {
-                    cache.dash_afterimage_timer.reset();
+                if dash_effectively_active {
+                    cache.dash_afterimage_timer.tick(time.delta());
+                    if *visibility != Visibility::Hidden
+                        && (dash_started || cache.dash_afterimage_timer.just_finished())
+                    {
+                        afterimage::spawn_afterimage(
+                            &mut commands,
+                            texture.clone(),
+                            transform.translation.truncate(),
+                            sprite.color.with_alpha(0.28),
+                            sprite.custom_size.unwrap_or(Vec2::splat(32.0)),
+                            sprite.flip_x,
+                        );
+                    }
                 }
-                cache.last_dash_active = dash_visual.active;
+                cache.last_dash_active = dash_effectively_active;
             } else {
                 cache.last_dash_active = false;
+                cache.dash_deactivate_grace_s = 0.0;
                 cache.dash_afterimage_timer.reset();
             }
         } else {
             cache.last_dash_active = false;
+            cache.dash_deactivate_grace_s = 0.0;
             cache.dash_afterimage_timer.reset();
         }
 
@@ -1233,7 +1265,7 @@ pub fn sync_replicated_visuals(
     for (mut transform, pos, rotation, projectile) in &mut other_q {
         if let Some(pos) = pos {
             let current = transform.translation.truncate();
-            let next = current.lerp(pos.0, smooth);
+            let next = current.lerp(pos.0, smooth_remote);
             transform.translation.x = next.x;
             transform.translation.y = next.y;
         }
@@ -1577,7 +1609,7 @@ fn coop_apply_action(
                 flow,
                 CoopExitRequest {
                     destination: CoopExitDestination::Lobby,
-                    notice: Some("You left the coop session.".to_string()),
+                    notice: Some("你已离开合作会话。".to_string()),
                     preserve_mode: true,
                 },
             );
@@ -1719,6 +1751,14 @@ fn coop_connection_word(connected: bool) -> &'static str {
         "已连接"
     } else {
         "连接中"
+    }
+}
+
+fn coop_bool_word(value: bool) -> &'static str {
+    if value {
+        "是"
+    } else {
+        "否"
     }
 }
 
@@ -1919,8 +1959,8 @@ fn coop_pause_modal_view() -> CoopModalView {
         ..default()
     };
     view.options[0] = coop_modal_option(
-        "Leave To Lobby",
-        "Disconnect the current coop session and return to the coop lobby.",
+        "离开到大厅",
+        "断开当前合作会话并返回合作大厅。",
         "也可直接按 Enter",
         Some(CoopUiAction::LeaveToLobby),
         true,
@@ -2127,6 +2167,10 @@ fn coop_door_status_detail(session: &CoopSessionState, slot: PlayerSlot) -> Stri
 fn coop_rps_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopModalView {
     let my_choice = coop_selected_rps_for_slot(session, slot);
     let teammate_choice = coop_selected_rps_for_slot(session, coop_other_slot(slot));
+    let timeout_text = format!(
+        "等待出拳（{:.0} 秒后自动随机）",
+        session.rps.input_timeout_s.max(0.0)
+    );
     let mut view = CoopModalView {
         visible: true,
         title: "猜拳决胜".to_string(),
@@ -2145,6 +2189,18 @@ fn coop_rps_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopModa
         },
         ..default()
     };
+
+    if session.rps.winner.is_none() {
+        view.footer = if let Some(choice) = my_choice {
+            format!(
+                "你已提交：{}，等待队友出拳。\n{}",
+                rps_choice_label(choice),
+                timeout_text
+            )
+        } else {
+            format!("数字键 1 / 2 / 3 或点击卡片进行出拳。\n{}", timeout_text)
+        };
+    }
 
     for (index, choice) in [CoopRpsChoice::Rock, CoopRpsChoice::Paper, CoopRpsChoice::Scissors]
         .into_iter()
@@ -2228,9 +2284,9 @@ fn coop_shop_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopMod
     let (refresh_meta, refresh_enabled, refresh_tone) = if player_state.can_interact {
         (
             if refresh_cost == 0 {
-                "Price: Free".to_string()
+                "价格：免费".to_string()
             } else {
-                format!("Price: {} gold", refresh_cost)
+                format!("价格：{} 金币", refresh_cost)
             },
             true,
             CoopModalTone::Info,
@@ -2243,8 +2299,8 @@ fn coop_shop_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopMod
         )
     };
     view.options[3] = coop_modal_option(
-        "Refresh Shop",
-        "Reroll only your own three offers. Refresh price follows the single-player curve.",
+        "刷新商店",
+        "重新随机你的三件商品，刷新价格随次数递增。",
         refresh_meta,
         refresh_enabled.then_some(CoopUiAction::RefreshShop),
         refresh_enabled,

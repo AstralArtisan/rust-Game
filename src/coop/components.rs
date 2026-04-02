@@ -95,6 +95,38 @@ pub struct CoopInputState {
     pub menu_cancel_pressed: bool,
 }
 
+impl CoopInputState {
+    /// 合并另一帧输入：持续量取最新值，边缘事件用 OR 累积。
+    /// 用于 capture_server_inputs 当多个 tick 在同一 FixedUpdate 内到达时，
+    /// 防止后面 tick 的 false 覆盖前面 tick 的 true（冲刺/E键丢失问题）。
+    pub fn merge_incoming(&mut self, newer: &CoopInputState) {
+        self.move_axis = newer.move_axis;
+        self.aim_world = newer.aim_world;
+        self.attack_held = newer.attack_held;
+        self.ranged_held = newer.ranged_held;
+        self.attack_pressed |= newer.attack_pressed;
+        self.ranged_pressed |= newer.ranged_pressed;
+        self.dash_pressed |= newer.dash_pressed;
+        self.interact_pressed |= newer.interact_pressed;
+        self.pause_pressed |= newer.pause_pressed;
+        self.shop_pressed |= newer.shop_pressed;
+        self.menu_confirm_pressed |= newer.menu_confirm_pressed;
+        self.menu_cancel_pressed |= newer.menu_cancel_pressed;
+    }
+
+    /// 清除所有边缘事件（一次性按键）。在 host 消费后调用，防止跨帧重复触发。
+    pub fn clear_edge_events(&mut self) {
+        self.attack_pressed = false;
+        self.ranged_pressed = false;
+        self.dash_pressed = false;
+        self.interact_pressed = false;
+        self.pause_pressed = false;
+        self.shop_pressed = false;
+        self.menu_confirm_pressed = false;
+        self.menu_cancel_pressed = false;
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CoopPhase {
     #[default]
@@ -177,6 +209,7 @@ pub struct CoopRpsState {
     pub winner: Option<PlayerSlot>,
     pub winning_door: Option<u8>,
     pub reveal_timer_s: f32,
+    pub input_timeout_s: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

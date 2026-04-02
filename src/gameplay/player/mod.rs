@@ -31,7 +31,6 @@ impl Plugin for PlayerPlugin {
                     combat::player_ranged_input_system,
                     combat::update_attack_cooldowns,
                     combat::update_delayed_ranged_shots,
-                    combat::update_melee_slash_effects,
                     dash::player_dash_input_system,
                     dash::update_dash_state,
                     combo::update_combo_state,
@@ -50,6 +49,13 @@ impl Plugin for PlayerPlugin {
         app.add_systems(
             Update,
             systems::player_death_system.run_if(in_state(AppState::InGame)),
+        );
+        // 纯视觉系统：不需要 authority，client 端也需要驱动 slash 动画和自动消亡
+        app.add_systems(
+            Update,
+            combat::update_melee_slash_effects.run_if(
+                in_state(AppState::InGame).or_else(in_state(AppState::CoopGame)),
+            ),
         );
     }
 }
