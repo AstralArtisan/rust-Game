@@ -83,6 +83,10 @@ pub struct BossDirectionalDefense {
     pub facing: Vec2,
 }
 
+/// Marker for the visual shield indicator child entity on Floor1Guardian.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct GuardianShieldIndicator;
+
 /// MirrorWarden decoy. It can fire but cannot be damaged.
 #[derive(Component, Debug, Clone)]
 pub struct BossDecoy {

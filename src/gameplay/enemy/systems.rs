@@ -584,6 +584,22 @@ pub fn spawn_boss(
             commands.entity(id).insert(BossDirectionalDefense {
                 facing: Vec2::NEG_X,
             });
+            // 盾牌方向指示器：显示在 Boss 正面的橙色矩形
+            let shield_indicator = commands.spawn((
+                SpriteBundle {
+                    texture: assets.textures.white.clone(),
+                    transform: Transform::from_translation(Vec3::new(-40.0, 0.0, 1.0)),
+                    sprite: Sprite {
+                        color: Color::srgba(1.0, 0.55, 0.1, 0.85),
+                        custom_size: Some(Vec2::new(10.0, 52.0)),
+                        ..default()
+                    },
+                    ..default()
+                },
+                GuardianShieldIndicator,
+                InGameEntity,
+            )).id();
+            commands.entity(id).add_child(shield_indicator);
         }
         BossArchetype::TideHunter => {
             commands.entity(id).insert(TideHunterState {

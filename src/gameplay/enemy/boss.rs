@@ -17,7 +17,7 @@ use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
 use crate::gameplay::enemy::components::{
     BossArchetype, BossCoreShield, BossCycleState, BossDecoy, BossDirectionalDefense,
     BossPatternTimer, BossPhase, BossSubCore, BossSummoned, EnemyKind, EnemyStats, EnemyType,
-    TeamMarker, TideHunterPhase, TideHunterState,
+    GuardianShieldIndicator, TeamMarker, TideHunterPhase, TideHunterState,
 };
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::components::{DashState, Health, Player};
@@ -217,9 +217,11 @@ pub fn boss_color(archetype: BossArchetype) -> Color {
 pub fn boss_guardian_facing_system(
     player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
     mut q: Query<
-        (&Transform, &mut BossDirectionalDefense, &mut Sprite),
+        (Entity, &Transform, &mut BossDirectionalDefense),
         With<BossDirectionalDefense>,
     >,
+    mut shield_q: Query<&mut Transform, (With<GuardianShieldIndicator>, Without<BossDirectionalDefense>)>,
+    children_q: Query<&Children>,
 ) {
     let player_positions: Vec<Vec2> = player_q
         .iter()
@@ -231,7 +233,7 @@ pub fn boss_guardian_facing_system(
         return;
     }
 
-    for (tf, mut defense, mut sprite) in &mut q {
+    for (boss_entity, tf, mut defense) in &mut q {
         let boss_pos = tf.translation.truncate();
         let player_pos = player_positions
             .iter()
@@ -239,14 +241,22 @@ pub fn boss_guardian_facing_system(
             .min_by(|a, b| boss_pos.distance(*a).total_cmp(&boss_pos.distance(*b)))
             .unwrap();
         let dir = direction_to(boss_pos, player_pos);
-        defense.facing = defense.facing.lerp(dir, 0.06).normalize_or_zero();
+        // 慢速转向，给玩家绕背时间窗口（约2-3秒完成转向）
+        defense.facing = defense.facing.lerp(dir, 0.012).normalize_or_zero();
 
-        let facing_strength = defense.facing.dot(dir).clamp(0.0, 1.0);
-        sprite.color = Color::srgb(
-            0.85 + 0.08 * facing_strength,
-            0.25 + 0.12 * facing_strength,
-            0.95 + 0.03 * facing_strength,
-        );
+        // 更新盾牌子实体位置：始终显示在 facing 方向前方
+        if let Ok(children) = children_q.get(boss_entity) {
+            for &child in children.iter() {
+                if let Ok(mut shield_tf) = shield_q.get_mut(child) {
+                    let offset = defense.facing * 40.0;
+                    shield_tf.translation.x = offset.x;
+                    shield_tf.translation.y = offset.y;
+                    // 旋转盾牌使其垂直于 facing 方向
+                    let angle = defense.facing.y.atan2(defense.facing.x);
+                    shield_tf.rotation = Quat::from_rotation_z(angle);
+                }
+            }
+        }
     }
 }
 
