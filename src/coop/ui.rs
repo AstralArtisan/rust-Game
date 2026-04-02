@@ -819,24 +819,19 @@ pub fn ensure_local_control_marker(
 }
 
 pub fn filter_replicated_player_duplicates(
+    mut commands: Commands,
     config: Res<CoopNetConfig>,
-    mut players: ParamSet<(
-        Query<
-            (
-                Entity,
-                &PlayerSlot,
-                Option<&Controlled>,
-                Option<&GhostState>,
-                Option<&Health>,
-                Option<&LocalControlled>,
-            ),
-            (With<Player>, With<Replicated>, With<CoopVisualReady>),
-        >,
-        Query<
-            (Entity, &PlayerSlot, &mut Visibility),
-            (With<Player>, With<Replicated>, With<CoopVisualReady>),
-        >,
-    )>,
+    players: Query<
+        (
+            Entity,
+            &PlayerSlot,
+            Option<&Controlled>,
+            Option<&GhostState>,
+            Option<&Health>,
+            Option<&LocalControlled>,
+        ),
+        (With<Player>, With<Replicated>, With<CoopVisualReady>),
+    >,
 ) {
     if config.mode != NetMode::Client {
         return;
@@ -846,7 +841,7 @@ pub fn filter_replicated_player_duplicates(
     let mut best_by_slot = [None; 2];
     let mut best_score_by_slot = [i32::MIN; 2];
 
-    for (entity, slot, controlled, ghost, health, local_controlled) in &players.p0() {
+    for (entity, slot, controlled, ghost, health, local_controlled) in &players {
         let score = client_replicated_player_score(
             Some(*slot),
             local_slot,
@@ -862,14 +857,10 @@ pub fn filter_replicated_player_duplicates(
         }
     }
 
-    for (entity, slot, mut visibility) in &mut players.p1() {
-        let next_visibility = if best_by_slot[slot.index()] == Some(entity) {
-            Visibility::Inherited
-        } else {
-            Visibility::Hidden
-        };
-        if *visibility != next_visibility {
-            *visibility = next_visibility;
+    // Despawn 非最佳的重复实体，防止隐藏实体无限累积导致性能退化
+    for (entity, slot, ..) in &players {
+        if best_by_slot[slot.index()] != Some(entity) {
+            commands.entity(entity).despawn_recursive();
         }
     }
 }

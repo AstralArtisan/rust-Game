@@ -37,11 +37,11 @@ $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_
 
 ### 文档维护
 
-项目的所有工程文档在 `docs/` 中维护。你可以通过 `docs/00_index.md` 来获取文档索引，以了解项目信息。在后续的工作中，你需要持续维护这些文档，记录每一次修改的内容与迭代的目的、想法等，并根据项目情况更新 `README.md` 、 `CLAUDE.md`等文档。在工作时，若发现一些不带编号的文档已经彻底过时，你可以直接将其删除。
+使用skill： `doc-maintenance`。项目的所有工程文档在 `docs/` 中维护。你可以通过 `docs/00_index.md` 来获取文档索引，以了解项目信息。在后续的工作中，你需要持续维护这些文档，记录每一次修改的内容与迭代的目的、想法等，并根据项目情况更新 `README.md` 、 `CLAUDE.md`等文档。在工作时，若发现一些不带编号的文档已经彻底过时，你可以直接将其删除。
 
 ### Github维护
 
-该项目的仓库位于 `https://github.com/AstralArtisan/rust-Game/`。当前以分支 `saved_version` 为基础进行改进，工作分支为 `claude_playground`。每次修改后，及时提交commit，当取得重大突破时，及时push。当测试顺利通过、符合全部预期后，可以合并进main。当前的main仍以单机模式为主。
+使用skill：`git-maintenance`。该项目的仓库位于 `https://github.com/AstralArtisan/rust-Game/`。当前以分支 `saved_version` 为基础进行改进，工作分支为 `claude_playground`。每次修改后，及时提交commit，当取得重大突破时，及时push。当测试顺利通过、符合全部预期后，可以合并进main。当前的main仍以单机模式为主。
 
 ### 编码规范
 

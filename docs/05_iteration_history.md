@@ -182,4 +182,26 @@
 - 单机主循环骨架已经相对扎实
 - 联机系统真实存在，但仍带有快速整合期的复杂度和技术债
 
+---
+
+## 10. Coop 联机调试第三轮（2026-04-02）
+
+### 改动内容
+- 输入过期清零：`CoopNetState` 新增 `latest_input_ticks` 和 `host_frame_counter`，`host_buffer_player_inputs` 检测 P2 输入超过 3 帧未更新时自动清零 `move_axis` 和 `held` 字段
+- Despawn 重复 Replicated Player：`filter_replicated_player_duplicates` 从隐藏改为 despawn 非最佳实体
+- EventReader drain：`capture_server_inputs` 和 `receive_coop_command_messages` 在 early return 时调用 `.clear()`
+- 对齐 tick/replication rate：`server_replication_send_interval` 从 1/64s 改为 1/60s
+
+### 目的与动机
+用户反馈 Client 端松键后角色持续滑行（输入粘滞），且游玩数分钟后完全卡死。三个并行调查 Agent 一致定位到两个根因：(1) `latest_inputs` 中 P2 的 `move_axis` 在无新包到达时永不归零；(2) 重复的 Replicated Player 实体只被隐藏不被销毁，随网络波动无限累积。
+
+### 关键决策
+- 输入过期采用帧计数器而非时间戳，避免引入 `Time` 资源依赖，且与 FixedUpdate 的离散特性更匹配
+- 重复实体改为 despawn 而非隐藏，因为隐藏实体仍参与所有 ECS 查询，是性能退化的直接原因
+- `CoopNetVelocity` 复制暂时保留，因为同时被 Player 和 Projectile 使用，移除涉及面较广
+
+### 已知问题 / 后续工作
+- 需要实际双开测试验证粘滞和卡死是否彻底解决
+- `cargo test` 32 项全部通过
+
 如果要继续演进，最合理的下一步不是再无节制加新功能，而是围绕文档、规则抽象、联机生命周期和复杂度热点做收敛。

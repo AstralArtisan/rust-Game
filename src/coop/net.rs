@@ -127,6 +127,8 @@ pub struct CoopNetState {
     pub local_client_id: Option<ClientId>,
     pub remote_client_id: Option<ClientId>,
     pub latest_inputs: HashMap<ClientId, CoopInputState>,
+    pub latest_input_ticks: HashMap<ClientId, u32>,
+    pub host_frame_counter: u32,
     pub received_commands: Vec<(ClientId, CoopCommandMessage)>,
     pub pending_commands: Vec<CoopCommandMessage>,
 }
@@ -394,6 +396,8 @@ pub fn start_host_socket(state: &mut CoopNetState) -> anyhow::Result<()> {
     state.local_client_id = Some(host_client_id());
     state.remote_client_id = Some(remote_client_id());
     state.latest_inputs.clear();
+    state.latest_input_ticks.clear();
+    state.host_frame_counter = 0;
     state.received_commands.clear();
     state.pending_commands.clear();
     Ok(())
@@ -408,6 +412,8 @@ pub fn start_client_socket(state: &mut CoopNetState) -> anyhow::Result<()> {
     state.local_client_id = Some(remote_client_id());
     state.remote_client_id = Some(host_client_id());
     state.latest_inputs.clear();
+    state.latest_input_ticks.clear();
+    state.host_frame_counter = 0;
     state.received_commands.clear();
     state.pending_commands.clear();
     Ok(())
@@ -415,9 +421,8 @@ pub fn start_client_socket(state: &mut CoopNetState) -> anyhow::Result<()> {
 
 fn coop_shared_config() -> SharedConfig {
     SharedConfig {
-        // 与 tick 频率对齐（60 Hz），减少 client 端位置/状态更新延迟
-        // 原值 1/20（50ms）会让 client 每 50ms 才刷新一次自己的位置，移动感极差
-        server_replication_send_interval: Duration::from_secs_f64(1.0 / 64.0),
+        // 与 tick 频率对齐（60 Hz），避免 tick/replication 不对齐导致内部缓冲区漂移
+        server_replication_send_interval: Duration::from_secs_f64(1.0 / 60.0),
         tick: TickConfig::new(Duration::from_secs_f64(1.0 / 60.0)),
         ..default()
     }
@@ -704,12 +709,15 @@ fn capture_server_inputs(
     mut net: ResMut<CoopNetState>,
 ) {
     if config.mode != NetMode::Host {
+        input_events.clear();
         return;
     }
 
     for event in input_events.read() {
         if let Some(input) = event.input() {
             let cid = *event.context();
+            let frame = net.host_frame_counter;
+            net.latest_input_ticks.insert(cid, frame);
             // 使用 merge_incoming 而非 insert：
             // 当帧率低于 60fps 时 FixedUpdate 在同一帧内执行多次，
             // 后面 tick 的 false 会覆盖前面 tick 的 true，导致冲刺/交互丢失。
@@ -827,6 +835,7 @@ fn receive_coop_command_messages(
     mut net: ResMut<CoopNetState>,
 ) {
     if config.mode != NetMode::Host {
+        events.clear();
         return;
     }
 

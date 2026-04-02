@@ -90,3 +90,20 @@
 - `CoopPhase::Rps` 下，若双方没有在 12 秒内同时完成出拳，Host 会为未出拳方自动补全随机出拳，避免会话永久卡死在猜拳阶段。
 - RPS 弹窗会显示剩余等待时间，倒计时归零后自动进入补拳并继续按原有结算流程推进。
 - 若本轮结果为平局，双方出拳与输入倒计时都会一起重置，重新开始下一轮等待。
+
+## 5. Client 输入粘滞与实体累积修复（2026-04-02）
+
+### 已修复风险
+
+1. **P2 输入粘滞**：`host_buffer_player_inputs`（Update 帧率）从 `net.latest_inputs` 读取 P2 的 `move_axis`，当 client 包丢失或延迟时旧的非零值无限持续。修复：新增帧计数器 `host_frame_counter`，超过 3 帧未收到新输入时自动清零持续量（`move_axis`、`held` 字段）。
+
+2. **Replicated Player 实体累积**：`filter_replicated_player_duplicates` 只隐藏重复实体不 despawn，网络波动时隐藏实体不断累积，`sync_replicated_visuals` 每帧对所有实体做 lerp 计算导致性能线性退化直至卡死。修复：改为 despawn 非最佳实体。
+
+3. **EventReader 未 drain**：`capture_server_inputs` 和 `receive_coop_command_messages` 在非对应角色时 early return 不 drain EventReader。修复：early return 前调用 `.clear()`。
+
+4. **tick/replication rate 不对齐**：`server_replication_send_interval`（1/64s）与 `tick`（1/60s）不对齐，可能导致 Lightyear 内部缓冲区漂移。修复：统一为 1/60s。
+
+### 新增的架构约束
+
+- `CoopNetState.latest_inputs` 中的持续量（`move_axis`、`held`）不再被视为"永远有效"，消费侧必须检查输入新鲜度
+- 重复的 Replicated Player 实体必须被 despawn 而非隐藏，避免 ECS 查询性能退化

@@ -370,10 +370,30 @@ fn host_buffer_player_inputs(
         (With<CoopParticipant>, Without<Replicated>),
     >,
 ) {
+    // 递增帧计数器，用于检测 P2 输入是否过期
+    net.host_frame_counter = net.host_frame_counter.wrapping_add(1);
+
     for (slot, mut buffered, mut drive) in &mut players {
         let input = match slot {
             PlayerSlot::P1 => build_input_state(&local_input),
-            PlayerSlot::P2 => latest_input_for(&net, slot_client_id(*slot)),
+            PlayerSlot::P2 => {
+                let mut inp = latest_input_for(&net, slot_client_id(*slot));
+                // 检查输入是否过期：超过 3 帧没收到新包则清零持续量，
+                // 防止丢包时角色用旧的 move_axis 无限滑行
+                let last_tick = net
+                    .latest_input_ticks
+                    .get(&slot_client_id(*slot))
+                    .copied()
+                    .unwrap_or(0);
+                let age = net.host_frame_counter.wrapping_sub(last_tick);
+                if age > 3 {
+                    inp.move_axis = Vec2::ZERO;
+                    inp.aim_world = None;
+                    inp.attack_held = false;
+                    inp.ranged_held = false;
+                }
+                inp
+            }
         };
         buffered.0 = input;
         *drive = PlayerDriveInput {
@@ -391,7 +411,6 @@ fn host_buffer_player_inputs(
             menu_cancel_pressed: input.menu_cancel_pressed,
         };
         // 消费边缘事件后清除，防止跨帧重复触发
-        // （持续量 move_axis/held 无需清除，每帧由 capture_server_inputs 用最新值覆盖）
         if *slot == PlayerSlot::P2 {
             if let Some(stored) = net.latest_inputs.get_mut(&slot_client_id(PlayerSlot::P2)) {
                 stored.clear_edge_events();
