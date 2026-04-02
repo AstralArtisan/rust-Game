@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 
+#[cfg(test)]
+use std::time::Duration;
+
 use crate::coop::components::{CoopNetPosition, CoopNetRotation, CoopNetVelocity};
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::assets::GameAssets;
@@ -131,7 +134,7 @@ pub fn move_projectiles(
 pub fn despawn_expired_projectiles(
     mut commands: Commands,
     time: Res<Time>,
-    mut q: Query<(Entity, &mut Lifetime), With<Projectile>>,
+    mut q: Query<(Entity, &mut Lifetime), (With<Projectile>, Without<Replicated>)>,
 ) {
     for (e, mut lifetime) in &mut q {
         lifetime.0.tick(time.delta());
@@ -151,5 +154,44 @@ pub fn despawn_out_of_room_projectiles(
         if p.x.abs() > half.x || p.y.abs() > half.y {
             safe_despawn_recursive(&mut commands, e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn despawn_expired_projectiles_keeps_replicated_visuals_outside_authority_loop() {
+        let mut world = World::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(Duration::from_millis(100));
+        world.insert_resource(time);
+
+        let authority_projectile = world
+            .spawn((
+                Projectile {
+                    team: Team::Enemy,
+                    velocity: Vec2::ZERO,
+                },
+                Lifetime(Timer::from_seconds(0.05, TimerMode::Once)),
+            ))
+            .id();
+        let replicated_projectile = world
+            .spawn((
+                Projectile {
+                    team: Team::Enemy,
+                    velocity: Vec2::ZERO,
+                },
+                Lifetime(Timer::from_seconds(0.05, TimerMode::Once)),
+                Replicated { from: None },
+            ))
+            .id();
+
+        world.run_system_once(despawn_expired_projectiles);
+
+        assert!(world.get_entity(authority_projectile).is_none());
+        assert!(world.get_entity(replicated_projectile).is_some());
     }
 }

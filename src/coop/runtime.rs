@@ -2323,6 +2323,7 @@ fn coop_spawn_position(slot: PlayerSlot) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gameplay::map::room::{RoomBounds, RoomConnections, RoomData};
 
     fn seeded_rng(seed: u64) -> GameRng {
         let mut rng = GameRng::default();
@@ -2675,5 +2676,37 @@ mod tests {
                 .skip(index + 1)
                 .all(|other| other.item != offer.item));
         }
+    }
+
+    #[test]
+    fn coop_layout_normalization_rewrites_puzzle_rooms_to_normal() {
+        let mut layout = FloorLayout {
+            rooms: vec![
+                RoomData {
+                    id: RoomId(0),
+                    room_type: RoomType::Puzzle,
+                    mystery: true,
+                    connections: RoomConnections { exits: Vec::new() },
+                    bounds: RoomBounds {
+                        half_size: Vec2::new(320.0, 180.0),
+                    },
+                },
+                RoomData {
+                    id: RoomId(1),
+                    room_type: RoomType::Reward,
+                    mystery: false,
+                    connections: RoomConnections { exits: Vec::new() },
+                    bounds: RoomBounds {
+                        half_size: Vec2::new(320.0, 180.0),
+                    },
+                },
+            ],
+            current: RoomId(0),
+        };
+
+        normalize_coop_layout(&mut layout);
+
+        assert_eq!(layout.rooms[0].room_type, RoomType::Normal);
+        assert_eq!(layout.rooms[1].room_type, RoomType::Reward);
     }
 }

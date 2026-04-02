@@ -27,7 +27,7 @@ pub fn reflect_enemy_projectiles_on_melee(
     assets: Res<GameAssets>,
     owner_mods: Query<&RewardModifiers>,
     mut collision_sets: ParamSet<(
-        Query<(&Hitbox, &GlobalTransform, Option<&ArcHitbox>)>,
+        Query<(&Hitbox, &GlobalTransform, Option<&ArcHitbox>), Without<Replicated>>,
         Query<(
             Entity,
             &mut Projectile,
@@ -35,7 +35,7 @@ pub fn reflect_enemy_projectiles_on_melee(
             &GlobalTransform,
             &mut Transform,
             &mut Sprite,
-        )>,
+        ), Without<Replicated>>,
     )>,
 ) {
     let mut reflectors = Vec::new();
@@ -133,10 +133,13 @@ pub fn detect_hitbox_hurtbox_overlap(
     mut rng: ResMut<GameRng>,
     owner_mods: Query<&RewardModifiers>,
     mut owner_health_q: Query<&mut Health, (With<Player>, Without<Replicated>)>,
-    boss_q: Query<(), With<BossArchetype>>,
-    existing_ruptures: Query<&RuptureDot>,
-    hitboxes: Query<(Entity, &Hitbox, &GlobalTransform, Option<&ArcHitbox>)>,
-    hurtboxes: Query<(Entity, &Hurtbox, &GlobalTransform)>,
+    boss_q: Query<(), (With<BossArchetype>, Without<Replicated>)>,
+    existing_ruptures: Query<&RuptureDot, Without<Replicated>>,
+    hitboxes: Query<
+        (Entity, &Hitbox, &GlobalTransform, Option<&ArcHitbox>),
+        Without<Replicated>,
+    >,
+    hurtboxes: Query<(Entity, &Hurtbox, &GlobalTransform), Without<Replicated>>,
 ) {
     for (hb_entity, hb, hb_tf, arc) in &hitboxes {
         let hb_aabb = aabb_from_transform_size(hb_tf, hb.size);
@@ -272,7 +275,7 @@ fn arc_hitbox_intersects_target(
 pub fn despawn_expired_hitboxes(
     mut commands: Commands,
     time: Res<Time>,
-    mut q: Query<(Entity, &mut super::components::Lifetime)>,
+    mut q: Query<(Entity, &mut super::components::Lifetime), Without<Replicated>>,
 ) {
     for (e, mut lifetime) in &mut q {
         lifetime.0.tick(time.delta());
@@ -286,7 +289,7 @@ pub fn tick_rupture_dots(
     mut commands: Commands,
     time: Res<Time>,
     mut damage_ev: EventWriter<DamageEvent>,
-    mut q: Query<(Entity, &mut RuptureDot)>,
+    mut q: Query<(Entity, &mut RuptureDot), Without<Replicated>>,
 ) {
     for (entity, mut rupture) in &mut q {
         rupture.timer.tick(time.delta());
@@ -320,5 +323,64 @@ fn blended_reflect_direction(projectile_velocity: Vec2, slash_direction: Vec2) -
         away
     } else {
         Vec2::X
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::event::Events;
+    use bevy::ecs::system::RunSystemOnce;
+
+    use crate::core::assets::{AudioHandles, GameAssets, TextureHandles};
+
+    fn dummy_assets() -> GameAssets {
+        GameAssets {
+            font: Handle::default(),
+            textures: TextureHandles::default(),
+            audio: AudioHandles::default(),
+        }
+    }
+
+    #[test]
+    fn detect_hitbox_hurtbox_overlap_ignores_replicated_hitboxes() {
+        let mut world = World::new();
+        world.init_resource::<Events<DamageEvent>>();
+        world.insert_resource(dummy_assets());
+        world.insert_resource(GameRng::default());
+
+        world.spawn((
+            Hurtbox {
+                team: Team::Player,
+                size: Vec2::splat(16.0),
+            },
+            GlobalTransform::from(Transform::from_translation(Vec3::ZERO)),
+        ));
+
+        let replicated_hitbox = world
+            .spawn((
+                Hitbox {
+                    owner: None,
+                    team: Team::Enemy,
+                    size: Vec2::splat(20.0),
+                    damage: 5.0,
+                    knockback: 0.0,
+                    can_crit: false,
+                    crit_chance: 0.0,
+                    crit_multiplier: 1.0,
+                },
+                GlobalTransform::from(Transform::from_translation(Vec3::ZERO)),
+                Replicated { from: None },
+            ))
+            .id();
+
+        world.run_system_once(detect_hitbox_hurtbox_overlap);
+
+        let pending_damage = world
+            .resource_mut::<Events<DamageEvent>>()
+            .drain()
+            .collect::<Vec<_>>();
+        assert!(pending_damage.is_empty());
+        assert!(world.get_entity(replicated_hitbox).is_some());
     }
 }

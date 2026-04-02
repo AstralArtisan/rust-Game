@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use lightyear::prelude::Replicated;
 
 use crate::coop::components::GhostState;
 use crate::core::events::{DamageAppliedEvent, DamageEvent, DeathEvent};
@@ -19,7 +20,7 @@ pub fn apply_damage_events(
         Option<&mut Flash>,
         &mut Knockback,
         &GlobalTransform,
-    )>,
+    ), Without<Replicated>>,
 ) {
     for ev in damage_events.read() {
         let Ok((entity, mut health, inv_opt, hurtbox, ghost, flash_opt, mut knockback, tf)) =
@@ -62,7 +63,10 @@ pub fn apply_damage_events(
     }
 }
 
-pub fn apply_knockback_decay(time: Res<Time>, mut q: Query<(&mut Knockback, &mut Transform)>) {
+pub fn apply_knockback_decay(
+    time: Res<Time>,
+    mut q: Query<(&mut Knockback, &mut Transform), Without<Replicated>>,
+) {
     for (mut kb, mut tf) in &mut q {
         tf.translation += (kb.0 * time.delta_seconds()).extend(0.0);
         kb.0 *= 0.0;

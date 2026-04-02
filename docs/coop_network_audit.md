@@ -1,5 +1,14 @@
 # Coop 联机审计文档
 
+- 适用版本：历史审计快照，不作为当前唯一基线
+- 最后校验：2026-03-31；仅补充历史文档标识，正文保留原始审计内容
+- 关联源码：`src/coop/`、`src/gameplay/`、`docs/06_multiplayer_and_risks.md`
+- 实验性内容：是。本文反映的是审计当时的观察结论
+
+> 历史资料说明
+>
+> 本文是早期 Coop 审计记录，部分结论已经随源码演进而过时。阅读当前实现时，应优先参考 `docs/06_multiplayer_and_risks.md`、`docs/02_architecture.md` 和 `docs/03_module_design.md`，再把本文作为背景资料对照使用。
+
 更新时间：2026-03-26  
 审计基线：当前工作树（包含未提交改动），`cargo check` 通过  
 审计范围：只看 `Coop` 联机链路；`PVP` 只作为对照，不展开

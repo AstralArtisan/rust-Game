@@ -184,9 +184,9 @@ pub fn room_entry_spawner(
     current_room: Res<CurrentRoom>,
     mut room_state: ResMut<RoomState>,
     mut cleanup_q: ParamSet<(
-        Query<Entity, With<Enemy>>,
-        Query<Entity, With<Projectile>>,
-        Query<Entity, With<Hitbox>>,
+        Query<Entity, (With<Enemy>, Without<Replicated>)>,
+        Query<Entity, (With<Projectile>, Without<Replicated>)>,
+        Query<Entity, (With<Hitbox>, Without<Replicated>)>,
         Query<Entity, With<ShopKiosk>>,
         Query<Entity, With<PuzzleEntity>>,
     )>,
@@ -948,7 +948,7 @@ fn boss_contact_damage_system(
 fn clear_enemy_attacks_on_room_clear(
     mut commands: Commands,
     mut room_cleared: EventReader<RoomClearedEvent>,
-    enemy_attack_q: Query<(Entity, &Hitbox), Without<Enemy>>,
+    enemy_attack_q: Query<(Entity, &Hitbox), (Without<Enemy>, Without<Replicated>)>,
 ) {
     if room_cleared.read().next().is_none() {
         return;

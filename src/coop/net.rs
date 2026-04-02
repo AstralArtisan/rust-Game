@@ -249,6 +249,17 @@ pub fn local_client_id(mode: NetMode) -> ClientId {
     }
 }
 
+fn local_player_slot(mode: NetMode) -> PlayerSlot {
+    match mode {
+        NetMode::Host | NetMode::None => PlayerSlot::P1,
+        NetMode::Client => PlayerSlot::P2,
+    }
+}
+
+fn client_game_entry_ready(session_ready: bool, door_ready: bool, local_slot_ready: bool) -> bool {
+    session_ready && door_ready && local_slot_ready
+}
+
 pub fn remote_client_id() -> ClientId {
     ClientId::Netcode(REMOTE_CLIENT_ID)
 }
@@ -632,12 +643,13 @@ fn auto_advance_lobby_state(
             next_state.set(AppState::CoopGame);
         }
         NetMode::Client if net.connected => {
+            let local_slot = local_player_slot(config.mode);
             let local_slot_ready = player_q
                 .iter()
-                .any(|(slot, controlled)| *slot == PlayerSlot::P2 && controlled.is_some());
+                .any(|(slot, controlled)| *slot == local_slot && controlled.is_some());
             let session_ready = session_q.iter().next().is_some();
             let door_ready = door_q.iter().next().is_some();
-            if session_ready && local_slot_ready && door_ready {
+            if client_game_entry_ready(session_ready, door_ready, local_slot_ready) {
                 next_state.set(AppState::CoopGame);
             }
         }
@@ -702,6 +714,13 @@ fn capture_server_inputs(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    use lightyear::prelude::Replicated;
+    use lightyear::shared::replication::components::Controlled;
+
+    use crate::gameplay::map::doors::Door;
+    use crate::gameplay::map::room::{Direction, RoomId};
+    use crate::gameplay::player::components::Player;
 
     #[test]
     fn bare_ipv4_is_accepted_and_normalized() {
@@ -720,6 +739,74 @@ mod tests {
         assert!(validate_coop_host_ip("192.168.1.6:3457").is_err());
         assert!(validate_coop_host_ip("localhost").is_err());
         assert!(validate_coop_host_ip("").is_err());
+    }
+
+    #[test]
+    fn client_lobby_waits_for_full_replicated_world_before_entering_game() {
+        let mut world = World::new();
+        world.insert_resource(State::new(AppState::CoopLobby));
+        world.insert_resource(NextState::<AppState>::default());
+        world.insert_resource(CoopNetConfig {
+            mode: NetMode::Client,
+            host_ip: "127.0.0.1".to_string(),
+        });
+        world.insert_resource(CoopSessionFlow {
+            pending_game_entry: true,
+            ..default()
+        });
+        world.insert_resource(CoopNetState {
+            connected: true,
+            ..default()
+        });
+
+        world.run_system_once(auto_advance_lobby_state);
+
+        assert!(matches!(
+            world.resource::<NextState<AppState>>(),
+            NextState::Unchanged
+        ));
+    }
+
+    #[test]
+    fn client_lobby_enters_game_once_session_player_and_door_are_ready() {
+        let mut world = World::new();
+        world.insert_resource(State::new(AppState::CoopLobby));
+        world.insert_resource(NextState::<AppState>::default());
+        world.insert_resource(CoopNetConfig {
+            mode: NetMode::Client,
+            host_ip: "127.0.0.1".to_string(),
+        });
+        world.insert_resource(CoopSessionFlow {
+            pending_game_entry: true,
+            ..default()
+        });
+        world.insert_resource(CoopNetState {
+            connected: true,
+            ..default()
+        });
+
+        world.spawn((CoopSessionState::default(), Replicated { from: None }));
+        world.spawn((
+            Door {
+                to: RoomId(1),
+                dir: Direction::Right,
+                active: true,
+            },
+            Replicated { from: None },
+        ));
+        world.spawn((
+            Player,
+            PlayerSlot::P2,
+            Controlled,
+            Replicated { from: None },
+        ));
+
+        world.run_system_once(auto_advance_lobby_state);
+
+        assert!(matches!(
+            world.resource::<NextState<AppState>>(),
+            NextState::Pending(AppState::CoopGame)
+        ));
     }
 }
 
