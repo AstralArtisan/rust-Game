@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::gameplay::combat::components::Team;
 use crate::gameplay::rewards::data::RewardType;
 
-pub const ENERGY_SYSTEM_ENABLED: bool = false;
+pub const ENERGY_SYSTEM_ENABLED: bool = true;
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Player;
@@ -18,6 +18,10 @@ pub struct PlayerDriveInput {
     pub ranged_pressed: bool,
     pub ranged_held: bool,
     pub dash_pressed: bool,
+    pub skill_1_pressed: bool,
+    pub skill_2_pressed: bool,
+    pub skill_3_pressed: bool,
+    pub skill_4_pressed: bool,
     pub interact_pressed: bool,
     pub pause_pressed: bool,
     pub shop_pressed: bool,
@@ -35,6 +39,16 @@ pub struct Health {
 pub struct Energy {
     pub current: f32,
     pub max: f32,
+}
+
+impl Energy {
+    pub fn ratio(self) -> f32 {
+        if self.max <= 0.0 {
+            0.0
+        } else {
+            (self.current / self.max).clamp(0.0, 1.0)
+        }
+    }
 }
 
 #[derive(Component, Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
@@ -106,6 +120,133 @@ impl Combo {
 #[derive(Component, Debug, Clone)]
 pub struct Skill1Cooldown {
     pub timer: Timer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillSlot {
+    One,
+    Two,
+    Three,
+    Four,
+}
+
+impl SkillSlot {
+    pub const ALL: [Self; 4] = [Self::One, Self::Two, Self::Three, Self::Four];
+
+    pub fn index(self) -> usize {
+        match self {
+            Self::One => 0,
+            Self::Two => 1,
+            Self::Three => 2,
+            Self::Four => 3,
+        }
+    }
+
+    pub fn key_label(self) -> &'static str {
+        match self {
+            Self::One => "1",
+            Self::Two => "2",
+            Self::Three => "3",
+            Self::Four => "4",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillType {
+    SwordArc,
+    MarkedHunt,
+    LightningDash,
+    Relic,
+}
+
+impl SkillType {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::SwordArc => "剑气斩",
+            Self::MarkedHunt => "标记猎杀",
+            Self::LightningDash => "闪电冲刺",
+            Self::Relic => "遗物主动",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillSlotState {
+    pub skill: Option<SkillType>,
+    pub unlocked: bool,
+}
+
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillSlots {
+    pub slots: [SkillSlotState; 4],
+}
+
+impl Default for SkillSlots {
+    fn default() -> Self {
+        Self {
+            slots: [
+                SkillSlotState {
+                    skill: Some(SkillType::SwordArc),
+                    unlocked: true,
+                },
+                SkillSlotState {
+                    skill: Some(SkillType::MarkedHunt),
+                    unlocked: false,
+                },
+                SkillSlotState {
+                    skill: Some(SkillType::LightningDash),
+                    unlocked: false,
+                },
+                SkillSlotState {
+                    skill: Some(SkillType::Relic),
+                    unlocked: false,
+                },
+            ],
+        }
+    }
+}
+
+impl SkillSlots {
+    pub fn state(self, slot: SkillSlot) -> SkillSlotState {
+        self.slots[slot.index()]
+    }
+
+    pub fn unlock(&mut self, slot: SkillSlot) -> bool {
+        let state = &mut self.slots[slot.index()];
+        let was_locked = !state.unlocked;
+        state.unlocked = true;
+        was_locked
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ActiveSkill {
+    Idle,
+    LockOn { timer: Timer },
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct PlayerSkillState {
+    pub active: ActiveSkill,
+}
+
+impl Default for PlayerSkillState {
+    fn default() -> Self {
+        Self {
+            active: ActiveSkill::Idle,
+        }
+    }
+}
+
+impl PlayerSkillState {
+    pub fn blocks_attacks(&self) -> bool {
+        matches!(self.active, ActiveSkill::LockOn { .. })
+    }
+
+    pub fn lock_on_active(&self) -> bool {
+        matches!(self.active, ActiveSkill::LockOn { .. })
+    }
 }
 
 #[derive(Component, Debug, Clone)]
@@ -339,6 +480,18 @@ pub struct DashState {
     pub timer: Timer,
     pub trail_timer: Timer,
     pub speed: f32,
+    pub base_speed: f32,
+    pub base_duration_s: f32,
+    pub mode: DashMode,
+    pub impact_damage: f32,
+    pub burst_damage: f32,
+    pub burst_radius: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DashMode {
+    Normal,
+    LightningSkill,
 }
 
 impl DashState {
@@ -349,7 +502,44 @@ impl DashState {
             timer: Timer::from_seconds(duration_s, TimerMode::Once),
             trail_timer: Timer::from_seconds(0.05, TimerMode::Repeating),
             speed,
+            base_speed: speed,
+            base_duration_s: duration_s,
+            mode: DashMode::Normal,
+            impact_damage: 0.0,
+            burst_damage: 0.0,
+            burst_radius: 0.0,
         }
+    }
+
+    pub fn reset_to_base(&mut self) {
+        self.active = false;
+        self.mode = DashMode::Normal;
+        self.speed = self.base_speed;
+        self.impact_damage = 0.0;
+        self.burst_damage = 0.0;
+        self.burst_radius = 0.0;
+        self.timer = Timer::from_seconds(self.base_duration_s, TimerMode::Once);
+        self.trail_timer = Timer::from_seconds(0.05, TimerMode::Repeating);
+    }
+
+    pub fn activate_lightning(
+        &mut self,
+        dir: Vec2,
+        speed: f32,
+        duration_s: f32,
+        impact_damage: f32,
+        burst_damage: f32,
+        burst_radius: f32,
+    ) {
+        self.active = true;
+        self.dir = dir;
+        self.speed = speed;
+        self.mode = DashMode::LightningSkill;
+        self.impact_damage = impact_damage;
+        self.burst_damage = burst_damage;
+        self.burst_radius = burst_radius;
+        self.timer = Timer::from_seconds(duration_s, TimerMode::Once);
+        self.trail_timer = Timer::from_seconds(0.04, TimerMode::Repeating);
     }
 }
 

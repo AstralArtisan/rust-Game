@@ -12,7 +12,7 @@ use crate::gameplay::enemy::components::{EnemyKind, EnemyType};
 use crate::gameplay::map::VisitedRooms;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::player::components::{
-    DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Gold, Health, Player,
+    DashCooldown, Energy, Gold, Health, Player, PlayerSkillState, SkillSlot, SkillSlots,
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::states::RoomState;
@@ -35,10 +35,25 @@ pub struct GoldText;
 pub struct EnergyText;
 
 #[derive(Component)]
+pub struct EnergyFill;
+
+#[derive(Component)]
 pub struct DashText;
 
 #[derive(Component)]
 pub struct DashIconFill;
+
+#[derive(Component)]
+pub struct SkillOverlay;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct SkillSlotPanel(pub SkillSlot);
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct SkillSlotName(pub SkillSlot);
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct SkillSlotKey(pub SkillSlot);
 
 #[derive(Component)]
 pub struct FloorText;
@@ -85,6 +100,21 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
             Name::new("HudRoot"),
         ))
         .with_children(|root| {
+            root.spawn((
+                NodeBundle {
+                    style: Style {
+                        position_type: PositionType::Absolute,
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    background_color: BackgroundColor(Color::srgba(0.02, 0.03, 0.05, 0.0)),
+                    ..default()
+                },
+                SkillOverlay,
+                Name::new("SkillOverlay"),
+            ));
+
             root.spawn(NodeBundle {
                 style: Style {
                     position_type: PositionType::Absolute,
@@ -143,6 +173,33 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                         widgets::title_text(&assets, "能量: 100 / 100（暂未启用）", 14.0),
                         EnergyText,
                     ));
+                    panel
+                        .spawn(NodeBundle {
+                            style: Style {
+                                width: Val::Px(220.0),
+                                height: Val::Px(14.0),
+                                margin: UiRect::top(Val::Px(2.0)),
+                                ..default()
+                            },
+                            background_color: BackgroundColor(Color::srgb(0.10, 0.13, 0.18)),
+                            ..default()
+                        })
+                        .with_children(|bar| {
+                            bar.spawn((
+                                NodeBundle {
+                                    style: Style {
+                                        width: Val::Percent(0.0),
+                                        height: Val::Percent(100.0),
+                                        ..default()
+                                    },
+                                    background_color: BackgroundColor(Color::srgb(
+                                        0.24, 0.72, 0.96,
+                                    )),
+                                    ..default()
+                                },
+                                EnergyFill,
+                            ));
+                        });
                 });
 
                 col.spawn(NodeBundle {
@@ -186,6 +243,44 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                     });
 
                     row.spawn((widgets::title_text(&assets, "冲刺：就绪", 16.0), DashText));
+                });
+
+                col.spawn(NodeBundle {
+                    style: Style {
+                        margin: UiRect::top(Val::Px(4.0)),
+                        column_gap: Val::Px(8.0),
+                        ..default()
+                    },
+                    ..default()
+                })
+                .with_children(|row| {
+                    for slot in SkillSlot::ALL {
+                        row.spawn((
+                            NodeBundle {
+                                style: Style {
+                                    width: Val::Px(74.0),
+                                    height: Val::Px(60.0),
+                                    padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)),
+                                    flex_direction: FlexDirection::Column,
+                                    justify_content: JustifyContent::SpaceBetween,
+                                    ..default()
+                                },
+                                background_color: BackgroundColor(Color::srgb(0.14, 0.16, 0.20)),
+                                ..default()
+                            },
+                            SkillSlotPanel(slot),
+                        ))
+                        .with_children(|slot_ui| {
+                            slot_ui.spawn((
+                                widgets::title_text(&assets, "LOCK", 13.0),
+                                SkillSlotName(slot),
+                            ));
+                            slot_ui.spawn((
+                                widgets::title_text(&assets, slot.key_label(), 12.0),
+                                SkillSlotKey(slot),
+                            ));
+                        });
+                    }
                 });
 
                 col.spawn((
@@ -311,7 +406,9 @@ pub fn update_gold_text(
 
 pub fn update_energy_text(
     player_q: Query<&Energy, (With<Player>, With<LocalControlled>)>,
+    time: Res<Time>,
     mut text_q: Query<&mut Text, With<EnergyText>>,
+    mut fill_q: Query<(&mut Style, &mut BackgroundColor), With<EnergyFill>>,
 ) {
     let Ok(energy) = player_q.get_single() else {
         return;
@@ -319,13 +416,97 @@ pub fn update_energy_text(
     let Ok(mut text) = text_q.get_single_mut() else {
         return;
     };
-    if ENERGY_SYSTEM_ENABLED {
-        text.sections[0].value = format!("能量: {:.0} / {:.0}", energy.current, energy.max);
+    text.sections[0].value = format!("蓄力: {:.0} / {:.0}", energy.current, energy.max);
+
+    let Ok((mut style, mut color)) = fill_q.get_single_mut() else {
+        return;
+    };
+    let ratio = if energy.max > 0.0 {
+        (energy.current / energy.max).clamp(0.0, 1.0)
     } else {
-        text.sections[0].value = format!(
-            "能量: {:.0} / {:.0}（暂未启用）",
-            energy.current, energy.max
-        );
+        0.0
+    };
+    style.width = Val::Percent(ratio * 100.0);
+
+    let pulse = (time.elapsed_seconds() * 8.0).sin().abs();
+    color.0 = if ratio >= 0.999 {
+        Color::srgb(0.96, 0.88 + pulse * 0.10, 0.32)
+    } else {
+        Color::srgb(0.24, 0.72, 0.96)
+    };
+}
+
+pub fn update_skill_bar_ui(
+    time: Res<Time>,
+    player_q: Query<
+        (&Energy, Option<&SkillSlots>, Option<&PlayerSkillState>),
+        (With<Player>, With<LocalControlled>),
+    >,
+    mut panel_q: Query<(&SkillSlotPanel, &mut BackgroundColor), Without<SkillOverlay>>,
+    mut name_q: Query<(&SkillSlotName, &mut Text), Without<SkillSlotKey>>,
+    mut key_q: Query<(&SkillSlotKey, &mut Text), Without<SkillSlotName>>,
+    mut overlay_q: Query<&mut BackgroundColor, (With<SkillOverlay>, Without<SkillSlotPanel>)>,
+) {
+    let Ok((energy, slots, skill_state)) = player_q.get_single() else {
+        return;
+    };
+    let slots = slots.copied().unwrap_or_default();
+    let energy_ready = energy.current >= energy.max.max(1.0) - f32::EPSILON;
+    let pulse = (time.elapsed_seconds() * 7.0).sin().abs();
+
+    if let Ok(mut overlay) = overlay_q.get_single_mut() {
+        overlay.0 = if skill_state.is_some_and(PlayerSkillState::lock_on_active) {
+            Color::srgba(0.02, 0.03, 0.05, 0.18)
+        } else {
+            Color::srgba(0.02, 0.03, 0.05, 0.0)
+        };
+    }
+
+    for (slot_panel, mut bg) in &mut panel_q {
+        let state = slots.state(slot_panel.0);
+        let base = match state.skill.map(skill_palette) {
+            Some(color) => color,
+            None => Color::srgb(0.24, 0.24, 0.28),
+        };
+        bg.0 = if !state.unlocked {
+            Color::srgb(0.14, 0.16, 0.20)
+        } else if energy_ready {
+            state
+                .skill
+                .map(|skill| skill_ready_palette(skill, pulse))
+                .unwrap_or(base)
+        } else {
+            base
+        };
+    }
+
+    for (slot_name, mut text) in &mut name_q {
+        let state = slots.state(slot_name.0);
+        text.sections[0].value = if state.unlocked {
+            state
+                .skill
+                .map(|skill| skill.label())
+                .unwrap_or("空槽")
+                .to_string()
+        } else {
+            "锁定".to_string()
+        };
+        text.sections[0].style.color = if state.unlocked {
+            Color::srgb(0.96, 0.97, 0.98)
+        } else {
+            Color::srgb(0.60, 0.62, 0.66)
+        };
+    }
+
+    for (slot_key, mut text) in &mut key_q {
+        let state = slots.state(slot_key.0);
+        text.sections[0].style.color = if !state.unlocked {
+            Color::srgb(0.46, 0.48, 0.52)
+        } else if energy_ready {
+            Color::srgb(1.0, 0.94, 0.54)
+        } else {
+            Color::srgb(0.80, 0.84, 0.90)
+        };
     }
 }
 
@@ -414,8 +595,10 @@ pub fn update_floor_text(
             .map(|value| value.balance.total_floors.max(1))
             .unwrap_or(4);
         if let Ok(session) = session_q.get_single() {
-            text.sections[0].value =
-                format!("楼层：第 {} 层 / 共 {} 层", session.floor_number, total_floors);
+            text.sections[0].value = format!(
+                "楼层：第 {} 层 / 共 {} 层",
+                session.floor_number, total_floors
+            );
         }
         return;
     };
@@ -484,12 +667,13 @@ pub fn update_enemy_count_text(
             0..self.0
         }
     }
-    let enemy_q = CountProxy(if config.as_deref().map(|value| value.mode) == Some(NetMode::Client)
-    {
-        replicated_enemy_q.iter().count()
-    } else {
-        authority_enemy_q.iter().count()
-    });
+    let enemy_q = CountProxy(
+        if config.as_deref().map(|value| value.mode) == Some(NetMode::Client) {
+            replicated_enemy_q.iter().count()
+        } else {
+            authority_enemy_q.iter().count()
+        },
+    );
     text.sections[0].value = format!("敌人：{}", enemy_q.iter().count());
 }
 
@@ -505,7 +689,8 @@ pub fn update_hint_text(
     };
     let (Some(layout), Some(current), Some(room_state)) = (layout, current, room_state) else {
         if let Ok(session) = session_q.get_single() {
-            text.sections[0].value = coop_hint_text(session.room_type, session.room_state).to_string();
+            text.sections[0].value =
+                coop_hint_text(session.room_type, session.room_state).to_string();
         }
         return;
     };
@@ -699,6 +884,32 @@ fn room_color(room_type: RoomType) -> (Color, f32) {
         RoomType::Reward => (Color::srgb(0.85, 0.85, 0.20), 12.0),
         RoomType::Puzzle => (Color::srgb(0.25, 0.85, 0.85), 12.0),
         RoomType::Boss => (Color::srgb(0.85, 0.25, 0.95), 14.0),
+    }
+}
+
+fn skill_palette(skill: crate::gameplay::player::components::SkillType) -> Color {
+    match skill {
+        crate::gameplay::player::components::SkillType::SwordArc => Color::srgb(0.20, 0.54, 0.40),
+        crate::gameplay::player::components::SkillType::MarkedHunt => Color::srgb(0.62, 0.22, 0.26),
+        crate::gameplay::player::components::SkillType::LightningDash => {
+            Color::srgb(0.22, 0.46, 0.72)
+        }
+        crate::gameplay::player::components::SkillType::Relic => Color::srgb(0.32, 0.32, 0.36),
+    }
+}
+
+fn skill_ready_palette(skill: crate::gameplay::player::components::SkillType, pulse: f32) -> Color {
+    match skill {
+        crate::gameplay::player::components::SkillType::SwordArc => {
+            Color::srgb(0.42, 0.86 + pulse * 0.08, 0.68)
+        }
+        crate::gameplay::player::components::SkillType::MarkedHunt => {
+            Color::srgb(0.86 + pulse * 0.08, 0.38, 0.42)
+        }
+        crate::gameplay::player::components::SkillType::LightningDash => {
+            Color::srgb(0.44, 0.72, 0.98)
+        }
+        crate::gameplay::player::components::SkillType::Relic => Color::srgb(0.74, 0.74, 0.78),
     }
 }
 

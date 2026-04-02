@@ -4,10 +4,10 @@ use lightyear::prelude::Replicated;
 #[cfg(test)]
 use std::time::Duration;
 
-use crate::coop::components::{CoopNetPosition, CoopNetRotation, CoopNetVelocity};
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
+use crate::coop::components::{CoopNetPosition, CoopNetRotation, CoopNetVelocity};
 use crate::core::assets::GameAssets;
-use crate::gameplay::combat::components::{Hitbox, Lifetime, Projectile, Team};
+use crate::gameplay::combat::components::{DamageKind, Hitbox, Lifetime, Projectile, Team};
 use crate::gameplay::map::InGameEntity;
 use crate::utils::entity::safe_despawn_recursive;
 
@@ -20,7 +20,21 @@ pub fn spawn_projectile(
     damage: f32,
 ) -> Entity {
     spawn_projectile_with_hitbox(
-        commands, assets, None, team, pos, velocity, damage, false, 0.0, 1.0,
+        commands,
+        assets,
+        None,
+        team,
+        if team == Team::Enemy {
+            DamageKind::Enemy
+        } else {
+            DamageKind::PlayerRanged
+        },
+        pos,
+        velocity,
+        damage,
+        false,
+        0.0,
+        1.0,
     )
 }
 
@@ -33,11 +47,34 @@ pub fn spawn_player_projectile(
     damage: f32,
     crit_chance: f32,
 ) -> Entity {
+    spawn_player_projectile_with_kind(
+        commands,
+        assets,
+        owner,
+        pos,
+        velocity,
+        damage,
+        crit_chance,
+        DamageKind::PlayerRanged,
+    )
+}
+
+pub fn spawn_player_projectile_with_kind(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    owner: Entity,
+    pos: Vec2,
+    velocity: Vec2,
+    damage: f32,
+    crit_chance: f32,
+    damage_kind: DamageKind,
+) -> Entity {
     spawn_projectile_with_hitbox(
         commands,
         assets,
         Some(owner),
         Team::Player,
+        damage_kind,
         pos,
         velocity,
         damage,
@@ -52,6 +89,7 @@ fn spawn_projectile_with_hitbox(
     assets: &GameAssets,
     owner: Option<Entity>,
     team: Team,
+    damage_kind: DamageKind,
     pos: Vec2,
     velocity: Vec2,
     damage: f32,
@@ -108,6 +146,7 @@ fn spawn_projectile_with_hitbox(
             Hitbox {
                 owner,
                 team,
+                damage_kind,
                 size: hitbox_size,
                 damage,
                 knockback: 240.0,

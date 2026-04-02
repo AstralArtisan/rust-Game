@@ -8,6 +8,7 @@ pub mod puzzle;
 pub mod rewards;
 pub mod session_core;
 pub mod shop;
+pub mod skills;
 
 use bevy::prelude::*;
 
@@ -22,6 +23,7 @@ impl Plugin for GameplayPlugin {
             progression::ProgressionPlugin,
             combat::CombatPlugin,
             player::PlayerPlugin,
+            skills::SkillsPlugin,
             enemy::EnemyPlugin,
             rewards::RewardsPlugin,
             effects::EffectsPlugin,

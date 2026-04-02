@@ -126,6 +126,7 @@ pub fn trap_system(
                     Hitbox {
                         owner: None,
                         team: Team::Enemy,
+                        damage_kind: crate::gameplay::combat::components::DamageKind::Enemy,
                         size: trap.size,
                         damage: trap.damage,
                         knockback: trap.knockback,

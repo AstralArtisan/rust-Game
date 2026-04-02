@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::gameplay::combat::components::Team;
+use crate::gameplay::combat::components::{DamageKind, Team};
 use crate::gameplay::map::room::RoomId;
 use crate::gameplay::rewards::data::RewardType;
 
@@ -11,14 +11,17 @@ pub struct DamageEvent {
     pub amount: f32,
     pub knockback: Vec2,
     pub team: Team,
+    pub kind: DamageKind,
     pub is_crit: bool,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct DamageAppliedEvent {
     pub target: Entity,
+    pub source: Option<Entity>,
     pub amount: f32,
     pub attacker_team: Team,
+    pub kind: DamageKind,
     pub target_team: Option<Team>,
     pub is_crit: bool,
     pub pos: Vec2,

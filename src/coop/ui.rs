@@ -5,16 +5,16 @@ use lightyear::prelude::Replicated;
 use lightyear::prelude::client::MessageEvent as LyClientMessageEvent;
 use lightyear::shared::replication::components::Controlled;
 
+use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH, UI_Z};
 use crate::core::assets::GameAssets;
 use crate::core::input::PlayerInputState;
-use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH, UI_Z};
 use crate::gameplay::combat::components::Projectile;
 use crate::gameplay::effects::afterimage;
 use crate::gameplay::effects::damage_numbers::DamageNumber;
 use crate::gameplay::enemy::components::{Enemy, EnemyKind, EnemyType};
+use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::doors::Door;
 use crate::gameplay::map::room::RoomType;
-use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::combat::{melee_swing_profile, spawn_melee_slash_visual};
 use crate::gameplay::player::components::{
     AnimationState, FacingDirection, Health, Player, RewardModifiers,
@@ -25,16 +25,16 @@ use crate::ui::widgets;
 use crate::utils::entity::safe_despawn_recursive;
 
 use super::components::{
-    CoopDamageEvent, CoopDashVisualState, CoopDoorOption, CoopMeleeFlashState, CoopNetPosition,
-    CoopNetRotation, CoopHudRoot, CoopOverlayRoot, CoopParticipant, CoopPhase,
+    CoopDamageEvent, CoopDashVisualState, CoopDoorOption, CoopHudRoot, CoopMeleeFlashState,
+    CoopNetPosition, CoopNetRotation, CoopOverlayRoot, CoopParticipant, CoopPhase,
     CoopRemoteHealthBarFill, CoopRemoteHealthBarRoot, CoopRewardOption, CoopRewardSelectionGroup,
     CoopRpsChoice, CoopSessionState, CoopShopItem, CoopShopOffer, CoopVisualReady, GhostState,
     LocalAnimPrediction, LocalControlled, PlayerSlot,
 };
 use super::net::{
-    begin_coop_lobby_session, normalize_coop_host_ip, queue_command, queue_exit_request,
-    reset_coop_network, CoopCommandMessage, CoopExitDestination, CoopExitRequest, CoopNetConfig,
-    CoopNetState, CoopSessionFlow, NetMode, COOP_PORT,
+    COOP_PORT, CoopCommandMessage, CoopExitDestination, CoopExitRequest, CoopNetConfig,
+    CoopNetState, CoopSessionFlow, NetMode, begin_coop_lobby_session, normalize_coop_host_ip,
+    queue_command, queue_exit_request, reset_coop_network,
 };
 
 const REMOTE_BAR_WIDTH: f32 = 34.0;
@@ -221,7 +221,10 @@ pub struct CoopJoinIp {
 pub fn setup_coop_menu(mut commands: Commands, assets: Res<GameAssets>) {
     commands.insert_resource(CoopJoinIp {
         ip: String::new(),
-        notice: format!("请输入房主的局域网 IPv4 地址，UDP 端口 {} 固定不变。", COOP_PORT),
+        notice: format!(
+            "请输入房主的局域网 IPv4 地址，UDP 端口 {} 固定不变。",
+            COOP_PORT
+        ),
     });
     commands
         .spawn((widgets::root_node(), CoopMenuUi, Name::new("CoopMenuRoot")))
@@ -328,7 +331,10 @@ pub fn coop_menu_input_system(
     }
 
     if ip.ip.trim().is_empty() {
-        ip.notice = format!("请输入房主的局域网 IPv4 地址，UDP 端口 {} 固定不变。", COOP_PORT);
+        ip.notice = format!(
+            "请输入房主的局域网 IPv4 地址，UDP 端口 {} 固定不变。",
+            COOP_PORT
+        );
     } else {
         ip.notice = format!("目标主机：{}（UDP {} 固定）", ip.ip.trim(), COOP_PORT);
     }
@@ -414,7 +420,11 @@ pub fn cleanup_coop_menu(mut commands: Commands, q: Query<Entity, With<CoopMenuU
 
 pub fn setup_coop_lobby(mut commands: Commands, assets: Res<GameAssets>) {
     commands
-        .spawn((widgets::root_node(), CoopLobbyUi, Name::new("CoopLobbyRoot")))
+        .spawn((
+            widgets::root_node(),
+            CoopLobbyUi,
+            Name::new("CoopLobbyRoot"),
+        ))
         .with_children(|root| {
             root.spawn(widgets::modal_panel_node(700.0))
                 .with_children(|panel| {
@@ -518,7 +528,11 @@ pub fn coop_lobby_ui_system(
                 "会话已就绪：{}\n目标主机：{}\n连接状态：{}",
                 session_armed,
                 config.host_ip,
-                if net.connected { "已连接" } else { "连接中" },
+                if net.connected {
+                    "已连接"
+                } else {
+                    "连接中"
+                },
             ),
             NetMode::None => "尚未选择联机模式".to_string(),
         };
@@ -532,14 +546,12 @@ pub fn coop_lobby_ui_system(
                     .unwrap_or_else(|| "请将此局域网 IPv4 地址分享给队友：".to_string());
                 format!(
                     "{}\n端口 {} 固定不变，请勿将 127.0.0.1 或 localhost 发给队友。",
-                    share_ip,
-                    COOP_PORT
+                    share_ip, COOP_PORT
                 )
             }
             NetMode::Client => format!(
                 "正在连接主机 {}\n端口 {} 固定不变，仅接受纯 IPv4 地址。",
-                config.host_ip,
-                COOP_PORT
+                config.host_ip, COOP_PORT
             ),
             NetMode::None => "未初始化联机模式。".to_string(),
         };
@@ -551,23 +563,17 @@ pub fn coop_lobby_ui_system(
         } else if flow.pending_game_entry {
             match config.mode {
                 NetMode::Host if net.remote_connected => {
-                    "会话已就绪，双方同步完成后对局将自动开始。"
-                        .to_string()
+                    "会话已就绪，双方同步完成后对局将自动开始。".to_string()
                 }
-                NetMode::Host => {
-                    "等待队友加入，请分享局域网 IPv4（不含端口）。"
-                        .to_string()
-                }
+                NetMode::Host => "等待队友加入，请分享局域网 IPv4（不含端口）。".to_string(),
                 NetMode::Client if net.connected => {
-                    "已连接主机，等待会话状态与地图复制完成。"
-                        .to_string()
+                    "已连接主机，等待会话状态与地图复制完成。".to_string()
                 }
                 NetMode::Client => "正在连接主机，请稍候。".to_string(),
                 NetMode::None => "请先选择房主或客户端模式。".to_string(),
             }
         } else {
-            "按“开始 / 重试”激活合作会话，Esc 返回联机菜单。"
-                .to_string()
+            "按“开始 / 重试”激活合作会话，Esc 返回联机菜单。".to_string()
         };
     }
 }
@@ -639,7 +645,11 @@ pub fn cleanup_coop_lobby(mut commands: Commands, q: Query<Entity, With<CoopLobb
 
 pub fn setup_coop_game_ui(mut commands: Commands, assets: Res<GameAssets>) {
     commands
-        .spawn((widgets::root_node(), CoopGameUi, Name::new("CoopGameUiRoot")))
+        .spawn((
+            widgets::root_node(),
+            CoopGameUi,
+            Name::new("CoopGameUiRoot"),
+        ))
         .with_children(|root| {
             root.spawn((
                 NodeBundle {
@@ -670,10 +680,7 @@ pub fn setup_coop_game_ui(mut commands: Commands, assets: Res<GameAssets>) {
                     widgets::body_text(&assets, "我方：同步中\n队友：同步中", 16.0),
                     CoopStatusPlayersText,
                 ));
-                panel.spawn((
-                    widgets::muted_text(&assets, "", 14.0),
-                    CoopStatusDetailText,
-                ));
+                panel.spawn((widgets::muted_text(&assets, "", 14.0), CoopStatusDetailText));
                 panel.spawn((
                     widgets::muted_text(&assets, "提示：保持同步推进，房门交互仍使用 E。", 15.0),
                     CoopStatusHintText,
@@ -701,53 +708,54 @@ pub fn setup_coop_game_ui(mut commands: Commands, assets: Res<GameAssets>) {
             ))
             .with_children(|shade| {
                 shade
-                    .spawn((widgets::modal_panel_node(760.0), Name::new("CoopModalPanel")))
+                    .spawn((
+                        widgets::modal_panel_node(760.0),
+                        Name::new("CoopModalPanel"),
+                    ))
                     .with_children(|panel| {
                         panel.spawn((widgets::title_text(&assets, "", 34.0), CoopModalTitleText));
                         panel.spawn((widgets::body_text(&assets, "", 18.0), CoopModalBodyText));
-                        panel.spawn((
-                            widgets::muted_text(&assets, "", 15.0),
-                            CoopModalFooterText,
-                        ));
-                        panel.spawn((
-                            NodeBundle {
-                                style: Style {
-                                    width: Val::Percent(100.0),
-                                    column_gap: Val::Px(12.0),
-                                    row_gap: Val::Px(12.0),
-                                    flex_wrap: FlexWrap::Wrap,
-                                    justify_content: JustifyContent::Center,
+                        panel.spawn((widgets::muted_text(&assets, "", 15.0), CoopModalFooterText));
+                        panel
+                            .spawn((
+                                NodeBundle {
+                                    style: Style {
+                                        width: Val::Percent(100.0),
+                                        column_gap: Val::Px(12.0),
+                                        row_gap: Val::Px(12.0),
+                                        flex_wrap: FlexWrap::Wrap,
+                                        justify_content: JustifyContent::Center,
+                                        ..default()
+                                    },
                                     ..default()
                                 },
-                                ..default()
-                            },
-                            Name::new("CoopModalOptions"),
-                        ))
-                        .with_children(|options| {
-                            for index in 0..6 {
-                                options
-                                    .spawn((
-                                        widgets::button_bundle_sized(300.0, 92.0),
-                                        CoopModalOptionButton { index },
-                                        CoopModalButtonState::default(),
-                                        Name::new(format!("CoopModalOption{}", index + 1)),
-                                    ))
-                                    .with_children(|button| {
-                                        button.spawn((
-                                            widgets::title_text(&assets, "", 21.0),
-                                            CoopModalOptionTitle { index },
-                                        ));
-                                        button.spawn((
-                                            widgets::body_text(&assets, "", 16.0),
-                                            CoopModalOptionBody { index },
-                                        ));
-                                        button.spawn((
-                                            widgets::muted_text(&assets, "", 14.0),
-                                            CoopModalOptionMeta { index },
-                                        ));
-                                    });
-                            }
-                        });
+                                Name::new("CoopModalOptions"),
+                            ))
+                            .with_children(|options| {
+                                for index in 0..6 {
+                                    options
+                                        .spawn((
+                                            widgets::button_bundle_sized(300.0, 92.0),
+                                            CoopModalOptionButton { index },
+                                            CoopModalButtonState::default(),
+                                            Name::new(format!("CoopModalOption{}", index + 1)),
+                                        ))
+                                        .with_children(|button| {
+                                            button.spawn((
+                                                widgets::title_text(&assets, "", 21.0),
+                                                CoopModalOptionTitle { index },
+                                            ));
+                                            button.spawn((
+                                                widgets::body_text(&assets, "", 16.0),
+                                                CoopModalOptionBody { index },
+                                            ));
+                                            button.spawn((
+                                                widgets::muted_text(&assets, "", 14.0),
+                                                CoopModalOptionMeta { index },
+                                            ));
+                                        });
+                                }
+                            });
                     });
             });
         });
@@ -777,25 +785,29 @@ pub fn ensure_local_control_marker(
             .filter(|(_, slot, replicated, _, _, _, _, _)| {
                 replicated.is_some() && slot.is_some_and(|slot| *slot == local_slot)
             })
-            .max_by_key(|(entity, slot, _, controlled, _, local_controlled, ghost, health)| {
-                (
-                    client_replicated_player_score(
-                        slot.copied(),
-                        local_slot,
-                        controlled.is_some(),
-                        local_controlled.is_some(),
-                        ghost.copied(),
-                        *health,
-                    ),
-                    entity.index(),
-                )
-            })
+            .max_by_key(
+                |(entity, slot, _, controlled, _, local_controlled, ghost, health)| {
+                    (
+                        client_replicated_player_score(
+                            slot.copied(),
+                            local_slot,
+                            controlled.is_some(),
+                            local_controlled.is_some(),
+                            ghost.copied(),
+                            *health,
+                        ),
+                        entity.index(),
+                    )
+                },
+            )
             .map(|(entity, _, _, _, _, _, _, _)| entity)
     } else {
         None
     };
 
-    for (entity, slot, replicated, _controlled, coop_participant, local_controlled, _, _) in &player_q {
+    for (entity, slot, replicated, _controlled, coop_participant, local_controlled, _, _) in
+        &player_q
+    {
         let should_control = match config.mode {
             NetMode::Host => {
                 replicated.is_none()
@@ -808,7 +820,9 @@ pub fn ensure_local_control_marker(
 
         match (should_control, local_controlled.is_some()) {
             (true, false) => {
-                commands.entity(entity).insert((LocalControlled, LocalAnimPrediction::default()));
+                commands
+                    .entity(entity)
+                    .insert((LocalControlled, LocalAnimPrediction::default()));
             }
             (false, true) => {
                 commands.entity(entity).remove::<LocalControlled>();
@@ -916,11 +930,26 @@ pub fn attach_replicated_visuals(
     >,
     q_enemies: Query<
         (Entity, &EnemyKind, Option<&CoopNetPosition>),
-        (With<Replicated>, With<Enemy>, Without<CoopVisualReady>, Without<Player>),
+        (
+            With<Replicated>,
+            With<Enemy>,
+            Without<CoopVisualReady>,
+            Without<Player>,
+        ),
     >,
     q_projectiles: Query<
-        (Entity, &Projectile, Option<&CoopNetPosition>, Option<&CoopNetRotation>),
-        (With<Replicated>, Without<CoopVisualReady>, Without<Player>, Without<Enemy>),
+        (
+            Entity,
+            &Projectile,
+            Option<&CoopNetPosition>,
+            Option<&CoopNetRotation>,
+        ),
+        (
+            With<Replicated>,
+            Without<CoopVisualReady>,
+            Without<Player>,
+            Without<Enemy>,
+        ),
     >,
     q_doors: Query<(Entity, &Door), (With<Replicated>, With<Door>, Without<CoopVisualReady>)>,
 ) {
@@ -970,10 +999,7 @@ pub fn attach_replicated_visuals(
                             transform: Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
                             sprite: Sprite {
                                 color: Color::srgb(0.26, 0.86, 0.42),
-                                custom_size: Some(Vec2::new(
-                                    REMOTE_BAR_WIDTH,
-                                    REMOTE_BAR_HEIGHT,
-                                )),
+                                custom_size: Some(Vec2::new(REMOTE_BAR_WIDTH, REMOTE_BAR_HEIGHT)),
                                 ..default()
                             },
                             ..default()
@@ -1211,7 +1237,11 @@ pub fn sync_replicated_visuals(
                     Color::srgba(0.84, 0.98, 0.96, 0.84),
                     61.0,
                     Vec3::ONE,
-                    if local_controlled.is_some() { 0.90 } else { 0.84 },
+                    if local_controlled.is_some() {
+                        0.90
+                    } else {
+                        0.84
+                    },
                 );
             }
             cache.last_melee_sequence = melee_flash.sequence;
@@ -1288,7 +1318,10 @@ pub fn sync_replicated_visuals(
 
 pub fn update_remote_health_bars(
     local_q: Query<&PlayerSlot, (With<Player>, With<LocalControlled>)>,
-    player_q: Query<(&PlayerSlot, &GhostState, &Health, &Children), (With<Player>, With<Replicated>)>,
+    player_q: Query<
+        (&PlayerSlot, &GhostState, &Health, &Children),
+        (With<Player>, With<Replicated>),
+    >,
     mut bar_q: Query<(&Children, &mut Visibility), With<CoopRemoteHealthBarRoot>>,
     mut fill_q: Query<(&mut Transform, &mut Sprite), With<CoopRemoteHealthBarFill>>,
 ) {
@@ -1524,7 +1557,11 @@ pub fn handle_coop_overlay_input(
     config: Res<CoopNetConfig>,
     button_q: Query<
         (&Interaction, &CoopModalButtonState),
-        (Changed<Interaction>, With<CoopModalOptionButton>, With<Button>),
+        (
+            Changed<Interaction>,
+            With<CoopModalOptionButton>,
+            With<Button>,
+        ),
     >,
     mut net: ResMut<CoopNetState>,
     mut flow: ResMut<CoopSessionFlow>,
@@ -1673,13 +1710,13 @@ fn coop_reward_action_for_digit(
 
     match player_state.mode {
         super::components::CoopRewardMode::HealOrBuff => match index {
-            0 if !player_state.primary_options.is_empty() => {
-                Some(CoopUiAction::SelectReward(CoopRewardSelectionGroup::Heal, 0))
-            }
-            1..=3 if player_state.primary_options.len() > index => Some(CoopUiAction::SelectReward(
-                CoopRewardSelectionGroup::Primary,
-                index as u8,
+            0 if !player_state.primary_options.is_empty() => Some(CoopUiAction::SelectReward(
+                CoopRewardSelectionGroup::Heal,
+                0,
             )),
+            1..=3 if player_state.primary_options.len() > index => Some(
+                CoopUiAction::SelectReward(CoopRewardSelectionGroup::Primary, index as u8),
+            ),
             _ => None,
         },
         super::components::CoopRewardMode::DualBuff => match index {
@@ -1710,7 +1747,11 @@ fn coop_reward_action_for_digit(
     }
 }
 
-fn coop_menu_button_color(interaction: Interaction, action: CoopMenuAction, enabled: bool) -> Color {
+fn coop_menu_button_color(
+    interaction: Interaction,
+    action: CoopMenuAction,
+    enabled: bool,
+) -> Color {
     if !enabled {
         return widgets::button_disabled_color();
     }
@@ -1754,19 +1795,11 @@ fn coop_modal_button_color(interaction: Interaction, tone: CoopModalTone, enable
 }
 
 fn coop_connection_word(connected: bool) -> &'static str {
-    if connected {
-        "已连接"
-    } else {
-        "连接中"
-    }
+    if connected { "已连接" } else { "连接中" }
 }
 
 fn coop_bool_word(value: bool) -> &'static str {
-    if value {
-        "是"
-    } else {
-        "否"
-    }
+    if value { "是" } else { "否" }
 }
 
 fn coop_mode_label(mode: NetMode) -> &'static str {
@@ -1815,7 +1848,12 @@ fn coop_status_summary(
         .map(|value| coop_phase_label(value.phase))
         .unwrap_or("同步中");
 
-    format!("模式：{}\n连接：{}\n当前阶段：{}", coop_mode_label(mode), connection, phase)
+    format!(
+        "模式：{}\n连接：{}\n当前阶段：{}",
+        coop_mode_label(mode),
+        connection,
+        phase
+    )
 }
 
 fn coop_status_hint(session: Option<&CoopSessionState>) -> &'static str {
@@ -1860,7 +1898,11 @@ fn coop_status_players(
 
     format!(
         "{}\n{}",
-        coop_format_slot_status("我方", local_slot, coop_slot_snapshot(mode, local_slot, player_q)),
+        coop_format_slot_status(
+            "我方",
+            local_slot,
+            coop_slot_snapshot(mode, local_slot, player_q)
+        ),
         coop_format_slot_status(
             "队友",
             teammate_slot,
@@ -1929,19 +1971,26 @@ fn coop_format_slot_status(
 ) -> String {
     match snapshot {
         Some((current, max, true)) => {
-            format!("{label}（{}）：幽灵 · HP {:.0}/{:.0}", slot.label(), current, max)
+            format!(
+                "{label}（{}）：幽灵 · HP {:.0}/{:.0}",
+                slot.label(),
+                current,
+                max
+            )
         }
         Some((current, max, false)) => {
-            format!("{label}（{}）：存活 · HP {:.0}/{:.0}", slot.label(), current, max)
+            format!(
+                "{label}（{}）：存活 · HP {:.0}/{:.0}",
+                slot.label(),
+                current,
+                max
+            )
         }
         None => format!("{label}（{}）：同步中", slot.label()),
     }
 }
 
-fn coop_build_modal_view(
-    session: Option<&CoopSessionState>,
-    slot: PlayerSlot,
-) -> CoopModalView {
+fn coop_build_modal_view(session: Option<&CoopSessionState>, slot: PlayerSlot) -> CoopModalView {
     let Some(session) = session else {
         return CoopModalView::default();
     };
@@ -2108,7 +2157,13 @@ fn coop_reward_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopM
                     player_state.selected_primary == Some(option),
                 );
             }
-            for (index, option) in player_state.primary_options.iter().copied().skip(1).enumerate() {
+            for (index, option) in player_state
+                .primary_options
+                .iter()
+                .copied()
+                .skip(1)
+                .enumerate()
+            {
                 push_reward_option(
                     &mut view,
                     index + 1,
@@ -2209,9 +2264,13 @@ fn coop_rps_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopModa
         };
     }
 
-    for (index, choice) in [CoopRpsChoice::Rock, CoopRpsChoice::Paper, CoopRpsChoice::Scissors]
-        .into_iter()
-        .enumerate()
+    for (index, choice) in [
+        CoopRpsChoice::Rock,
+        CoopRpsChoice::Paper,
+        CoopRpsChoice::Scissors,
+    ]
+    .into_iter()
+    .enumerate()
     {
         let selected = my_choice == Some(choice);
         let locked = my_choice.is_some() || session.rps.winner.is_some();
@@ -2246,8 +2305,7 @@ fn coop_shop_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopMod
         visible: true,
         title: "联机商店".to_string(),
         body: if player_state.can_interact {
-            "每名玩家拥有自己的商店列表与刷新次数；按 E 或 Esc 可以结束自己的商店阶段。"
-                .to_string()
+            "每名玩家拥有自己的商店列表与刷新次数；按 E 或 Esc 可以结束自己的商店阶段。".to_string()
         } else {
             "你已离开商店，等待队友完成购买。".to_string()
         },
@@ -2262,12 +2320,7 @@ fn coop_shop_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopMod
     for (index, offer) in player_state.offers.iter().take(3).enumerate() {
         let (title, description) = coop_shop_offer_copy(offer);
         let (action, enabled, tone, meta) = if offer.purchased {
-            (
-                None,
-                false,
-                CoopModalTone::Positive,
-                "已购买".to_string(),
-            )
+            (None, false, CoopModalTone::Positive, "已购买".to_string())
         } else if !player_state.can_interact {
             (
                 None,
@@ -2299,11 +2352,7 @@ fn coop_shop_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopMod
             CoopModalTone::Info,
         )
     } else {
-        (
-            "等待队友完成".to_string(),
-            false,
-            CoopModalTone::Disabled,
-        )
+        ("等待队友完成".to_string(), false, CoopModalTone::Disabled)
     };
     view.options[3] = coop_modal_option(
         "刷新商店",
@@ -2506,9 +2555,7 @@ fn door_position(dir: crate::gameplay::map::room::Direction) -> Vec3 {
         crate::gameplay::map::room::Direction::Left => {
             Vec3::new(-(ROOM_HALF_WIDTH - 10.0), 0.0, 10.0)
         }
-        crate::gameplay::map::room::Direction::Up => {
-            Vec3::new(0.0, ROOM_HALF_HEIGHT - 10.0, 10.0)
-        }
+        crate::gameplay::map::room::Direction::Up => Vec3::new(0.0, ROOM_HALF_HEIGHT - 10.0, 10.0),
         crate::gameplay::map::room::Direction::Down => {
             Vec3::new(0.0, -(ROOM_HALF_HEIGHT - 10.0), 10.0)
         }
@@ -2517,8 +2564,9 @@ fn door_position(dir: crate::gameplay::map::room::Direction) -> Vec3 {
 
 fn door_size(dir: crate::gameplay::map::room::Direction) -> Vec2 {
     match dir {
-        crate::gameplay::map::room::Direction::Up
-        | crate::gameplay::map::room::Direction::Down => Vec2::new(96.0, 46.0),
+        crate::gameplay::map::room::Direction::Up | crate::gameplay::map::room::Direction::Down => {
+            Vec2::new(96.0, 46.0)
+        }
         crate::gameplay::map::room::Direction::Left
         | crate::gameplay::map::room::Direction::Right => Vec2::new(46.0, 96.0),
     }

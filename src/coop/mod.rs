@@ -21,10 +21,7 @@ impl Plugin for CoopPlugin {
             .add_systems(OnEnter(AppState::CoopLobby), ui::setup_coop_lobby)
             .add_systems(
                 Update,
-                (
-                    ui::coop_lobby_ui_system,
-                    ui::coop_lobby_input_system,
-                )
+                (ui::coop_lobby_ui_system, ui::coop_lobby_input_system)
                     .run_if(in_state(AppState::CoopLobby)),
             )
             .add_systems(OnExit(AppState::CoopLobby), ui::cleanup_coop_lobby)
@@ -42,8 +39,7 @@ impl Plugin for CoopPlugin {
                     ui::filter_replicated_player_duplicates
                         .after(ui::attach_replicated_visuals)
                         .before(ui::sync_replicated_visuals),
-                    ui::predict_local_player_animation
-                        .before(ui::sync_replicated_visuals),
+                    ui::predict_local_player_animation.before(ui::sync_replicated_visuals),
                     ui::sync_replicated_visuals,
                     ui::update_replicated_door_visuals,
                     ui::update_remote_health_bars,

@@ -6,7 +6,9 @@ use bevy::prelude::*;
 use lightyear::client::config::{
     ClientConfig as LyClientConfig, NetcodeConfig as LyClientNetcodeConfig,
 };
-use lightyear::connection::client::{Authentication as LyAuthentication, NetConfig as LyClientNetConfig};
+use lightyear::connection::client::{
+    Authentication as LyAuthentication, NetConfig as LyClientNetConfig,
+};
 use lightyear::connection::server::NetConfig as LyServerNetConfig;
 use lightyear::prelude::client::{
     ClientCommands as LyClientCommands, ClientPlugins as LyClientPlugins,
@@ -20,14 +22,16 @@ use lightyear::prelude::server::{
     ServerCommands as LyServerCommands, ServerConfig as LyServerConfig,
     ServerPlugins as LyServerPlugins, ServerTransport as LyServerTransport,
 };
+use lightyear::prelude::server::{
+    ControlledBy, InputEvent as LyServerInputEvent, Replicate, SyncTarget,
+};
 use lightyear::prelude::{
-    client::ConnectEvent as LyClientConnectEvent,
-    client::DisconnectEvent as LyClientDisconnectEvent,
     AppChannelExt, AppComponentExt, AppMessageExt, Channel, ChannelDirection, ChannelMode,
     ChannelSettings, ClientId, CompressionConfig, InputPlugin as LyInputPlugin, NetworkTarget,
     ReliableSettings, Replicated, SharedConfig, TickConfig,
+    client::ConnectEvent as LyClientConnectEvent,
+    client::DisconnectEvent as LyClientDisconnectEvent,
 };
-use lightyear::prelude::server::{ControlledBy, InputEvent as LyServerInputEvent, Replicate, SyncTarget};
 use lightyear::server::config::NetcodeConfig as LyServerNetcodeConfig;
 use lightyear::shared::replication::components::Controlled;
 use serde::{Deserialize, Serialize};
@@ -50,9 +54,8 @@ use super::components::{
 pub const COOP_PORT: u16 = 3457;
 const COOP_PROTOCOL_ID: u64 = 0x434F_4F50_5652_0002;
 const COOP_PRIVATE_KEY: [u8; 32] = [
-    0x19, 0x52, 0xA1, 0x44, 0x3E, 0x7B, 0xC0, 0x1D, 0x28, 0xB9, 0x66, 0xD3, 0x4A, 0xF5,
-    0x90, 0x2C, 0x9E, 0x15, 0x6A, 0xB4, 0x07, 0xD8, 0x3F, 0x51, 0xC2, 0x6E, 0x14, 0x88,
-    0xAF, 0x30, 0x5D, 0x71,
+    0x19, 0x52, 0xA1, 0x44, 0x3E, 0x7B, 0xC0, 0x1D, 0x28, 0xB9, 0x66, 0xD3, 0x4A, 0xF5, 0x90, 0x2C,
+    0x9E, 0x15, 0x6A, 0xB4, 0x07, 0xD8, 0x3F, 0x51, 0xC2, 0x6E, 0x14, 0x88, 0xAF, 0x30, 0x5D, 0x71,
 ];
 
 pub const HOST_CLIENT_ID: u64 = 1;
@@ -302,7 +305,10 @@ pub fn take_received_commands(net: &mut CoopNetState) -> Vec<(ClientId, CoopComm
 }
 
 pub fn latest_input_for(net: &CoopNetState, client_id: ClientId) -> CoopInputState {
-    net.latest_inputs.get(&client_id).copied().unwrap_or_default()
+    net.latest_inputs
+        .get(&client_id)
+        .copied()
+        .unwrap_or_default()
 }
 
 pub fn queue_command(net: &mut CoopNetState, command: CoopCommandMessage) {
@@ -351,14 +357,11 @@ pub fn validate_coop_host_ip(host_ip: &str) -> Result<Ipv4Addr, String> {
         return Err("请输入房主局域网 IPv4 地址。".to_string());
     }
     if trimmed.contains(':') {
-        return Err(format!(
-            "联机地址只接受裸 IPv4，端口固定为 {}。",
-            COOP_PORT
-        ));
+        return Err(format!("联机地址只接受裸 IPv4，端口固定为 {}。", COOP_PORT));
     }
-    trimmed.parse::<Ipv4Addr>().map_err(|_| {
-        "请输入有效的局域网 IPv4 地址，例如 192.168.1.6。".to_string()
-    })
+    trimmed
+        .parse::<Ipv4Addr>()
+        .map_err(|_| "请输入有效的局域网 IPv4 地址，例如 192.168.1.6。".to_string())
 }
 
 pub fn normalize_coop_host_ip(host_ip: &str) -> Result<String, String> {
@@ -428,7 +431,10 @@ fn coop_shared_config() -> SharedConfig {
     }
 }
 
-fn build_lightyear_client_net_config(host_ip: &str, client_id: u64) -> Result<LyClientNetConfig, String> {
+fn build_lightyear_client_net_config(
+    host_ip: &str,
+    client_id: u64,
+) -> Result<LyClientNetConfig, String> {
     let server_addr = SocketAddr::new(validate_coop_host_ip(host_ip)?.into(), COOP_PORT);
     Ok(LyClientNetConfig::Netcode {
         auth: LyAuthentication::Manual {
@@ -494,8 +500,10 @@ fn sync_coop_network_lifecycle(
 ) {
     let wants_lobby_runtime = *state.get() == AppState::CoopLobby && flow.pending_game_entry;
     let wants_game_runtime = *state.get() == AppState::CoopGame;
-    let wants_host_runtime = config.mode == NetMode::Host && (wants_lobby_runtime || wants_game_runtime);
-    let wants_client_runtime = config.mode != NetMode::None && (wants_lobby_runtime || wants_game_runtime);
+    let wants_host_runtime =
+        config.mode == NetMode::Host && (wants_lobby_runtime || wants_game_runtime);
+    let wants_client_runtime =
+        config.mode != NetMode::None && (wants_lobby_runtime || wants_game_runtime);
 
     if wants_host_runtime && !net.server_started {
         *server_config = build_lightyear_server_config();

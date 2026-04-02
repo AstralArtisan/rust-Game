@@ -8,7 +8,9 @@ use crate::coop::runtime::is_coop_simulation_active;
 use crate::core::events::{DamageEvent, DeathEvent, RoomClearedEvent};
 use crate::data::definitions::EnemyStatsConfig;
 use crate::data::registry::GameDataRegistry;
-use crate::gameplay::combat::components::{Hitbox, Hurtbox, Knockback, Lifetime, Projectile, Team};
+use crate::gameplay::combat::components::{
+    DamageKind, Hitbox, Hurtbox, Knockback, Lifetime, Projectile, Team,
+};
 use crate::gameplay::combat::projectiles;
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::effects::particles;
@@ -25,6 +27,7 @@ use crate::gameplay::puzzle::{
     ActivePuzzle, PuzzleEntity, reset_active_puzzle, spawn_puzzle_for_room,
 };
 use crate::gameplay::shop::ShopKiosk;
+use crate::gameplay::skills::ChargeGainEvent;
 use crate::states::{AppState, RoomState};
 use crate::utils::collision::aabb_from_transform_size;
 use crate::utils::entity::safe_despawn_recursive;
@@ -761,6 +764,7 @@ fn spawn_enemy_melee_hitbox(
         Hitbox {
             owner: None,
             team: Team::Enemy,
+            damage_kind: DamageKind::Enemy,
             size: Vec2::new(40.0, 22.0),
             damage,
             knockback: 300.0,
@@ -777,6 +781,7 @@ fn spawn_enemy_melee_hitbox(
 pub fn enemy_death_system(
     mut commands: Commands,
     mut death_events: EventReader<DeathEvent>,
+    mut charge_events: EventWriter<ChargeGainEvent>,
     mut room_cleared: EventWriter<RoomClearedEvent>,
     time: Res<Time>,
     assets: Res<crate::core::assets::GameAssets>,
@@ -784,6 +789,7 @@ pub fn enemy_death_system(
     mut player_q: ParamSet<(
         Query<
             (
+                Entity,
                 &RewardModifiers,
                 &mut PlayerHealth,
                 &mut Gold,
@@ -832,12 +838,21 @@ pub fn enemy_death_system(
             } else {
                 0
             };
+        let charge_gain = if is_elite {
+            data.player.elite_kill_charge_gain
+        } else {
+            data.player.kill_charge_gain
+        };
 
-        for (mods, mut hp, mut gold, player_tf, ghost) in &mut player_q.p0() {
+        for (player_e, mods, mut hp, mut gold, player_tf, ghost) in &mut player_q.p0() {
             gold.0 = gold.0.saturating_add(reward_gold);
             if matches!(ghost, Some(GhostState::Ghost)) {
                 continue;
             }
+            charge_events.send(ChargeGainEvent {
+                player: player_e,
+                amount: charge_gain,
+            });
             if mods.lifesteal_on_kill > 0.0 {
                 let previous = hp.current;
                 hp.current = (hp.current + mods.lifesteal_on_kill).min(hp.max);
@@ -939,6 +954,7 @@ fn boss_contact_damage_system(
                 amount: boss_stats.attack_damage * 0.45,
                 knockback: direction_to(boss_pos, player_pos) * 120.0,
                 team: Team::Enemy,
+                kind: DamageKind::Enemy,
                 is_crit: false,
             });
         }

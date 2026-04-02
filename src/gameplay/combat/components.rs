@@ -9,6 +9,15 @@ pub enum Team {
     Pvp2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DamageKind {
+    PlayerMelee,
+    PlayerRanged,
+    PlayerSkill,
+    Enemy,
+    Passive,
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Hurtbox {
     pub team: Team,
@@ -19,6 +28,7 @@ pub struct Hurtbox {
 pub struct Hitbox {
     pub owner: Option<Entity>,
     pub team: Team,
+    pub damage_kind: DamageKind,
     pub size: Vec2,
     pub damage: f32,
     pub knockback: f32,

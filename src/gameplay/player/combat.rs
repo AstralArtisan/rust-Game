@@ -1,12 +1,14 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 
-use crate::core::assets::GameAssets;
 use crate::coop::components::{
     CoopMeleeFlashState, CoopPhase, CoopSessionEntity, CoopSessionState, GhostState,
 };
+use crate::core::assets::GameAssets;
 use crate::data::registry::GameDataRegistry;
-use crate::gameplay::combat::components::{ArcHitbox, Hitbox, Lifetime, Projectile, Team};
+use crate::gameplay::combat::components::{
+    ArcHitbox, DamageKind, Hitbox, Lifetime, Projectile, Team,
+};
 use crate::gameplay::combat::projectiles;
 use crate::gameplay::effects::particles;
 use crate::gameplay::map::InGameEntity;
@@ -66,6 +68,8 @@ pub fn player_attack_input_system(
             &mut AttackCooldown,
             &CritChance,
             &RewardModifiers,
+            &DashState,
+            Option<&PlayerSkillState>,
             Option<&GhostState>,
             Option<&mut CoopMeleeFlashState>,
         ),
@@ -76,11 +80,26 @@ pub fn player_attack_input_system(
         .get_single()
         .map(|session| session.phase)
         .unwrap_or(CoopPhase::None);
-    for (player_e, input, player_tf, facing, power, mut cd, crit, mods, ghost, melee_flash) in &mut q
+    for (
+        player_e,
+        input,
+        player_tf,
+        facing,
+        power,
+        mut cd,
+        crit,
+        mods,
+        dash,
+        skill_state,
+        ghost,
+        melee_flash,
+    ) in &mut q
     {
         if !input.attack_held
             || !cd.timer.finished()
             || phase != CoopPhase::None
+            || dash.active
+            || skill_state.is_some_and(PlayerSkillState::blocks_attacks)
             || matches!(ghost, Some(GhostState::Ghost))
         {
             continue;
@@ -129,9 +148,10 @@ pub fn player_ranged_input_system(
             &AttackPower,
             &CritChance,
             &mut RangedCooldown,
-            &mut Energy,
             &mut RangedRapidFire,
             &RewardModifiers,
+            &DashState,
+            Option<&PlayerSkillState>,
             Option<&GhostState>,
         ),
         (With<Player>, Without<Replicated>),
@@ -141,8 +161,20 @@ pub fn player_ranged_input_system(
         .get_single()
         .map(|session| session.phase)
         .unwrap_or(CoopPhase::None);
-    for (player_e, input, tf, facing, power, crit, mut cd, mut energy, mut rapid, mods, ghost) in
-        &mut q
+    for (
+        player_e,
+        input,
+        tf,
+        facing,
+        power,
+        crit,
+        mut cd,
+        mut rapid,
+        mods,
+        dash,
+        skill_state,
+        ghost,
+    ) in &mut q
     {
         if input.ranged_held {
             rapid.decay.reset();
@@ -155,20 +187,16 @@ pub fn player_ranged_input_system(
             continue;
         }
 
-        if !cd.timer.finished() || phase != CoopPhase::None || matches!(ghost, Some(GhostState::Ghost)) {
+        if !cd.timer.finished()
+            || phase != CoopPhase::None
+            || dash.active
+            || skill_state.is_some_and(PlayerSkillState::blocks_attacks)
+            || matches!(ghost, Some(GhostState::Ghost))
+        {
             continue;
         }
 
         let cfg = data.as_deref().map(|d| &d.player);
-        if ENERGY_SYSTEM_ENABLED {
-            let cost = cfg.map(|c| c.ranged_energy_cost).unwrap_or(12.0);
-            if energy.current < cost {
-                continue;
-            }
-            energy.current = (energy.current - cost).max(0.0);
-        } else {
-            energy.current = energy.max;
-        }
         cd.base_duration_s = cfg
             .map(|c| c.ranged_cooldown_s)
             .unwrap_or(cd.base_duration_s);
@@ -281,6 +309,7 @@ pub fn spawn_player_melee_hitbox_with_mods(
         Hitbox {
             owner: Some(owner),
             team: Team::Player,
+            damage_kind: DamageKind::PlayerMelee,
             size: swing.hitbox_size,
             damage,
             knockback: 360.0 + mods.melee_mastery_stacks as f32 * 12.0,
@@ -588,33 +617,33 @@ pub(crate) fn spawn_melee_slash_visual(
 ) -> Entity {
     commands
         .spawn((
-        SpriteBundle {
-            texture: assets.textures.slash.clone(),
-            transform: Transform {
-                translation: pos.extend(z),
-                rotation,
-                scale: base_scale,
-            },
-            sprite: Sprite {
-                color,
-                custom_size: Some(size),
+            SpriteBundle {
+                texture: assets.textures.slash.clone(),
+                transform: Transform {
+                    translation: pos.extend(z),
+                    rotation,
+                    scale: base_scale,
+                },
+                sprite: Sprite {
+                    color,
+                    custom_size: Some(size),
+                    ..default()
+                },
                 ..default()
             },
-            ..default()
-        },
-        TextureAtlas {
-            layout: assets.textures.slash_layout.clone(),
-            index: 0,
-        },
-        MeleeSlashEffect {
-            timer: Timer::from_seconds(MELEE_SLASH_EFFECT_LIFETIME_S, TimerMode::Once),
-            base_alpha,
-            base_scale,
-            frame_count: SLASH_FRAME_COUNT,
-        },
-        InGameEntity,
-        Name::new("MeleeSlashEffect"),
-    ))
+            TextureAtlas {
+                layout: assets.textures.slash_layout.clone(),
+                index: 0,
+            },
+            MeleeSlashEffect {
+                timer: Timer::from_seconds(MELEE_SLASH_EFFECT_LIFETIME_S, TimerMode::Once),
+                base_alpha,
+                base_scale,
+                frame_count: SLASH_FRAME_COUNT,
+            },
+            InGameEntity,
+            Name::new("MeleeSlashEffect"),
+        ))
         .id()
 }
 
@@ -655,6 +684,7 @@ fn spawn_player_sword_wave(
         Hitbox {
             owner: Some(owner),
             team: Team::Player,
+            damage_kind: DamageKind::PlayerMelee,
             size: Vec2::new(56.0, 22.0),
             damage,
             knockback: 180.0,

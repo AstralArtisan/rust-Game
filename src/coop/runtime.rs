@@ -15,20 +15,20 @@ use crate::core::input::PlayerInputState;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{Projectile, Team};
 use crate::gameplay::enemy::components::Enemy;
-use crate::gameplay::map::doors::Door;
 use crate::gameplay::enemy::systems::{ClearGrace, EnemySpawnCount, SpawnedForRoom};
+use crate::gameplay::map::doors::Door;
 use crate::gameplay::map::generator::build_rooms;
 use crate::gameplay::map::room::{CurrentRoom, Direction, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::{InGameEntity, RewardRoomGoldBonusSeen, VisitedRooms};
 use crate::gameplay::player::animation::PlayerAnim;
 use crate::gameplay::player::components::{
     AnimationState, AttackCooldown, AttackPower, Combo, CritChance, DashCooldown, DashState,
-    Energy, FacingDirection, Gold, Health, InvincibilityTimer, MoveSpeed, Player, PlayerDriveInput,
-    RangedCooldown, RangedRapidFire, RewardModifiers, Skill1Cooldown, TeamMarker, Velocity,
-    ENERGY_SYSTEM_ENABLED,
+    ENERGY_SYSTEM_ENABLED, Energy, FacingDirection, Gold, Health, InvincibilityTimer, MoveSpeed,
+    Player, PlayerDriveInput, RangedCooldown, RangedRapidFire, RewardModifiers, Skill1Cooldown,
+    TeamMarker, Velocity,
 };
 use crate::gameplay::progression::floor::FloorNumber;
-use crate::gameplay::puzzle::{reset_active_puzzle, ActivePuzzle};
+use crate::gameplay::puzzle::{ActivePuzzle, reset_active_puzzle};
 use crate::gameplay::rewards::apply::{
     apply_reward_to_player_components, attack_power_gain, attack_speed_gain_s, crit_gain,
     dash_cooldown_gain_s, heal_amount, max_health_gain, move_speed_gain,
@@ -41,16 +41,16 @@ use crate::utils::rng::GameRng;
 
 use super::components::{
     BufferedCoopInput, CoopDamageEvent, CoopDashVisualState, CoopDoorOption, CoopMeleeFlashState,
-    CoopNetPosition, CoopNetRotation, CoopNetVelocity, CoopParticipant, CoopPhase,
-    CoopRewardMode, CoopRewardOption, CoopRewardSelectionGroup, CoopRpsChoice, CoopSessionEntity,
-    CoopSessionState, CoopShopItem, CoopShopOffer, GhostState, LocalControlled, PlayerRewardState,
-    PlayerShopState, PlayerSlot, RemoteControlled,
+    CoopNetPosition, CoopNetRotation, CoopNetVelocity, CoopParticipant, CoopPhase, CoopRewardMode,
+    CoopRewardOption, CoopRewardSelectionGroup, CoopRpsChoice, CoopSessionEntity, CoopSessionState,
+    CoopShopItem, CoopShopOffer, GhostState, LocalControlled, PlayerRewardState, PlayerShopState,
+    PlayerSlot, RemoteControlled,
 };
 use super::net::{
-    build_input_state, build_player_replication, build_replicate_all, clear_coop_network_runtime,
-    host_client_id, is_coop_authority, latest_input_for, queue_exit_request, remote_client_id,
-    take_exit_request, take_received_commands, CoopCommandMessage, CoopExitDestination,
-    CoopExitRequest, CoopNetConfig, CoopNetState, CoopSessionFlow, NetMode,
+    CoopCommandMessage, CoopExitDestination, CoopExitRequest, CoopNetConfig, CoopNetState,
+    CoopSessionFlow, NetMode, build_input_state, build_player_replication, build_replicate_all,
+    clear_coop_network_runtime, host_client_id, is_coop_authority, latest_input_for,
+    queue_exit_request, remote_client_id, take_exit_request, take_received_commands,
 };
 
 const DOOR_INTERACT_RANGE: f32 = 76.0;
@@ -404,6 +404,10 @@ fn host_buffer_player_inputs(
             ranged_pressed: input.ranged_pressed,
             ranged_held: input.ranged_held,
             dash_pressed: input.dash_pressed,
+            skill_1_pressed: false,
+            skill_2_pressed: false,
+            skill_3_pressed: false,
+            skill_4_pressed: false,
             interact_pressed: input.interact_pressed,
             pause_pressed: input.pause_pressed,
             shop_pressed: input.shop_pressed,
@@ -473,7 +477,10 @@ fn host_enter_room_phase(
     floor: Option<Res<FloorNumber>>,
     mut rng: ResMut<GameRng>,
     mut session_q: Query<&mut CoopSessionState, With<CoopSessionEntity>>,
-    players: Query<(&PlayerSlot, &RewardModifiers, &GhostState), (With<CoopParticipant>, Without<Replicated>)>,
+    players: Query<
+        (&PlayerSlot, &RewardModifiers, &GhostState),
+        (With<CoopParticipant>, Without<Replicated>),
+    >,
 ) {
     let (Some(layout), Some(current_room), Some(room_state)) = (layout, current_room, room_state)
     else {
@@ -665,7 +672,8 @@ fn host_process_phase_commands(
                         };
                         if let Some(choice) = target.get(index as usize).copied() {
                             match group {
-                                CoopRewardSelectionGroup::Heal | CoopRewardSelectionGroup::Primary => {
+                                CoopRewardSelectionGroup::Heal
+                                | CoopRewardSelectionGroup::Primary => {
                                     player_state.selected_primary = Some(choice);
                                 }
                                 CoopRewardSelectionGroup::Secondary => {
@@ -794,7 +802,10 @@ fn host_process_phase_commands(
 
 fn host_handle_shop_exit_inputs(
     mut session_q: Query<&mut CoopSessionState, With<CoopSessionEntity>>,
-    players: Query<(&PlayerSlot, &BufferedCoopInput, &GhostState), (With<CoopParticipant>, Without<Replicated>)>,
+    players: Query<
+        (&PlayerSlot, &BufferedCoopInput, &GhostState),
+        (With<CoopParticipant>, Without<Replicated>),
+    >,
 ) {
     let Ok(mut session) = session_q.get_single_mut() else {
         return;
@@ -837,13 +848,18 @@ fn host_handle_door_interactions(
     mut visited: Option<ResMut<VisitedRooms>>,
     mut session_q: Query<&mut CoopSessionState, With<CoopSessionEntity>>,
     mut player_queries: ParamSet<(
-        Query<(&PlayerSlot, &BufferedCoopInput, &Transform, &GhostState), (With<CoopParticipant>, Without<Replicated>)>,
+        Query<
+            (&PlayerSlot, &BufferedCoopInput, &Transform, &GhostState),
+            (With<CoopParticipant>, Without<Replicated>),
+        >,
         Query<(&PlayerSlot, &mut Transform), (With<CoopParticipant>, Without<Replicated>)>,
     )>,
 ) {
-    let (Some(layout), Some(current_room), Some(room_state)) =
-        (layout, current_room.as_deref_mut(), room_state.as_deref_mut())
-    else {
+    let (Some(layout), Some(current_room), Some(room_state)) = (
+        layout,
+        current_room.as_deref_mut(),
+        room_state.as_deref_mut(),
+    ) else {
         return;
     };
     let Ok(mut session) = session_q.get_single_mut() else {
@@ -971,7 +987,10 @@ fn host_tick_rps_resolution(
     mut room_state: Option<ResMut<RoomState>>,
     mut visited: Option<ResMut<VisitedRooms>>,
     mut session_q: Query<&mut CoopSessionState, With<CoopSessionEntity>>,
-    mut player_transforms: Query<(&PlayerSlot, &mut Transform), (With<CoopParticipant>, Without<Replicated>)>,
+    mut player_transforms: Query<
+        (&PlayerSlot, &mut Transform),
+        (With<CoopParticipant>, Without<Replicated>),
+    >,
 ) {
     let Ok(mut session) = session_q.get_single_mut() else {
         return;
@@ -1113,7 +1132,11 @@ fn host_tag_replicated_entities(
     mut commands: Commands,
     q_players: Query<
         (Entity, &PlayerSlot),
-        (With<CoopParticipant>, Without<Replicating>, Without<Replicated>),
+        (
+            With<CoopParticipant>,
+            Without<Replicating>,
+            Without<Replicated>,
+        ),
     >,
     q_enemies: Query<Entity, (With<Enemy>, Without<Replicating>, Without<Replicated>)>,
     q_projectiles: Query<Entity, (With<Projectile>, Without<Replicating>, Without<Replicated>)>,
@@ -1281,8 +1304,7 @@ fn host_cleanup_disconnected_session(
                 } else {
                     CoopExitDestination::Lobby
                 },
-                notice: (!ended_match)
-                    .then_some("队友已断开连接，合作会话已结束。".to_string()),
+                notice: (!ended_match).then_some("队友已断开连接，合作会话已结束。".to_string()),
                 preserve_mode: !ended_match,
             },
         );
@@ -1321,6 +1343,7 @@ fn spawn_dash_trail_hitbox(
         crate::gameplay::combat::components::Hitbox {
             owner: Some(owner),
             team: Team::Player,
+            damage_kind: crate::gameplay::combat::components::DamageKind::PlayerSkill,
             size: Vec2::splat(24.0),
             damage,
             knockback: 220.0,
@@ -1328,10 +1351,7 @@ fn spawn_dash_trail_hitbox(
             crit_chance: 0.0,
             crit_multiplier: 1.0,
         },
-        crate::gameplay::combat::components::Lifetime(Timer::from_seconds(
-            0.08,
-            TimerMode::Once,
-        )),
+        crate::gameplay::combat::components::Lifetime(Timer::from_seconds(0.08, TimerMode::Once)),
         InGameEntity,
         Name::new("CoopDashTrailHitbox"),
     ));
@@ -1580,9 +1600,9 @@ fn sync_reward_phase_state(
                         .primary_options
                         .iter()
                         .find_map(|choice| match choice {
-                        CoopRewardOption::Buff(buff) => Some(*buff),
-                        _ => None,
-                    })
+                            CoopRewardOption::Buff(buff) => Some(*buff),
+                            _ => None,
+                        })
                 })
                 .unwrap_or_else(|| {
                     generate_reward_choices(rng, snapshot.mods, &[])
@@ -1628,8 +1648,11 @@ fn sync_reward_phase_state(
                 .players
                 .iter()
                 .find_map(|player| {
-                    (!matches!(player.mode, CoopRewardMode::None | CoopRewardMode::LoneSurvivor))
-                        .then_some(player.mode)
+                    (!matches!(
+                        player.mode,
+                        CoopRewardMode::None | CoopRewardMode::LoneSurvivor
+                    ))
+                    .then_some(player.mode)
                 })
                 .unwrap_or(CoopRewardMode::SingleBuff);
 
@@ -1713,7 +1736,10 @@ fn apply_reward_phase(
         }
 
         let player_state = &reward_state.players[slot_index(*slot)];
-        for selected in [player_state.selected_primary, player_state.selected_secondary] {
+        for selected in [
+            player_state.selected_primary,
+            player_state.selected_secondary,
+        ] {
             let Some(selected) = selected else {
                 continue;
             };
@@ -1836,9 +1862,9 @@ fn reward_options_for_mode(
 fn reward_selection_complete(player: &PlayerRewardState) -> bool {
     match player.mode {
         CoopRewardMode::None => false,
-        CoopRewardMode::SingleBuff
-        | CoopRewardMode::HealOrBuff
-        | CoopRewardMode::LoneSurvivor => player.selected_primary.is_some(),
+        CoopRewardMode::SingleBuff | CoopRewardMode::HealOrBuff | CoopRewardMode::LoneSurvivor => {
+            player.selected_primary.is_some()
+        }
         CoopRewardMode::DualBuff => {
             player.selected_primary.is_some() && player.selected_secondary.is_some()
         }
@@ -1910,7 +1936,11 @@ fn finish_revive_phase(
         drive.menu_confirm_pressed = false;
         drive.menu_cancel_pressed = false;
         velocity.0 = Vec2::ZERO;
-        facing.0 = if *slot == PlayerSlot::P1 { Vec2::X } else { -Vec2::X };
+        facing.0 = if *slot == PlayerSlot::P1 {
+            Vec2::X
+        } else {
+            -Vec2::X
+        };
         *animation_state = AnimationState::Idle;
         player_anim.state = AnimationState::Idle;
         player_anim.timer.reset();
@@ -2092,8 +2122,7 @@ fn apply_shop_item(
         }
         CoopShopItem::IncreaseAttackPower => {
             attack_power.0 += attack_power_gain(floor_number);
-            mods.shop_attack_power_purchases =
-                mods.shop_attack_power_purchases.saturating_add(1);
+            mods.shop_attack_power_purchases = mods.shop_attack_power_purchases.saturating_add(1);
             true
         }
         CoopShopItem::ReduceDashCooldown => {
@@ -2135,8 +2164,7 @@ fn apply_shop_item(
             mods.shop_attack_speed_reduction_s += attack_speed_gain_s(floor_number).min(remain);
             attack_cd.apply_speed_bonus(mods.total_melee_speed_bonus());
             ranged_cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
-            mods.shop_attack_speed_purchases =
-                mods.shop_attack_speed_purchases.saturating_add(1);
+            mods.shop_attack_speed_purchases = mods.shop_attack_speed_purchases.saturating_add(1);
             true
         }
     }
@@ -2486,10 +2514,12 @@ mod tests {
             assert_eq!(player.mode, CoopRewardMode::SingleBuff);
             assert_eq!(player.primary_options.len(), 3);
             assert!(player.secondary_options.is_empty());
-            assert!(player
-                .primary_options
-                .iter()
-                .all(|option| matches!(option, CoopRewardOption::Buff(_))));
+            assert!(
+                player
+                    .primary_options
+                    .iter()
+                    .all(|option| matches!(option, CoopRewardOption::Buff(_)))
+            );
         }
     }
 
@@ -2510,9 +2540,11 @@ mod tests {
             assert_eq!(player.mode, CoopRewardMode::HealOrBuff);
             assert_eq!(player.primary_options.len(), 4);
             assert_eq!(player.primary_options[0], CoopRewardOption::Rest);
-            assert!(player.primary_options[1..]
-                .iter()
-                .all(|option| matches!(option, CoopRewardOption::Buff(_))));
+            assert!(
+                player.primary_options[1..]
+                    .iter()
+                    .all(|option| matches!(option, CoopRewardOption::Buff(_)))
+            );
             assert!(player.secondary_options.is_empty());
         }
     }
@@ -2534,14 +2566,18 @@ mod tests {
             assert_eq!(player.mode, CoopRewardMode::DualBuff);
             assert_eq!(player.primary_options.len(), 3);
             assert_eq!(player.secondary_options.len(), 3);
-            assert!(player
-                .primary_options
-                .iter()
-                .all(|option| matches!(option, CoopRewardOption::Buff(_))));
-            assert!(player
-                .secondary_options
-                .iter()
-                .all(|option| matches!(option, CoopRewardOption::Buff(_))));
+            assert!(
+                player
+                    .primary_options
+                    .iter()
+                    .all(|option| matches!(option, CoopRewardOption::Buff(_)))
+            );
+            assert!(
+                player
+                    .secondary_options
+                    .iter()
+                    .all(|option| matches!(option, CoopRewardOption::Buff(_)))
+            );
 
             let primary_buffs = player
                 .primary_options
@@ -2559,9 +2595,11 @@ mod tests {
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            assert!(primary_buffs
-                .iter()
-                .all(|reward| !secondary_buffs.contains(reward)));
+            assert!(
+                primary_buffs
+                    .iter()
+                    .all(|reward| !secondary_buffs.contains(reward))
+            );
         }
     }
 
@@ -2775,10 +2813,12 @@ mod tests {
         }
 
         for (index, offer) in offers.iter().enumerate() {
-            assert!(offers
-                .iter()
-                .skip(index + 1)
-                .all(|other| other.item != offer.item));
+            assert!(
+                offers
+                    .iter()
+                    .skip(index + 1)
+                    .all(|other| other.item != offer.item)
+            );
         }
     }
 

@@ -3,7 +3,6 @@ pub mod combat;
 pub mod combo;
 pub mod components;
 pub mod dash;
-pub mod skills;
 pub mod systems;
 
 use bevy::prelude::*;
@@ -38,12 +37,11 @@ impl Plugin for PlayerPlugin {
                     animation::animate_player_sprite,
                 )
                     .run_if(
-                        in_state(AppState::InGame)
-                            .or_else(
-                                in_state(AppState::CoopGame)
-                                    .and_then(is_coop_authority)
-                                    .and_then(is_coop_simulation_active),
-                            ),
+                        in_state(AppState::InGame).or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        ),
                     ),
             );
         app.add_systems(
@@ -53,9 +51,8 @@ impl Plugin for PlayerPlugin {
         // 纯视觉系统：不需要 authority，client 端也需要驱动 slash 动画和自动消亡
         app.add_systems(
             Update,
-            combat::update_melee_slash_effects.run_if(
-                in_state(AppState::InGame).or_else(in_state(AppState::CoopGame)),
-            ),
+            combat::update_melee_slash_effects
+                .run_if(in_state(AppState::InGame).or_else(in_state(AppState::CoopGame))),
         );
     }
 }

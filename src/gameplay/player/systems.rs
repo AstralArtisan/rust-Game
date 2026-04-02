@@ -66,11 +66,13 @@ pub fn spawn_player(
             max: max_hp,
         },
         Energy {
-            current: energy_max,
+            current: 0.0,
             max: energy_max,
         },
         Gold(0),
         Combo::new(1.8),
+        SkillSlots::default(),
+        PlayerSkillState::default(),
         PlayerDriveInput::default(),
         Velocity::default(),
         MoveSpeed(move_speed),
@@ -124,69 +126,16 @@ pub fn push_local_input_to_players(
             ranged_pressed: input.ranged_pressed,
             ranged_held: input.ranged_held,
             dash_pressed: input.dash_pressed,
+            skill_1_pressed: input.skill_1_pressed,
+            skill_2_pressed: input.skill_2_pressed,
+            skill_3_pressed: input.skill_3_pressed,
+            skill_4_pressed: input.skill_4_pressed,
             interact_pressed: input.interact_pressed,
             pause_pressed: input.pause_pressed,
             shop_pressed: input.shop_pressed,
             menu_confirm_pressed: input.attack_pressed || input.interact_pressed,
             menu_cancel_pressed: input.pause_pressed,
         };
-    }
-}
-
-pub fn player_energy_regen_system(
-    time: Res<Time>,
-    data: Option<Res<GameDataRegistry>>,
-    mut q: Query<&mut Energy, (With<Player>, Without<Replicated>)>,
-) {
-    for mut energy in &mut q {
-        if !ENERGY_SYSTEM_ENABLED {
-            energy.current = energy.max;
-            continue;
-        }
-        let regen = data
-            .as_deref()
-            .map(|d| d.player.energy_regen_per_s)
-            .unwrap_or(12.0);
-        energy.current = (energy.current + regen * time.delta_seconds()).min(energy.max);
-    }
-}
-
-pub fn player_heal_channel_system(
-    time: Res<Time>,
-    data: Option<Res<GameDataRegistry>>,
-    mut q: Query<
-        (&PlayerDriveInput, &mut Health, &mut Energy),
-        (With<Player>, Without<Replicated>),
-    >,
-) {
-    if !ENERGY_SYSTEM_ENABLED {
-        return;
-    }
-    for (input, mut hp, mut energy) in &mut q {
-        if !input.menu_confirm_pressed {
-            continue;
-        }
-        if hp.current <= 0.0 || hp.current >= hp.max {
-            continue;
-        }
-        let cfg = data.as_deref().map(|d| &d.player);
-        let energy_per_s = cfg
-            .map(|c| c.heal_energy_cost_per_s)
-            .unwrap_or(20.0)
-            .max(0.0);
-        let heal_per_s = cfg.map(|c| c.heal_hp_per_s).unwrap_or(18.0).max(0.0);
-
-        let dt = time.delta_seconds();
-        let need = energy_per_s * dt;
-        if energy.current <= 0.0 {
-            continue;
-        }
-        let ratio = (energy.current / need).clamp(0.0, 1.0);
-        let actual_dt = dt * ratio;
-        let actual_need = energy_per_s * actual_dt;
-
-        energy.current = (energy.current - actual_need).max(0.0);
-        hp.current = (hp.current + heal_per_s * actual_dt).min(hp.max);
     }
 }
 

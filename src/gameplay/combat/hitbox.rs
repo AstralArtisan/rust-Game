@@ -4,7 +4,7 @@ use lightyear::prelude::Replicated;
 use crate::core::assets::GameAssets;
 use crate::core::events::DamageEvent;
 use crate::gameplay::combat::components::{
-    ArcHitbox, Hitbox, Hurtbox, Projectile, RuptureDot, Team,
+    ArcHitbox, DamageKind, Hitbox, Hurtbox, Projectile, RuptureDot, Team,
 };
 use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::components::BossArchetype;
@@ -28,14 +28,17 @@ pub fn reflect_enemy_projectiles_on_melee(
     owner_mods: Query<&RewardModifiers>,
     mut collision_sets: ParamSet<(
         Query<(&Hitbox, &GlobalTransform, Option<&ArcHitbox>), Without<Replicated>>,
-        Query<(
-            Entity,
-            &mut Projectile,
-            &mut Hitbox,
-            &GlobalTransform,
-            &mut Transform,
-            &mut Sprite,
-        ), Without<Replicated>>,
+        Query<
+            (
+                Entity,
+                &mut Projectile,
+                &mut Hitbox,
+                &GlobalTransform,
+                &mut Transform,
+                &mut Sprite,
+            ),
+            Without<Replicated>,
+        >,
     )>,
 ) {
     let mut reflectors = Vec::new();
@@ -135,10 +138,7 @@ pub fn detect_hitbox_hurtbox_overlap(
     mut owner_health_q: Query<&mut Health, (With<Player>, Without<Replicated>)>,
     boss_q: Query<(), (With<BossArchetype>, Without<Replicated>)>,
     existing_ruptures: Query<&RuptureDot, Without<Replicated>>,
-    hitboxes: Query<
-        (Entity, &Hitbox, &GlobalTransform, Option<&ArcHitbox>),
-        Without<Replicated>,
-    >,
+    hitboxes: Query<(Entity, &Hitbox, &GlobalTransform, Option<&ArcHitbox>), Without<Replicated>>,
     hurtboxes: Query<(Entity, &Hurtbox, &GlobalTransform), Without<Replicated>>,
 ) {
     for (hb_entity, hb, hb_tf, arc) in &hitboxes {
@@ -171,6 +171,7 @@ pub fn detect_hitbox_hurtbox_overlap(
                 amount,
                 knockback: dir * hb.knockback,
                 team: hb.team,
+                kind: hb.damage_kind,
                 is_crit,
             });
 
@@ -301,6 +302,7 @@ pub fn tick_rupture_dots(
                 amount: rupture.damage_per_tick,
                 knockback: Vec2::ZERO,
                 team: Team::Player,
+                kind: DamageKind::Passive,
                 is_crit: false,
             });
         }
@@ -362,6 +364,7 @@ mod tests {
                 Hitbox {
                     owner: None,
                     team: Team::Enemy,
+                    damage_kind: DamageKind::Enemy,
                     size: Vec2::splat(20.0),
                     damage: 5.0,
                     knockback: 0.0,
