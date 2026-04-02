@@ -1,121 +1,121 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件为 Claude Code (claude.ai/code) 在此仓库中工作提供指导。
 
-## Commands
+## 常用命令
 
 ```bash
-cargo run                   # Development run
-cargo run --release         # Release build
-cargo check                 # Compile check
-cargo test                  # Run unit tests (24 tests)
+cargo run                   # 开发运行
+cargo run --release         # 发布构建
+cargo check                 # 编译检查
+cargo test                  # 运行单元测试（24 个）
 ```
 
-### Local Multiplayer Debugging (PowerShell)
+### 本地多人联调（PowerShell）
 
-**Coop (Lightyear, UDP 3457):**
+**合作模式 Coop（Lightyear，UDP 3457）：**
 ```powershell
-# Host
+# 主机端
 $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="coop"; $env:LOCAL_NET_DEBUG_ROLE="host"; cargo run
 
-# Client
+# 客户端
 $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="coop"; $env:LOCAL_NET_DEBUG_ROLE="client"; $env:LOCAL_NET_DEBUG_HOST="127.0.0.1"; cargo run
 ```
 
-**PVP (Custom UDP 3456):**
+**对战模式 PVP（自定义 UDP 3456）：**
 ```powershell
-# Host
+# 主机端
 $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_ROLE="host"; cargo run
 
-# Client
+# 客户端
 $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_ROLE="client"; $env:LOCAL_NET_DEBUG_HOST="127.0.0.1"; cargo run
 ```
 
-**In-game keybinds:** `F5` saves to `saves/run_save.ron`, `F9` loads it.
+**游戏内快捷键：** `F5` 保存到 `saves/run_save.ron`，`F9` 读取存档。
 
-## Architecture
+## 架构
 
-**勇闯方块城** is a 2D top-down roguelike built with Bevy 0.14 (ECS), bevy_rapier2d for physics, and two separate network stacks: Lightyear 0.17 (Coop) and a custom UDP implementation (PVP).
+**勇闯方块城** 是一款基于 Bevy 0.14（ECS）的 2D 俯视角 Roguelike，使用 bevy_rapier2d 处理物理，并有两套独立的网络栈：Lightyear 0.17（Coop）和自定义 UDP 实现（PVP）。
 
-The entire game is a **single Bevy app** with one `AppState` enum covering all modes. `GamePlugin` in `src/app.rs` is the central assembler.
+整个游戏是一个**单一 Bevy App**，用一个 `AppState` 枚举覆盖所有模式。`src/app.rs` 中的 `GamePlugin` 是核心装配点。
 
-### Layer Stack
+### 模块层级
 
 ```
-src/main.rs          → App setup, window config
-src/app.rs           → GamePlugin (mounts all sub-plugins)
-src/states.rs        → AppState + RoomState enums
+src/main.rs          → App 创建、窗口配置
+src/app.rs           → GamePlugin（挂载所有子插件）
+src/states.rs        → AppState + RoomState 枚举
 
-src/core/            → Infrastructure: assets, input, audio, camera, save, achievements, local_debug
-src/data/            → Config: RON file loaders → GameDataRegistry resource
-src/gameplay/        → Shared game logic (used by singleplayer AND Coop)
-src/coop/            → Lightyear-based host-authority Coop network layer
-src/pvp/             → Custom UDP PVP network layer
-src/ui/              → All menus, HUD, pause, notifications
-src/utils/           → Math, RNG, easing, collision, entity helpers
+src/core/            → 基础设施：资源、输入、音频、相机、存档、成就、本地联调
+src/data/            → 配置：RON 文件加载器 → GameDataRegistry 资源
+src/gameplay/        → 共享游戏逻辑（单机与 Coop 均使用）
+src/coop/            → 基于 Lightyear 的主机权威 Coop 网络层
+src/pvp/             → 自定义 UDP PVP 网络层
+src/ui/              → 所有菜单、HUD、暂停、通知
+src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 ```
 
-### State Machine
+### 状态机
 
 `Loading → MainMenu → InGame ↔ RewardSelect / Shop / Paused → GameOver/Victory`
 `MainMenu → CoopMenu → CoopLobby → CoopGame`
 `MainMenu → PvpMenu  → PvpLobby  → PvpGame → PvpResult`
 
-**RoomState** (sub-state inside a run): `Idle → Locked (combat/puzzle active) → Cleared`, with `BossFight` as a special phase.
+**RoomState**（单局内部子状态）：`Idle → Locked（战斗/解谜进行中）→ Cleared`，`BossFight` 为特殊阶段。
 
-### Key Design Decisions
+### 关键设计决策
 
-- **`src/gameplay/session_core/`** contains shared rules (reward curves, shop logic, room completion, death judgment) deliberately reused by both singleplayer and Coop — do not duplicate this logic elsewhere.
-- **Config-driven gameplay**: enemy stats, boss phases, rewards, room generation, and balance are all loaded from `assets/configs/*.ron`. Modify those files, not hardcoded constants, to tune gameplay.
-- **Puzzles** (`src/gameplay/puzzle/`) only run in `AppState::InGame` (singleplayer). They are not replicated to Coop.
-- **Coop uses host authority**: `src/coop/runtime.rs` runs all simulation on the host; clients send inputs and receive state. This is the most complex file in the repo.
-- **`InGameEntity` marker** (`src/utils/entity.rs`) is added to all entities that should be despawned on state transitions.
+- **`src/gameplay/session_core/`** 包含单机与 Coop 共用的规则（奖励曲线、商店逻辑、房间通关、死亡判定）——不要在其他地方重复这些逻辑。
+- **配置驱动的游戏玩法**：敌人数值、Boss 阶段、奖励、房间生成和平衡参数均从 `assets/configs/*.ron` 加载。调整数值请修改这些文件，而非硬编码常量。
+- **解谜系统**（`src/gameplay/puzzle/`）仅在 `AppState::InGame`（单机）中运行，不会复制到 Coop。
+- **Coop 采用主机权威**：`src/coop/runtime.rs` 在主机端运行所有模拟；客户端发送输入并接收状态。这是仓库中最复杂的文件。
+- **`InGameEntity` 标记**（`src/utils/entity.rs`）添加到所有需要在状态切换时被销毁的实体上。
 
-### Critical Implementation Details
+### 关键实现细节
 
-1. **Shared vs Network-Exclusive Logic**: The `gameplay/` directory contains core systems that run in both singleplayer and Coop. In Coop mode, these systems only execute on the host (marked with `is_coop_authority` and `in_state(AppState::CoopGame)`). Clients primarily handle input replication and visual representation of replicated entities.
+1. **共享逻辑与网络专用逻辑**：`gameplay/` 目录包含在单机和 Coop 中均运行的核心系统。在 Coop 模式下，这些系统仅在主机端执行（通过 `is_coop_authority` 和 `in_state(AppState::CoopGame)` 标记）。客户端主要负责输入复制和复制实体的可视化表现。
 
-2. **Local Debug System**: The `LocalDebugPlugin` in `src/core/local_debug.rs` enables local multiplayer testing without network setup. It automatically positions windows side-by-side and provides session-specific save files with debug suffixes.
+2. **本地调试系统**：`src/core/local_debug.rs` 中的 `LocalDebugPlugin` 无需真实网络即可进行本地多人测试。它会自动将窗口并排放置，并为调试会话提供带后缀的独立存档文件。
 
-3. **Save System**: Uses `ron` format for human-readable saves. Save data includes version, floor number, player stats, achievements, and enemy spawn counts. The `PendingLoad` resource ensures saves are only applied when transitioning into `InGame` state.
+3. **存档系统**：使用 `ron` 格式保存可读存档。存档数据包括版本号、楼层、玩家属性、成就和敌人刷新计数。`PendingLoad` 资源确保存档只在切换到 `InGame` 状态时才被应用。
 
-4. **Network Stack Separation**: Coop uses Lightyear 0.17.1 for authoritative host-based multiplayer with room progression and replicated entities. PVP uses a lightweight custom UDP protocol for direct player-versus-player combat with simpler state synchronization.
+4. **网络栈分离**：Coop 使用 Lightyear 0.17.1 实现带房间推进和实体复制的主机权威多人模式；PVP 使用轻量级自定义 UDP 协议实现直接玩家对战，状态同步更简单。
 
-### Complexity Hot Spots
+### 复杂度热点
 
-- `src/coop/runtime.rs` — Host authority simulation loop and session management
-- `src/coop/ui.rs` — Replicated entity visualization and session state UI
-- `src/gameplay/enemy/systems.rs` — Complex AI behaviors with multiple enemy archetypes
-- `src/gameplay/session_core/mod.rs` — Centralized game rules and progression logic
-- `src/ui/hud.rs` — Dynamic HUD updates with multiple game state contexts
+- `src/coop/runtime.rs` — 主机权威模拟循环与会话管理
+- `src/coop/ui.rs` — 复制实体可视化与会话状态 UI
+- `src/gameplay/enemy/systems.rs` — 多种敌人类型的复杂 AI 行为
+- `src/gameplay/session_core/mod.rs` — 集中式游戏规则与进程逻辑
+- `src/ui/hud.rs` — 多游戏状态下的动态 HUD 更新
 
-### Config Files (`assets/configs/`)
+### 配置文件（`assets/configs/`）
 
-| File | Controls |
+| 文件 | 控制内容 |
 |------|----------|
-| `player.ron` | HP, speed, dash, energy, cooldowns |
-| `enemies.ron` | Stats per enemy type (melee_chaser, ranged_shooter, charger, flanker, sniper, support_caster) |
-| `boss.ron` | Boss phase parameters by floor |
-| `rewards.ron` | Reward text, stat modifiers, drop rates |
-| `rooms.ron` | Room generation parameters |
-| `game_balance.ron` | Global difficulty, floor count, room counts |
+| `player.ron` | 血量、速度、冲刺、能量、冷却时间 |
+| `enemies.ron` | 各敌人类型数值（melee_chaser、ranged_shooter、charger、flanker、sniper、support_caster） |
+| `boss.ron` | 各楼层 Boss 阶段参数 |
+| `rewards.ron` | 奖励文本、属性修正、掉落率 |
+| `rooms.ron` | 房间生成参数 |
+| `game_balance.ron` | 全局难度、楼层数、房间数 |
 
-## Development Guidelines
+## 开发指南
 
-### Adding New Content
+### 添加新内容
 
-1. **New Enemies**: Add to `enemies.ron`, create components in `src/gameplay/combat/`, and register in `src/gameplay/enemy/systems.rs`
-2. **New Rewards**: Define in `rewards.ron`, implement logic in `src/gameplay/rewards/`, and integrate with `session_core`
-3. **New Room Types**: Update `rooms.ron` generation parameters and add corresponding logic in `src/gameplay/map/`
+1. **新敌人**：添加到 `enemies.ron`，在 `src/gameplay/combat/` 创建组件，并在 `src/gameplay/enemy/systems.rs` 中注册
+2. **新奖励**：在 `rewards.ron` 中定义，在 `src/gameplay/rewards/` 中实现逻辑，并与 `session_core` 集成
+3. **新房间类型**：更新 `rooms.ron` 生成参数，并在 `src/gameplay/map/` 中添加对应逻辑
 
-### Network Development
+### 网络开发
 
-- **Coop**: Changes to gameplay logic must work with both singleplayer and host-authority simulation. Test with local debug mode first.
-- **PVP**: Independent network stack for simplicity. Direct player-to-player communication with minimal state replication.
+- **Coop**：游戏逻辑的修改必须同时兼容单机和主机权威模拟。先用本地调试模式测试。
+- **PVP**：独立网络栈，追求简洁。玩家间直接通信，状态复制最小化。
 
-### Quality Notes
+### 质量说明
 
-- Current implementation has compile warnings (unused code, deprecated APIs) documented in project reviews
-- 24 unit tests cover core game systems
-- Main execution binary is `block_city_adventure`
-- Window title is "勇闯方块城"
+- 当前实现存在编译警告（未使用代码、弃用 API），已在项目文档中记录
+- 24 个单元测试覆盖核心游戏系统
+- 主执行二进制名为 `block_city_adventure`
+- 窗口标题为"勇闯方块城"
