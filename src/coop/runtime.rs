@@ -5,11 +5,12 @@ use lightyear::prelude::ClientId;
 use lightyear::prelude::Replicated;
 use lightyear::prelude::Replicating;
 use lightyear::prelude::client::ClientCommands as LyClientCommands;
+use lightyear::prelude::server::ConnectionManager as LyServerConnectionManager;
 use lightyear::prelude::server::ServerCommands as LyServerCommands;
 
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::assets::GameAssets;
-use crate::core::events::{DeathEvent, RoomClearedEvent};
+use crate::core::events::{DamageAppliedEvent, DeathEvent, RoomClearedEvent};
 use crate::core::input::PlayerInputState;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{Projectile, Team};
@@ -39,7 +40,7 @@ use crate::utils::entity::{safe_despawn_recursive, safe_insert_bundle};
 use crate::utils::rng::GameRng;
 
 use super::components::{
-    BufferedCoopInput, CoopDashVisualState, CoopDoorOption, CoopMeleeFlashState,
+    BufferedCoopInput, CoopDamageEvent, CoopDashVisualState, CoopDoorOption, CoopMeleeFlashState,
     CoopNetPosition, CoopNetRotation, CoopNetVelocity, CoopParticipant, CoopPhase,
     CoopRewardMode, CoopRewardOption, CoopRewardSelectionGroup, CoopRpsChoice, CoopSessionEntity,
     CoopSessionState, CoopShopItem, CoopShopOffer, GhostState, LocalControlled, PlayerRewardState,
@@ -109,6 +110,8 @@ impl Plugin for CoopRuntimePlugin {
                     host_tick_rps_resolution,
                     host_tag_replicated_entities,
                     host_sync_network_views,
+                    host_sync_dash_cooldowns,
+                    host_broadcast_damage_events,
                 )
                     .chain()
                     .run_if(
@@ -1192,6 +1195,50 @@ fn host_refresh_session_state(
                     .unwrap_or(RoomType::Normal),
             });
         }
+    }
+}
+
+fn host_sync_dash_cooldowns(
+    player_q: Query<(&PlayerSlot, &DashCooldown), (With<Player>, Without<Replicated>)>,
+    mut session_q: Query<&mut CoopSessionState, With<CoopSessionEntity>>,
+) {
+    let Ok(mut session) = session_q.get_single_mut() else {
+        return;
+    };
+    for (slot, cd) in &player_q {
+        let frac = if cd.timer.finished() {
+            0.0
+        } else {
+            1.0 - cd.timer.fraction()
+        };
+        match slot {
+            PlayerSlot::P1 => session.p1_dash_cooldown_frac = frac,
+            PlayerSlot::P2 => session.p2_dash_cooldown_frac = frac,
+        }
+    }
+}
+
+fn host_broadcast_damage_events(
+    config: Res<CoopNetConfig>,
+    net: Res<CoopNetState>,
+    mut ev: EventReader<DamageAppliedEvent>,
+    mut connection: ResMut<LyServerConnectionManager>,
+) {
+    if config.mode != NetMode::Host || !net.remote_connected {
+        ev.clear();
+        return;
+    }
+    for e in ev.read() {
+        let mut msg = CoopDamageEvent {
+            amount: e.amount,
+            is_crit: e.is_crit,
+            pos: e.pos,
+            attacker_is_player: matches!(e.attacker_team, Team::Player),
+        };
+        let _ = connection.send_message_to_target::<super::net::CoopCommandChannel, _>(
+            &mut msg,
+            lightyear::prelude::NetworkTarget::All,
+        );
     }
 }
 

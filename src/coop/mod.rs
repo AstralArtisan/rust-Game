@@ -42,11 +42,14 @@ impl Plugin for CoopPlugin {
                     ui::filter_replicated_player_duplicates
                         .after(ui::attach_replicated_visuals)
                         .before(ui::sync_replicated_visuals),
+                    ui::predict_local_player_animation
+                        .before(ui::sync_replicated_visuals),
                     ui::sync_replicated_visuals,
                     ui::update_replicated_door_visuals,
                     ui::update_remote_health_bars,
                     ui::update_coop_overlay,
                     ui::handle_coop_overlay_input,
+                    ui::client_receive_damage_events,
                 )
                     .run_if(in_state(AppState::CoopGame)),
             )

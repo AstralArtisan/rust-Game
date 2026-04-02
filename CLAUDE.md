@@ -33,6 +33,24 @@ $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_
 
 **游戏内快捷键：** `F5` 保存到 `saves/run_save.ron`，`F9` 读取存档。
 
+## 项目维护
+
+### 文档维护
+
+项目的所有工程文档在 `docs/` 中维护。你可以通过 `docs/00_index.md` 来获取文档索引，以了解项目信息。在后续的工作中，你需要持续维护这些文档，记录每一次修改的内容与迭代的目的、想法等，并根据项目情况更新 `README.md` 、 `CLAUDE.md`等文档。在工作时，若发现一些不带编号的文档已经彻底过时，你可以直接将其删除。
+
+### Github维护
+
+该项目的仓库位于 `https://github.com/AstralArtisan/rust-Game/`。当前以分支 `saved_version` 为基础进行改进，工作分支为 `claude_playground`。每次修改后，及时提交commit，当取得重大突破时，及时push。当测试顺利通过、符合全部预期后，可以合并进main。当前的main仍以单机模式为主。
+
+### 编码规范
+
+按照rust语言程序设计规范进行编码，注意变量生命周期的维护等问题，合理使用bevy等组件进行项目搭建。
+
+### 项目预期
+
+首先实现联机合作、联机对战功能的正常运行，然后对单机模式进行修改，包括玩法、成长、怪物设计、数值等，并能够同步到联机合作模式中。
+
 ## 架构
 
 **勇闯方块城** 是一款基于 Bevy 0.14（ECS）的 2D 俯视角 Roguelike，使用 bevy_rapier2d 处理物理，并有两套独立的网络栈：Lightyear 0.17（Coop）和自定义 UDP 实现（PVP）。

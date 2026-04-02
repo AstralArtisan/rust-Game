@@ -331,16 +331,49 @@ pub fn update_energy_text(
 
 pub fn update_dash_cooldown_ui(
     player_q: Query<&DashCooldown, (With<Player>, With<LocalControlled>)>,
+    session_q: Query<&CoopSessionState>,
+    config: Option<Res<CoopNetConfig>>,
     mut text_q: Query<&mut Text, With<DashText>>,
     mut icon_q: Query<(&mut Style, &mut BackgroundColor), With<DashIconFill>>,
 ) {
-    let Ok(cd) = player_q.get_single() else {
-        return;
-    };
     let Ok(mut text) = text_q.get_single_mut() else {
         return;
     };
     let Ok((mut style, mut color)) = icon_q.get_single_mut() else {
+        return;
+    };
+
+    // client 端从 CoopSessionState 读取 p2 冷却比例（已由 host 同步）
+    let is_client = config
+        .as_deref()
+        .map(|c| c.mode == NetMode::Client)
+        .unwrap_or(false);
+
+    if is_client {
+        let frac = session_q
+            .iter()
+            .next()
+            .map(|s| s.p2_dash_cooldown_frac)
+            .unwrap_or(0.0);
+        let ready = frac <= 0.0;
+        // frac 是剩余比例（0=就绪，1=刚冲刺完），进度条显示已恢复部分
+        let progress = 1.0 - frac;
+        style.height = Val::Percent(progress * 100.0);
+        *color = BackgroundColor(if ready {
+            Color::srgb(0.18, 0.82, 0.45)
+        } else {
+            Color::srgb(0.95, 0.58, 0.24)
+        });
+        text.sections[0].value = if ready {
+            "冲刺：就绪".to_string()
+        } else {
+            "冲刺：冷却中".to_string()
+        };
+        return;
+    }
+
+    // host 端或单机模式：直接读本地 DashCooldown
+    let Ok(cd) = player_q.get_single() else {
         return;
     };
 

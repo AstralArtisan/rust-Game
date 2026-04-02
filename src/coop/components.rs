@@ -3,6 +3,7 @@ use lightyear::prelude::ClientId;
 use serde::{Deserialize, Serialize};
 
 use crate::gameplay::map::room::{Direction, RoomType};
+use crate::gameplay::player::components::AnimationState;
 use crate::gameplay::rewards::data::RewardType;
 use crate::states::RoomState;
 
@@ -272,6 +273,35 @@ pub struct CoopSessionState {
     pub shop: CoopShopState,
     pub match_victory: bool,
     pub match_over: bool,
+    /// Host 端每帧同步：0.0=就绪，>0.0=冷却中（剩余比例）
+    pub p1_dash_cooldown_frac: f32,
+    pub p2_dash_cooldown_frac: f32,
+}
+
+/// 由 host 广播给所有 client 的伤害事件，用于 client 端显示伤害数字。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CoopDamageEvent {
+    pub amount: f32,
+    pub is_crit: bool,
+    pub pos: Vec2,
+    pub attacker_is_player: bool,
+}
+
+/// Client 端本地动画预测：按键后立即切换动画，不等待 host 确认。
+/// override_timer_s > 0 时优先使用 predicted_anim，超时后回归 host 状态。
+#[derive(Component, Debug, Clone, Copy)]
+pub struct LocalAnimPrediction {
+    pub predicted_anim: AnimationState,
+    pub override_timer_s: f32,
+}
+
+impl Default for LocalAnimPrediction {
+    fn default() -> Self {
+        Self {
+            predicted_anim: AnimationState::Idle,
+            override_timer_s: 0.0,
+        }
+    }
 }
 
 #[derive(Component)]

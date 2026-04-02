@@ -2,15 +2,19 @@ use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
+use lightyear::prelude::client::MessageEvent as LyClientMessageEvent;
 use lightyear::shared::replication::components::Controlled;
 
 use crate::core::assets::GameAssets;
-use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
+use crate::core::input::PlayerInputState;
+use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH, UI_Z};
 use crate::gameplay::combat::components::Projectile;
 use crate::gameplay::effects::afterimage;
+use crate::gameplay::effects::damage_numbers::DamageNumber;
 use crate::gameplay::enemy::components::{Enemy, EnemyKind, EnemyType};
 use crate::gameplay::map::doors::Door;
 use crate::gameplay::map::room::RoomType;
+use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::combat::{melee_swing_profile, spawn_melee_slash_visual};
 use crate::gameplay::player::components::{
     AnimationState, FacingDirection, Health, Player, RewardModifiers,
@@ -21,11 +25,11 @@ use crate::ui::widgets;
 use crate::utils::entity::safe_despawn_recursive;
 
 use super::components::{
-    CoopDashVisualState, CoopDoorOption, CoopMeleeFlashState, CoopNetPosition, CoopNetRotation,
-    CoopHudRoot, CoopOverlayRoot, CoopParticipant, CoopPhase, CoopRemoteHealthBarFill,
-    CoopRemoteHealthBarRoot, CoopRewardOption, CoopRewardSelectionGroup, CoopRpsChoice,
-    CoopSessionState, CoopShopItem, CoopShopOffer, CoopVisualReady, GhostState,
-    LocalControlled, PlayerSlot,
+    CoopDamageEvent, CoopDashVisualState, CoopDoorOption, CoopMeleeFlashState, CoopNetPosition,
+    CoopNetRotation, CoopHudRoot, CoopOverlayRoot, CoopParticipant, CoopPhase,
+    CoopRemoteHealthBarFill, CoopRemoteHealthBarRoot, CoopRewardOption, CoopRewardSelectionGroup,
+    CoopRpsChoice, CoopSessionState, CoopShopItem, CoopShopOffer, CoopVisualReady, GhostState,
+    LocalAnimPrediction, LocalControlled, PlayerSlot,
 };
 use super::net::{
     begin_coop_lobby_session, normalize_coop_host_ip, queue_command, queue_exit_request,
@@ -804,7 +808,7 @@ pub fn ensure_local_control_marker(
 
         match (should_control, local_controlled.is_some()) {
             (true, false) => {
-                commands.entity(entity).insert(LocalControlled);
+                commands.entity(entity).insert((LocalControlled, LocalAnimPrediction::default()));
             }
             (false, true) => {
                 commands.entity(entity).remove::<LocalControlled>();
@@ -1101,6 +1105,7 @@ pub fn sync_replicated_visuals(
             Option<&AnimationState>,
             Option<&CoopMeleeFlashState>,
             Option<&CoopDashVisualState>,
+            Option<&LocalAnimPrediction>,
         ),
         (With<CoopVisualReady>, With<Player>, With<Replicated>),
     >,
@@ -1133,6 +1138,7 @@ pub fn sync_replicated_visuals(
         anim,
         melee_flash,
         dash_visual,
+        local_anim_pred,
     ) in &mut player_q
     {
         let effectively_alive = coop_player_is_alive(ghost.copied(), health);
@@ -1160,7 +1166,17 @@ pub fn sync_replicated_visuals(
             sprite.flip_x = facing.0.x < -0.15;
         }
 
-        let visual_anim = match anim.copied().unwrap_or(AnimationState::Idle) {
+        let host_anim = anim.copied().unwrap_or(AnimationState::Idle);
+        let visual_anim = if let Some(pred) = local_anim_pred {
+            if pred.override_timer_s > 0.0 {
+                pred.predicted_anim
+            } else {
+                host_anim
+            }
+        } else {
+            host_anim
+        };
+        let visual_anim = match visual_anim {
             AnimationState::Dead if effectively_alive => AnimationState::Idle,
             state => state,
         };
@@ -2609,5 +2625,76 @@ fn player_slot_color(slot: PlayerSlot) -> Color {
     match slot {
         PlayerSlot::P1 => Color::srgb(0.92, 1.0, 0.94),
         PlayerSlot::P2 => Color::srgb(0.90, 0.98, 1.0),
+    }
+}
+
+pub fn predict_local_player_animation(
+    input: Res<PlayerInputState>,
+    time: Res<Time>,
+    mut q: Query<&mut LocalAnimPrediction, (With<Player>, With<LocalControlled>, With<Replicated>)>,
+) {
+    for mut pred in &mut q {
+        pred.override_timer_s = (pred.override_timer_s - time.delta_seconds()).max(0.0);
+
+        if input.dash_pressed {
+            pred.predicted_anim = AnimationState::Dash;
+            pred.override_timer_s = 0.3;
+        } else if input.attack_pressed || input.ranged_pressed {
+            pred.predicted_anim = AnimationState::Attack;
+            pred.override_timer_s = 0.25;
+        } else if input.move_axis.length_squared() > 0.01 {
+            if pred.override_timer_s <= 0.0 {
+                pred.predicted_anim = AnimationState::Move;
+                pred.override_timer_s = 0.12;
+            }
+        }
+    }
+}
+
+pub fn client_receive_damage_events(
+    config: Res<CoopNetConfig>,
+    mut commands: Commands,
+    assets: Option<Res<GameAssets>>,
+    mut events: EventReader<LyClientMessageEvent<CoopDamageEvent>>,
+) {
+    if config.mode != NetMode::Client {
+        events.clear();
+        return;
+    }
+    let Some(assets) = assets else {
+        events.clear();
+        return;
+    };
+    for ev in events.read() {
+        let msg = ev.message();
+        let text_color = if msg.is_crit {
+            Color::srgb(1.0, 0.95, 0.35)
+        } else if msg.attacker_is_player {
+            Color::srgb(0.85, 1.0, 0.85)
+        } else {
+            Color::srgb(1.0, 0.75, 0.75)
+        };
+        commands.spawn((
+            Text2dBundle {
+                text: Text::from_section(
+                    format!("{:.0}", msg.amount.max(0.0)),
+                    TextStyle {
+                        font: assets.font.clone(),
+                        font_size: if msg.is_crit { 28.0 } else { 22.0 },
+                        color: text_color,
+                    },
+                ),
+                transform: Transform::from_translation(
+                    (msg.pos + Vec2::new(0.0, 18.0)).extend(UI_Z - 6.0),
+                ),
+                ..default()
+            },
+            DamageNumber {
+                timer: Timer::from_seconds(0.75, TimerMode::Once),
+                velocity: Vec2::new(0.0, 80.0),
+            },
+            InGameEntity,
+            Name::new("DamageNumber"),
+        ));
     }
 }

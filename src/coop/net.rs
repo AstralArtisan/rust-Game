@@ -42,9 +42,9 @@ use crate::gameplay::player::components::{
 use crate::states::AppState;
 
 use super::components::{
-    CoopDashVisualState, CoopInputState, CoopMeleeFlashState, CoopNetPosition, CoopNetRotation,
-    CoopNetVelocity, CoopParticipant, CoopRewardSelectionGroup, CoopSessionState, GhostState,
-    PlayerSlot,
+    CoopDamageEvent, CoopDashVisualState, CoopInputState, CoopMeleeFlashState, CoopNetPosition,
+    CoopNetRotation, CoopNetVelocity, CoopParticipant, CoopRewardSelectionGroup, CoopSessionState,
+    GhostState, PlayerSlot,
 };
 
 pub const COOP_PORT: u16 = 3457;
@@ -214,6 +214,7 @@ impl Plugin for CoopProtocolPlugin {
             priority: 3.0,
         });
         app.register_message::<CoopCommandMessage>(ChannelDirection::ClientToServer);
+        app.register_message::<CoopDamageEvent>(ChannelDirection::ServerToClient);
 
         app.register_component::<Player>(ChannelDirection::ServerToClient);
         app.register_component::<Health>(ChannelDirection::ServerToClient);
