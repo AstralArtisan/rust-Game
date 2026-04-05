@@ -57,6 +57,7 @@ pub struct DelayedRangedShot {
 pub fn player_attack_input_system(
     mut commands: Commands,
     assets: Res<GameAssets>,
+    mut sfx_events: EventWriter<crate::core::events::SfxEvent>,
     session_q: Query<&CoopSessionState, With<CoopSessionEntity>>,
     mut q: Query<
         (
@@ -107,6 +108,7 @@ pub fn player_attack_input_system(
 
         cd.apply_speed_bonus(mods.total_melee_speed_bonus());
         cd.timer.reset();
+        sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::MeleeAttack });
         let swing = melee_swing_profile(*mods);
 
         spawn_player_melee_hitbox_with_mods(
@@ -138,6 +140,7 @@ pub fn player_ranged_input_system(
     time: Res<Time>,
     data: Option<Res<GameDataRegistry>>,
     assets: Res<GameAssets>,
+    mut sfx_events: EventWriter<crate::core::events::SfxEvent>,
     session_q: Query<&CoopSessionState, With<CoopSessionEntity>>,
     mut q: Query<
         (
@@ -202,6 +205,7 @@ pub fn player_ranged_input_system(
             .unwrap_or(cd.base_duration_s);
         cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
         cd.timer.reset();
+        sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::RangedAttack });
 
         let dir = facing.0;
         let speed = BASE_RANGED_PROJECTILE_SPEED * mods.ranged_projectile_speed_mult();

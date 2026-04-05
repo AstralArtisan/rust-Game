@@ -13,4 +13,6 @@ pub struct GameDataRegistry {
     pub rooms: RoomGenConfig,
     pub balance: GameBalanceConfig,
     pub augments: AugmentsConfig,
+    pub audio: AudioConfig,
+    pub effects: EffectsConfig,
 }

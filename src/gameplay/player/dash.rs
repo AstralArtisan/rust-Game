@@ -16,6 +16,7 @@ pub fn player_dash_input_system(
     mut commands: Commands,
     time: Res<Time>,
     assets: Res<GameAssets>,
+    mut sfx_events: EventWriter<crate::core::events::SfxEvent>,
     session_q: Query<&CoopSessionState, With<CoopSessionEntity>>,
     mut q: Query<
         (
@@ -66,6 +67,7 @@ pub fn player_dash_input_system(
         }
 
         inv.timer.reset();
+        sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::Dash });
         particles::spawn_dash_particles(&mut commands, &assets, tf.translation().truncate());
 
         afterimage::spawn_afterimage(

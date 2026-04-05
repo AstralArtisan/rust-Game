@@ -15,6 +15,8 @@ use crate::gameplay::player::components::{
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::rewards::data::RewardType;
 use crate::gameplay::rune::data::RuneLoadout;
+use crate::gameplay::augment::data::{AugmentInventory, AugmentRarity};
+use crate::ui::augment_select::{AugmentChoiceOption, AugmentChoices};
 use crate::gameplay::session_core::{
     BlessingOffer, PlayerRuleEffects, PlayerRuleSnapshot, PostRewardDecision, RewardDraft,
     RewardDraftMode, RewardOptionDraft, RewardSelection, SessionMode, SessionRuleContext,
@@ -97,6 +99,7 @@ impl Plugin for RewardsSystemsPlugin {
                     handle_reward_choice_input,
                     crate::ui::reward_select::reward_ui_input_system,
                     crate::ui::reward_select::update_reward_ui,
+                    crate::ui::reward_select::update_card_anim,
                 )
                     .run_if(in_state(AppState::RewardSelect)),
             )
@@ -229,11 +232,12 @@ fn enter_reward_selection(
     mut blessing_pending: ResMut<BlessingPendingAction>,
     mut rng: ResMut<GameRng>,
     mut flow: ResMut<RewardFlow>,
+    mut augment_choices: ResMut<AugmentChoices>,
     data: Option<Res<GameDataRegistry>>,
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
     floor: Option<Res<FloorNumber>>,
-    mut player_q: Query<(&RewardModifiers, &mut Health), With<Player>>,
+    mut player_q: Query<(&RewardModifiers, &mut Health, Option<&AugmentInventory>), With<Player>>,
 ) {
     let Some(ev) = room_cleared.read().next() else {
         return;
@@ -276,7 +280,7 @@ fn enter_reward_selection(
     };
 
     if decision.heal_alive_fraction > 0.0 {
-        if let Ok((_, mut health)) = player_q.get_single_mut() {
+        if let Ok((_, mut health, _)) = player_q.get_single_mut() {
             let heal = health.max * decision.heal_alive_fraction;
             health.current = (health.current + heal).min(health.max);
         }
@@ -288,7 +292,7 @@ fn enter_reward_selection(
 
     let mods = player_q
         .get_single()
-        .map(|(mods, _)| *mods)
+        .map(|(mods, _, _)| *mods)
         .unwrap_or_default();
     let draft = build_reward_draft(
         SessionMode::Solo,
@@ -301,6 +305,24 @@ fn enter_reward_selection(
         }],
     );
     apply_solo_reward_draft(&draft, &mut choices);
+
+    // Augment drop logic: 40% normal rooms, 100% boss rooms
+    let is_boss = room.room_type == RoomType::Boss;
+    let should_offer_augment = is_boss || rng.gen_bool(0.40);
+
+    if should_offer_augment {
+        if let Some(registry) = data.as_deref() {
+            let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
+            let generated = generate_augment_choices(&registry, &mut rng, is_boss, inventory);
+            if !generated.is_empty() {
+                augment_choices.options = generated;
+                augment_choices.return_state = Some(AppState::RewardSelect);
+                next_state.set(AppState::AugmentSelect);
+                return;
+            }
+        }
+    }
+
     next_state.set(AppState::RewardSelect);
 }
 
@@ -665,4 +687,55 @@ fn reward_option_from_choice(reward: RewardType, group: RewardChoiceGroup) -> Re
     } else {
         RewardOptionDraft::Buff(reward)
     }
+}
+
+/// Generate 3 augment choices from the registry, filtered by rarity pool.
+/// Boss rooms offer Elite+Legendary; normal rooms offer Common(+small Elite chance).
+fn generate_augment_choices(
+    registry: &GameDataRegistry,
+    rng: &mut GameRng,
+    is_boss: bool,
+    inventory: Option<&AugmentInventory>,
+) -> Vec<AugmentChoiceOption> {
+    let pool: Vec<_> = registry
+        .augments
+        .augments
+        .iter()
+        .filter(|a| {
+            if is_boss {
+                matches!(a.rarity, AugmentRarity::Elite | AugmentRarity::Legendary)
+            } else {
+                // Normal rooms: mostly common, 20% chance to include elite
+                matches!(a.rarity, AugmentRarity::Common | AugmentRarity::Elite)
+            }
+        })
+        .collect();
+
+    if pool.is_empty() {
+        return vec![];
+    }
+
+    let mut indices: Vec<usize> = (0..pool.len()).collect();
+    rng.shuffle(&mut indices);
+    indices.truncate(3);
+
+    indices
+        .iter()
+        .map(|&i| {
+            let a = &pool[i];
+            let is_upgrade = inventory.map(|inv| inv.has(a.id)).unwrap_or(false);
+            let desc = if is_upgrade {
+                &a.upgraded_description
+            } else {
+                &a.description
+            };
+            AugmentChoiceOption {
+                id: a.id,
+                title: a.title.clone(),
+                description: desc.clone(),
+                rarity: a.rarity,
+                is_upgrade,
+            }
+        })
+        .collect()
 }

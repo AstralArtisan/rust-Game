@@ -70,6 +70,12 @@ pub struct RuneHudText(pub RuneSlot);
 pub struct CurseStatusText;
 
 #[derive(Component)]
+pub struct BarAnimState {
+    pub current: f32,
+    pub target: f32,
+}
+
+#[derive(Component)]
 pub struct BossHealthBar;
 
 #[derive(Component)]
@@ -160,6 +166,7 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                             ..default()
                         },
                         HealthFill,
+                        BarAnimState { current: 1.0, target: 1.0 },
                     ));
                 });
                 col.spawn((
@@ -213,6 +220,7 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                                     ..default()
                                 },
                                 EnergyFill,
+                                BarAnimState { current: 0.0, target: 0.0 },
                             ));
                         });
                 });
@@ -426,12 +434,14 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
 
 pub fn update_health_bar(
     player_q: Query<&Health, (With<Player>, With<LocalControlled>)>,
-    mut fill_q: Query<&mut Style, With<HealthFill>>,
+    time: Res<Time>,
+    registry: Option<Res<GameDataRegistry>>,
+    mut fill_q: Query<(&mut Style, &mut BarAnimState), With<HealthFill>>,
 ) {
     let Ok(hp) = player_q.get_single() else {
         return;
     };
-    let Ok(mut style) = fill_q.get_single_mut() else {
+    let Ok((mut style, mut anim)) = fill_q.get_single_mut() else {
         return;
     };
     let ratio = if hp.max > 0.0 {
@@ -439,7 +449,11 @@ pub fn update_health_bar(
     } else {
         0.0
     };
-    style.width = Val::Percent(ratio * 100.0);
+    anim.target = ratio;
+    let speed = registry.as_ref().map(|r| r.effects.bar_lerp_speed).unwrap_or(8.0);
+    let dt = time.delta_seconds();
+    anim.current += (anim.target - anim.current) * (1.0 - (-speed * dt).exp());
+    style.width = Val::Percent(anim.current * 100.0);
 }
 
 pub fn update_health_text(
@@ -549,8 +563,9 @@ pub fn update_gold_text(
 pub fn update_energy_text(
     player_q: Query<&Energy, (With<Player>, With<LocalControlled>)>,
     time: Res<Time>,
+    registry: Option<Res<GameDataRegistry>>,
     mut text_q: Query<&mut Text, With<EnergyText>>,
-    mut fill_q: Query<(&mut Style, &mut BackgroundColor), With<EnergyFill>>,
+    mut fill_q: Query<(&mut Style, &mut BackgroundColor, &mut BarAnimState), With<EnergyFill>>,
 ) {
     let Ok(energy) = player_q.get_single() else {
         return;
@@ -560,7 +575,7 @@ pub fn update_energy_text(
     };
     text.sections[0].value = format!("蓄力: {:.0} / {:.0}", energy.current, energy.max);
 
-    let Ok((mut style, mut color)) = fill_q.get_single_mut() else {
+    let Ok((mut style, mut color, mut anim)) = fill_q.get_single_mut() else {
         return;
     };
     let ratio = if energy.max > 0.0 {
@@ -568,7 +583,11 @@ pub fn update_energy_text(
     } else {
         0.0
     };
-    style.width = Val::Percent(ratio * 100.0);
+    anim.target = ratio;
+    let speed = registry.as_ref().map(|r| r.effects.bar_lerp_speed).unwrap_or(8.0);
+    let dt = time.delta_seconds();
+    anim.current += (anim.target - anim.current) * (1.0 - (-speed * dt).exp());
+    style.width = Val::Percent(anim.current * 100.0);
 
     let pulse = (time.elapsed_seconds() * 8.0).sin().abs();
     color.0 = if ratio >= 0.999 {
@@ -618,7 +637,11 @@ pub fn update_skill_bar_ui(
                 .map(|skill| skill_ready_palette(skill, pulse))
                 .unwrap_or(base)
         } else {
-            base
+            // Dim the slot when energy not ready — grey tint
+            let ratio = (energy.current / energy.max.max(1.0)).clamp(0.0, 1.0);
+            let dim = 0.3 + ratio * 0.7;
+            let c = base.to_srgba();
+            Color::srgba(c.red * dim, c.green * dim, c.blue * dim, c.alpha)
         };
     }
 

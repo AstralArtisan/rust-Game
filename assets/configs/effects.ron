@@ -1,0 +1,10 @@
+(
+    hit_particle_count: 10,
+    death_particle_count: 16,
+    hitstop_duration_s: 0.04,
+    hitstop_crit_s: 0.06,
+    hitstop_kill_s: 0.08,
+    bar_lerp_speed: 8.0,
+    screen_flash_duration_s: 0.15,
+    death_scale_s: 0.25,
+)

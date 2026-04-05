@@ -159,3 +159,49 @@ pub struct AugmentConfig {
 pub struct AugmentsConfig {
     pub augments: Vec<AugmentConfig>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioConfig {
+    pub master_volume: f32,
+    pub sfx_volume: f32,
+    pub bgm_volume: f32,
+    pub pitch_variation: f32,
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            master_volume: 0.7,
+            sfx_volume: 0.8,
+            bgm_volume: 0.5,
+            pitch_variation: 0.08,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EffectsConfig {
+    pub hit_particle_count: u32,
+    pub death_particle_count: u32,
+    pub hitstop_duration_s: f32,
+    pub hitstop_crit_s: f32,
+    pub hitstop_kill_s: f32,
+    pub bar_lerp_speed: f32,
+    pub screen_flash_duration_s: f32,
+    pub death_scale_s: f32,
+}
+
+impl Default for EffectsConfig {
+    fn default() -> Self {
+        Self {
+            hit_particle_count: 10,
+            death_particle_count: 16,
+            hitstop_duration_s: 0.04,
+            hitstop_crit_s: 0.06,
+            hitstop_kill_s: 0.08,
+            bar_lerp_speed: 8.0,
+            screen_flash_duration_s: 0.15,
+            death_scale_s: 0.25,
+        }
+    }
+}

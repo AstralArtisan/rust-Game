@@ -12,10 +12,18 @@ use crate::gameplay::rewards::systems::{
 };
 use crate::gameplay::rune::data::{RuneSlot, RuneTier};
 use crate::ui::widgets;
+use crate::utils::easing::ease_out_back;
 use crate::utils::entity::safe_despawn_recursive;
 
 #[derive(Component)]
 pub struct RewardUi;
+
+#[derive(Component)]
+pub struct CardAnim {
+    timer: Timer,
+    delay: f32,
+    started: bool,
+}
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct RewardButton {
@@ -353,6 +361,31 @@ pub fn cleanup_reward_ui(mut commands: Commands, q: Query<Entity, With<RewardUi>
     }
 }
 
+pub fn update_card_anim(
+    time: Res<Time>,
+    mut q: Query<(&mut CardAnim, &mut Style)>,
+) {
+    for (mut anim, mut style) in &mut q {
+        if !anim.started {
+            anim.delay -= time.delta_seconds();
+            if anim.delay > 0.0 {
+                style.max_height = Val::Px(0.0);
+                continue;
+            }
+            anim.started = true;
+            style.max_height = Val::Auto;
+        }
+        anim.timer.tick(time.delta());
+        let t = anim.timer.fraction();
+        let scale = ease_out_back(t);
+        // Use transform scale via width/height scaling
+        let base_w = 360.0;
+        let base_h = 104.0;
+        style.width = Val::Px(base_w * scale);
+        style.min_height = Val::Px(base_h * scale);
+    }
+}
+
 fn reward_copy(
     reward: RewardType,
     mods: RewardModifiers,
@@ -458,6 +491,11 @@ fn spawn_reward_column(
                     reward: *reward,
                     group,
                 },
+                CardAnim {
+                    timer: Timer::from_seconds(0.35, TimerMode::Once),
+                    delay: i as f32 * 0.08,
+                    started: false,
+                },
             ))
             .with_children(|button| {
                 button.spawn(widgets::title_text(
@@ -496,6 +534,11 @@ fn spawn_blessing_card(
                 ..default()
             },
             BlessingButton { index },
+            CardAnim {
+                timer: Timer::from_seconds(0.35, TimerMode::Once),
+                delay: index as f32 * 0.1,
+                started: false,
+            },
         ))
         .with_children(|button| {
             button.spawn(widgets::title_text(

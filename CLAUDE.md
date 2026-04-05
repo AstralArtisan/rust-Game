@@ -39,11 +39,11 @@ $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_
 
 ### 文档维护
 
-使用skill： `doc-maintenance`。项目的所有工程文档在 `docs/` 中维护。你可以通过 `docs/00_index.md` 来获取文档索引，以了解项目信息。在后续的工作中，你需要持续维护这些文档，记录每一次修改的内容与迭代的目的、想法等，并根据项目情况更新 `README.md` 、 `CLAUDE.md`等文档。在工作时，若发现一些不带编号的文档已经彻底过时，你可以直接将其删除。
+使用skill： `doc-maintenance`。项目的所有工程文档在 `docs/` 中维护。你可以通过 `docs/00_index.md` 来获取文档索引，以了解项目信息。在后续的工作中，你需要持续维护这些文档，记录每一次修改的内容与迭代的目的、想法等，并根据项目情况更新 `README.md` 、 `CLAUDE.md`和 `docs/` 中对应的文档。在工作时，若发现一些不带编号的文档已经彻底过时，你可以直接将其删除。
 
 ### Github维护
 
-使用skill：`git-maintenance`。该项目的仓库位于 `https://github.com/AstralArtisan/rust-Game/`。当前以分支 `saved_version` 为基础进行改进，工作分支为 `claude_playground`。每次修改后，及时提交commit，当取得重大突破时，及时push。当测试顺利通过、符合全部预期后，可以合并进main。当前的main仍以单机模式为主。
+使用skill：`git-maintenance`。该项目的仓库位于 `https://github.com/AstralArtisan/rust-Game/`。当前以分支 `saved_version` 为基础进行改进，工作分支为 `claude-playground`。每次修改后，及时提交commit，当取得重大突破时，及时push。当测试顺利通过、符合全部预期后，可以合并进main。当前的main仍以单机模式为主。
 
 ### 编码规范
 
@@ -52,6 +52,52 @@ $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_
 ### 项目预期
 
 首先实现联机合作、联机对战功能的正常运行，然后对单机模式进行修改，包括玩法、成长、怪物设计、数值等，并能够同步到联机合作模式中。
+
+## Plan-to-Codex 工作流
+
+本仓库使用 Claude 规划 + Codex 执行的分工模式。
+
+### 角色分工
+
+| 角色   | 职责                                                        |
+| ------ | ----------------------------------------------------------- |
+| Claude | 分析仓库、理解需求、编写计划（`PLANS.md`）、审查 Codex 产出 |
+| Codex  | 按计划实现代码、保持最小 diff、运行验证、报告结果           |
+
+### 工作流程
+
+1. **Claude 规划**：使用 `plan-to-codex` skill，分析任务后写入 `PLANS.md`
+2. **Codex 执行**：运行 `./scripts/codex-from-plan.ps1`（或 `.sh`），Codex 读取 `AGENTS.md` + `PLANS.md` 并实现
+3. **Claude 审查**：对比 `PLANS.md` 与实际改动，检查范围、质量、回归
+4. **收尾**：执行 `doc-maintenance` 和 `git-maintenance` skills
+
+### 关键文件
+
+| 文件                          | 用途                                         |
+| ----------------------------- | -------------------------------------------- |
+| `AGENTS.md`                   | Codex 的执行契约（范围、代码风格、报告格式） |
+| `PLANS.md`                    | 任务交接模板，Claude 写入，Codex 读取        |
+| `scripts/codex-from-plan.sh`  | Bash 启动脚本                                |
+| `scripts/codex-from-plan.ps1` | PowerShell 启动脚本                          |
+
+### 默认行为
+
+Claude 在此仓库中默认为规划者和审查者。除非用户明确要求"直接实现"或"自己动手"，否则 Claude 应：
+
+- 先检查再规划
+- 优先写计划而非写代码
+- 定义精确的影响范围和验证命令
+- 将实现委托给 Codex
+
+### 计划同步（必须执行）
+
+**每次 `ExitPlanMode` 被用户批准后，必须立即执行以下操作：**
+
+1. 读取批准的计划文件（路径显示在 ExitPlanMode 返回信息中，位于 `C:\Users\OMEN\.claude\plans\*.md`）
+2. 将其完整内容写入项目根目录的 `PLANS.md`
+3. 告知用户："计划已同步到 `PLANS.md`，可以运行 Codex。"
+
+这确保 Codex 运行 `./scripts/codex-from-plan.ps1` 时能读取到最新计划。
 
 ## 架构
 
@@ -108,6 +154,10 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 3. **存档系统**：使用 `ron` 格式保存可读存档。存档数据包括版本号、楼层、玩家属性、成就和敌人刷新计数。`PendingLoad` 资源确保存档只在切换到 `InGame` 状态时才被应用。
 
 4. **网络栈分离**：Coop 使用 Lightyear 0.17.1 实现带房间推进和实体复制的主机权威多人模式；PVP 使用轻量级自定义 UDP 协议实现直接玩家对战，状态同步更简单。
+- **程序化音效系统**（`src/core/audio.rs`）：启动时用波形合成生成 13 种 WAV 音效，插入 `Assets<AudioSource>`。`SfxEvent` 事件驱动播放，桥接系统自动将 `DamageAppliedEvent`/`RoomClearedEvent`/`BossPhaseChangeEvent` 转换为音效。配置在 `audio.ron`。
+- **打击暂停系统**（`src/gameplay/effects/hitstop.rs`）：通过 `Time<Virtual>` 时间缩放实现，命中/暴击/击杀时短暂冻结画面增强打击感。
+- **屏幕闪光系统**（`src/gameplay/effects/screen_flash.rs`）：全屏 UI 覆盖层，`ease_out_expo` 快速衰减 alpha。Boss 死亡和阶段切换时触发。
+- **BGM 状态机**（`src/core/audio.rs` `BgmState`）：根据 `AppState`/`RoomState` 自动切换曲目类型（Menu/Exploration/Combat/Boss），预留外部音频加载接口。
 
 ### 复杂度热点
 
@@ -129,6 +179,8 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 | `curses.ron` | 诅咒定义（5种诅咒的名称、效果、持续时间） |
 | `rooms.ron` | 房间生成参数 |
 | `game_balance.ron` | 全局难度、楼层数、房间数 |
+| `audio.ron` | 主音量、音效音量、BGM 音量、pitch 随机变化幅度 |
+| `effects.ron` | 粒子数、打击暂停时长、屏幕闪光时长、血条 lerp 速度 |
 
 ## 开发指南
 
@@ -150,46 +202,3 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 - 主执行二进制名为 `block_city_adventure`
 - 窗口标题为"勇闯方块城"
 
-## Plan-to-Codex 工作流
-
-本仓库使用 Claude 规划 + Codex 执行的分工模式。
-
-### 角色分工
-
-| 角色 | 职责 |
-|------|------|
-| Claude | 分析仓库、理解需求、编写计划（`PLANS.md`）、审查 Codex 产出 |
-| Codex | 按计划实现代码、保持最小 diff、运行验证、报告结果 |
-
-### 工作流程
-
-1. **Claude 规划**：使用 `plan-to-codex` skill，分析任务后写入 `PLANS.md`
-2. **Codex 执行**：运行 `./scripts/codex-from-plan.ps1`（或 `.sh`），Codex 读取 `AGENTS.md` + `PLANS.md` 并实现
-3. **Claude 审查**：对比 `PLANS.md` 与实际改动，检查范围、质量、回归
-4. **收尾**：执行 `doc-maintenance` 和 `git-maintenance` skills
-
-### 关键文件
-
-| 文件 | 用途 |
-|------|------|
-| `AGENTS.md` | Codex 的执行契约（范围、代码风格、报告格式） |
-| `PLANS.md` | 任务交接模板，Claude 写入，Codex 读取 |
-| `scripts/codex-from-plan.sh` | Bash 启动脚本 |
-| `scripts/codex-from-plan.ps1` | PowerShell 启动脚本 |
-
-### 默认行为
-
-Claude 在此仓库中默认为规划者和审查者。除非用户明确要求"直接实现"或"自己动手"，否则 Claude 应：
-- 先检查再规划
-- 优先写计划而非写代码
-- 定义精确的影响范围和验证命令
-- 将实现委托给 Codex
-
-### 计划同步（必须执行）
-
-**每次 `ExitPlanMode` 被用户批准后，必须立即执行以下操作：**
-1. 读取批准的计划文件（路径显示在 ExitPlanMode 返回信息中，位于 `C:\Users\OMEN\.claude\plans\*.md`）
-2. 将其完整内容写入项目根目录的 `PLANS.md`
-3. 告知用户："计划已同步到 `PLANS.md`，可以运行 Codex。"
-
-这确保 Codex 运行 `./scripts/codex-from-plan.ps1` 时能读取到最新计划。

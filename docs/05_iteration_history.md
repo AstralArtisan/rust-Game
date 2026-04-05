@@ -377,3 +377,42 @@
 - 阶段 6：HUD + 平衡 + 旧代码清理
 - 完整设计文档：`PLANS.md`
 - `cargo test` 33 项全部通过
+
+## 2026-04-06 游戏表现力增强：音效 + 视觉特效 + UI 打磨
+
+### 改动内容
+
+**Phase 1 — 基础设施 + 核心音效 + 核心特效：**
+- 新增事件：`SfxEvent`（13 种音效类型）、`HitStopRequest`、`ScreenFlashRequest`
+- 新增缓动函数：`ease_out_cubic`、`ease_out_expo`、`ease_out_elastic`、`ease_out_back`
+- 新增配置：`audio.ron`（音量/pitch 变化）、`effects.ron`（粒子数/打击暂停/闪光参数）
+- 重写 `src/core/audio.rs`：程序化波形合成生成 13 种音效，WAV 编码后插入 `Assets<AudioSource>`，事件驱动播放
+- 新建 `hitstop.rs`：基于 `Time<Virtual>` 时间缩放的打击暂停系统
+- 新建 `screen_flash.rs`：全屏半透明覆盖 + `ease_out_expo` 衰减
+- 新建 `death_effect.rs`：敌人死亡粒子爆炸（普通 16 / Boss 32 粒子 + 闪光 + 震动）
+- 桥接系统复用已有事件，直接集成近战/远程/冲刺音效
+
+**Phase 2 — UI 动画 + 增强粒子：**
+- 血条/能量条平滑 lerp 动画（`BarAnimState`，指数衰减插值）
+- 粒子增强：随机大小、角度偏移、速度衰减、辉光模拟层
+- 技能槽位能量不足时渐变灰暗
+- 奖励卡片弹入动画（`CardAnim`，`ease_out_back` 缩放）
+
+**Phase 3 — 打磨 + BGM 框架：**
+- Boss 阶段切换增强：屏幕闪光 + 震动 + 打击暂停
+- BGM 状态机框架：`BgmState` 资源，根据游戏状态自动切换曲目类型
+
+### 目的与动机
+游戏手感基础不错但存在零音频、视觉反馈缺失、UI 缺乏动感三个短板。程序化音效生成避免外部资源依赖，保持几何风格一致性。
+
+### 关键决策
+- 程序化波形合成：零依赖、即时可用、风格统一
+- 桥接系统模式：复用已有事件，避免侵入式修改大量系统签名
+- `Time<Virtual>` 时间缩放实现打击暂停
+- 配置驱动：粒子数、暂停时长等均从 `effects.ron` 读取
+
+### 已知问题 / 后续工作
+- BGM 框架已就绪但无实际音频播放（需外部 .ogg 或程序化环境音）
+- 连击计数器 UI 未实现（当前无 ComboCounter 系统）
+- UI 按钮点击音效待集成
+- `cargo test` 33 项全部通过

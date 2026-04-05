@@ -29,6 +29,8 @@ fn try_load_all() -> Result<GameDataRegistry> {
         rooms: load_ron("assets/configs/rooms.ron")?,
         balance: load_ron("assets/configs/game_balance.ron")?,
         augments: load_ron("assets/configs/augments.ron").unwrap_or(AugmentsConfig { augments: vec![] }),
+        audio: load_ron("assets/configs/audio.ron").unwrap_or_default(),
+        effects: load_ron("assets/configs/effects.ron").unwrap_or_default(),
     })
 }
 
@@ -172,5 +174,7 @@ fn default_registry() -> GameDataRegistry {
             elite_gold_bonus: 5,
         },
         augments: AugmentsConfig { augments: vec![] },
+        audio: AudioConfig::default(),
+        effects: EffectsConfig::default(),
     }
 }

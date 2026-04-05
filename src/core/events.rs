@@ -66,6 +66,41 @@ pub struct BossPhaseChangeEvent {
     pub phase: u8,
 }
 
+// --- 音效 / 视觉反馈事件 ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SfxKind {
+    MeleeAttack,
+    RangedAttack,
+    Dash,
+    Hit,
+    CritHit,
+    EnemyDeath,
+    BossDeath,
+    UiClick,
+    SkillActivate,
+    BossPhaseChange,
+    RoomClear,
+    RewardPickup,
+    ShopPurchase,
+}
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct SfxEvent {
+    pub kind: SfxKind,
+}
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct HitStopRequest {
+    pub duration_s: f32,
+}
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct ScreenFlashRequest {
+    pub color: Color,
+    pub duration_s: f32,
+}
+
 pub struct EventsPlugin;
 
 impl Plugin for EventsPlugin {
@@ -77,6 +112,9 @@ impl Plugin for EventsPlugin {
             .add_event::<RewardChosenEvent>()
             .add_event::<DoorOpenEvent>()
             .add_event::<SpawnEnemyEvent>()
-            .add_event::<BossPhaseChangeEvent>();
+            .add_event::<BossPhaseChangeEvent>()
+            .add_event::<SfxEvent>()
+            .add_event::<HitStopRequest>()
+            .add_event::<ScreenFlashRequest>();
     }
 }
