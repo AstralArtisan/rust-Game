@@ -1,6 +1,6 @@
 # 迭代经历与设计演化
 
-- 适用版本：当前工作树（HEAD `7fafc936`）
+- 适用版本：当前工作树（HEAD `0553e76b`）
 - 最后校验：2026-04-06；`cargo check` 通过，`cargo test` 33 项通过
 - 关联源码：`rust_game_codex_requirements.txt`、`git log`、`src/`、`docs/project_overview_and_coop_review.md`
 - 实验性内容：包含。联机相关阶段记录的是“原型整合”而非稳定版本发布
@@ -325,3 +325,24 @@
 - Coop 模式下祝福祠堂未同步（需单独工作）
 - `cargo test` 33 项全部通过
 - 完整设计文档：`docs/superpowers/specs/2026-04-06-reward-system-redesign.md`
+
+## 16. TideHunter 重设计为"影子猎人" + HUD B0001 修复（2026-04-06）
+
+### 改动内容
+- **TideHunter 状态机重写**：从简单的"靠近→蓄力→冲刺→冷却"改为"Stalk→Telegraph→ShadowDash→Reposition"循环，核心机制是快速穿越留下紫色影子轨迹（持续伤害地带）
+- **影子轨迹系统**：新增 `ShadowTrail` 组件，Boss 穿越路径每 25px 生成一个影子实体，半透明深紫色，线性淡出后 despawn；站在影子上持续受伤，冲刺穿越免疫
+- **三阶段递进**：Phase1 单次穿越/影子 2.5s/停顿 0.9s；Phase2 连续 2 次穿越/影子 3.5s/停顿 0.7s + 1 颗弹；Phase3 连续 3 次穿越（三角形包围）/影子 4.5s/停顿 0.6s + 3 颗扇形弹
+- **反制机制调整**：从 WindupTelegraph 阶段改为 Reposition 阶段检测——玩家需要穿越影子接近 Boss 才能触发 Stunned（1.4s，伤害 ×1.5）
+- **HUD B0001 修复**：`update_rune_and_curse_ui` 的两个 `Text` Query 加 `Without<>` 过滤，解决运行时 panic
+
+### 目的与动机
+试玩反馈第三层 Boss 设计单调：循环太简单，只有一个交互机制（冲刺打断），阶段差异仅为攻速变化。重设计为"影子猎人"风格，让战场空间随阶段推进被逐渐压缩，玩家需要在影子缝隙中走位并找准反击窗口。B0001 是铭文系统引入后的 Bevy Query 冲突 bug。
+
+### 关键决策
+- 影子轨迹是持续伤害而非一次性伤害——鼓励玩家主动走位而非站桩输出
+- 反制窗口从蓄力阶段移到停顿阶段——玩家需要穿越危险的影子区域才能反击，风险与回报对等
+- Phase3 三角形穿越路径——让战场被三条影子线切割，空间极度压缩，体现最终阶段的压迫感
+
+### 已知问题 / 后续工作
+- 需要实际游玩验证影子伤害数值和持续时间是否合理
+- `cargo test` 33 项全部通过
