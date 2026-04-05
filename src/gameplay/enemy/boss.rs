@@ -5,7 +5,7 @@ use lightyear::prelude::Replicated;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::coop::components::{CoopParticipant, GhostState};
 use crate::coop::net::{CoopNetConfig, NetMode};
-use crate::core::events::BossPhaseChangeEvent;
+use crate::core::events::{BossPhaseChangeEvent, DeathEvent};
 use crate::data::definitions::BossFloorConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{
@@ -17,7 +17,7 @@ use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
 use crate::gameplay::enemy::components::{
     BossArchetype, BossCoreShield, BossCycleState, BossDecoy, BossDirectionalDefense,
     BossPatternTimer, BossPhase, BossSubCore, BossSummoned, EnemyKind, EnemyStats, EnemyType,
-    GuardianShieldIndicator, TeamMarker, TideHunterPhase, TideHunterState,
+    GuardianShieldIndicator, ShadowTrail, TeamMarker, TideHunterPhase, TideHunterState,
 };
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::components::{DashState, Health, Player};
@@ -209,7 +209,7 @@ pub fn boss_color(archetype: BossArchetype) -> Color {
     match archetype {
         BossArchetype::Floor1Guardian => Color::srgb(0.85, 0.25, 0.95),
         BossArchetype::MirrorWarden => Color::srgb(0.58, 0.82, 1.0),
-        BossArchetype::TideHunter => Color::srgb(0.94, 0.56, 0.26),
+        BossArchetype::TideHunter => Color::srgb(0.5, 0.2, 0.7),
         BossArchetype::CubeCore => Color::srgb(0.92, 0.20, 0.55),
     }
 }
@@ -279,7 +279,13 @@ pub fn tide_hunter_state_machine(
     assets: Res<crate::core::assets::GameAssets>,
     player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
     mut q: Query<
-        (Entity, &Transform, &EnemyStats, &mut TideHunterState, &mut Sprite),
+        (
+            &mut Transform,
+            &EnemyStats,
+            &BossPhase,
+            &mut TideHunterState,
+            &mut Sprite,
+        ),
         With<TideHunterState>,
     >,
 ) {
@@ -293,67 +299,115 @@ pub fn tide_hunter_state_machine(
         return;
     }
 
-    for (boss_entity, tf, stats, mut state, mut sprite) in &mut q {
+    for (mut tf, stats, boss_phase, mut state, mut sprite) in &mut q {
+        apply_tide_hunter_phase_params(*boss_phase, &mut state);
+
         let pos = tf.translation.truncate();
         let player_pos = player_positions
             .iter()
             .copied()
             .min_by(|a, b| pos.distance(*a).total_cmp(&pos.distance(*b)))
             .unwrap();
-        let dist = pos.distance(player_pos);
         state.timer.tick(time.delta());
 
         match state.phase {
             TideHunterPhase::Stalk => {
-                if dist < 120.0 {
-                    state.phase = TideHunterPhase::WindupTelegraph;
-                    state.timer = Timer::from_seconds(0.38, TimerMode::Once);
+                if state.timer.finished() {
+                    state.phase = TideHunterPhase::Telegraph;
+                    state.timer = Timer::from_seconds(0.35, TimerMode::Once);
                     state.timer.reset();
-                    state.parry_window_active = true;
+                    state.dashes_remaining = state.dashes_per_cycle;
+                    state.dash_start = pos;
+                    state.dash_target = pos;
+                    state.parry_window_active = false;
                 }
             }
-            TideHunterPhase::WindupTelegraph => {
+            TideHunterPhase::Telegraph => {
+                tf.translation.x = state.dash_start.x;
+                tf.translation.y = state.dash_start.y;
+                state.dash_target =
+                    compute_tide_hunter_dash_target(state.dash_start, player_pos, &state);
+
                 if state.timer.finished() {
-                    state.phase = TideHunterPhase::Lunge;
-                    state.timer = Timer::from_seconds(0.22, TimerMode::Once);
+                    state.phase = TideHunterPhase::ShadowDash;
+                    state.timer = Timer::from_seconds(0.18, TimerMode::Once);
                     state.timer.reset();
-                    state.lunge_dir = direction_to(pos, player_pos);
-                    state.parry_window_active = false;
-                    spawn_melee_hitbox(
+                    spawn_shadow_trail_line(
                         &mut commands,
                         &assets,
-                        boss_entity,
-                        pos,
-                        state.lunge_dir,
-                        stats.attack_damage,
+                        state.dash_start,
+                        state.dash_target,
+                        state.shadow_duration_s,
+                        stats.attack_damage * 0.6,
                     );
+                    tf.translation.x = state.dash_target.x;
+                    tf.translation.y = state.dash_target.y;
+                    state.dashes_remaining = state.dashes_remaining.saturating_sub(1);
                 }
             }
-            TideHunterPhase::Lunge => {
+            TideHunterPhase::ShadowDash => {
+                tf.translation.x = state.dash_target.x;
+                tf.translation.y = state.dash_target.y;
+
                 if state.timer.finished() {
-                    state.phase = TideHunterPhase::Cooldown;
-                    state.timer = Timer::from_seconds(0.55, TimerMode::Once);
-                    state.timer.reset();
+                    if state.dashes_remaining > 0 {
+                        state.phase = TideHunterPhase::Telegraph;
+                        state.timer = Timer::from_seconds(0.2, TimerMode::Once);
+                        state.timer.reset();
+                        state.dash_start = state.dash_target;
+                    } else {
+                        state.phase = TideHunterPhase::Reposition;
+                        state.timer =
+                            Timer::from_seconds(state.reposition_duration_s, TimerMode::Once);
+                        state.timer.reset();
+                        state.parry_window_active = true;
+                        spawn_tide_hunter_reposition_projectiles(
+                            &mut commands,
+                            &assets,
+                            state.dash_target,
+                            player_pos,
+                            boss_phase.0,
+                            stats,
+                        );
+                    }
                 }
             }
-            TideHunterPhase::Cooldown => {
+            TideHunterPhase::Reposition => {
+                tf.translation.x = state.dash_target.x;
+                tf.translation.y = state.dash_target.y;
+
                 if state.timer.finished() {
                     state.phase = TideHunterPhase::Stalk;
+                    state.timer = Timer::from_seconds(state.stalk_duration_s, TimerMode::Once);
+                    state.timer.reset();
+                    state.parry_window_active = false;
                 }
             }
             TideHunterPhase::Stunned => {
+                tf.translation.x = state.dash_target.x;
+                tf.translation.y = state.dash_target.y;
+
                 if state.timer.finished() {
                     state.phase = TideHunterPhase::Stalk;
+                    state.timer = Timer::from_seconds(state.stalk_duration_s, TimerMode::Once);
+                    state.timer.reset();
+                    state.parry_window_active = false;
                 }
             }
         }
 
         sprite.color = match state.phase {
-            TideHunterPhase::WindupTelegraph => Color::srgb(1.0, 0.55, 0.1),
-            TideHunterPhase::Stunned => Color::srgb(0.82, 0.82, 0.82),
-            TideHunterPhase::Stalk | TideHunterPhase::Lunge | TideHunterPhase::Cooldown => {
-                boss_color(BossArchetype::TideHunter)
+            TideHunterPhase::Telegraph => {
+                if (time.elapsed_seconds() * 14.0).sin().is_sign_positive() {
+                    Color::WHITE
+                } else {
+                    Color::srgb(0.6, 0.3, 0.8)
+                }
             }
+            TideHunterPhase::ShadowDash => boss_color(BossArchetype::TideHunter).with_alpha(0.4),
+            TideHunterPhase::Reposition => Color::srgb(0.6, 0.3, 0.8),
+            TideHunterPhase::Stunned => Color::srgb(0.82, 0.82, 0.82),
+            TideHunterPhase::Stalk => boss_color(BossArchetype::TideHunter),
         };
     }
 }
@@ -369,7 +423,7 @@ pub fn tide_hunter_parry_check(
     >,
 ) {
     for (boss_tf, mut state, mut sprite, flash_opt) in &mut boss_q {
-        if !state.parry_window_active {
+        if state.phase != TideHunterPhase::Reposition || !state.parry_window_active {
             continue;
         }
         let boss_pos = boss_tf.translation.truncate();
@@ -378,14 +432,62 @@ pub fn tide_hunter_parry_check(
                 continue;
             }
             let player_pos = player_tf.translation().truncate();
-            if dash.active && boss_pos.distance(player_pos) < 65.0 {
+            if dash.active && boss_pos.distance(player_pos) < 60.0 {
                 state.phase = TideHunterPhase::Stunned;
-                state.timer = Timer::from_seconds(1.6, TimerMode::Once);
+                state.timer = Timer::from_seconds(1.4, TimerMode::Once);
                 state.timer.reset();
                 state.parry_window_active = false;
+                state.dash_start = boss_pos;
+                state.dash_target = boss_pos;
                 sprite.color = Color::srgb(0.82, 0.82, 0.82);
                 if let Some(mut flash) = flash_opt {
-                    flash.trigger(1.6);
+                    flash.trigger(1.4);
+                }
+                break;
+            }
+        }
+    }
+}
+
+pub fn shadow_trail_fade_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut ShadowTrail, &mut Sprite)>,
+) {
+    for (entity, mut trail, mut sprite) in &mut q {
+        trail.lifetime.tick(time.delta());
+        sprite.color.set_alpha(0.7 * (1.0 - trail.lifetime.fraction()));
+        if trail.lifetime.finished() {
+            commands.entity(entity).despawn_recursive();
+        }
+    }
+}
+
+pub fn shadow_trail_damage_system(
+    time: Res<Time>,
+    mut death_events: EventWriter<DeathEvent>,
+    trail_q: Query<(&Transform, &ShadowTrail)>,
+    mut player_q: Query<
+        (Entity, &GlobalTransform, &mut Health, &DashState, Option<&GhostState>),
+        (With<Player>, Without<Replicated>),
+    >,
+) {
+    for (entity, player_tf, mut health, dash, ghost) in &mut player_q {
+        if matches!(ghost, Some(GhostState::Ghost)) || dash.active {
+            continue;
+        }
+
+        let player_pos = player_tf.translation().truncate();
+        for (trail_tf, trail) in &trail_q {
+            let trail_pos = trail_tf.translation.truncate();
+            if player_pos.distance(trail_pos) < trail.radius {
+                let previous = health.current;
+                health.current = (health.current - trail.damage * time.delta_seconds()).max(0.0);
+                if previous > 0.0 && health.current <= 0.0 {
+                    death_events.send(DeathEvent {
+                        entity,
+                        team: Team::Player,
+                    });
                 }
                 break;
             }
@@ -483,12 +585,149 @@ pub fn boss_mechanic_hint_system(
     if !flags.boss_tide_hunter_mechanic_shown
         && tide_q
             .iter()
-            .any(|state| state.phase == TideHunterPhase::WindupTelegraph)
+            .any(|state| state.phase == TideHunterPhase::Reposition)
     {
         tutorial_ev.send(TutorialNotification(
-            "格挡机会！蓄力时用【空格】冲刺穿越".to_string(),
+            "破绽出现！停顿时用【空格】冲刺贴近反制".to_string(),
         ));
         flags.boss_tide_hunter_mechanic_shown = true;
+    }
+}
+
+fn apply_tide_hunter_phase_params(boss_phase: BossPhase, state: &mut TideHunterState) {
+    match boss_phase.0 {
+        1 => {
+            state.dashes_per_cycle = 1;
+            state.shadow_duration_s = 2.5;
+            state.stalk_duration_s = 1.8;
+            state.reposition_duration_s = 0.9;
+        }
+        2 => {
+            state.dashes_per_cycle = 2;
+            state.shadow_duration_s = 3.5;
+            state.stalk_duration_s = 1.4;
+            state.reposition_duration_s = 0.7;
+        }
+        _ => {
+            state.dashes_per_cycle = 3;
+            state.shadow_duration_s = 4.5;
+            state.stalk_duration_s = 1.0;
+            state.reposition_duration_s = 0.6;
+        }
+    }
+}
+
+fn compute_tide_hunter_dash_target(
+    dash_start: Vec2,
+    player_pos: Vec2,
+    state: &TideHunterState,
+) -> Vec2 {
+    let toward_player = direction_to(dash_start, player_pos);
+    let dash_dir = if toward_player.length_squared() > f32::EPSILON {
+        toward_player
+    } else {
+        Vec2::X
+    };
+    let lateral = Vec2::new(-dash_dir.y, dash_dir.x);
+    let dash_index = state.dashes_per_cycle.saturating_sub(state.dashes_remaining);
+
+    let target = match state.dashes_per_cycle {
+        1 => player_pos + dash_dir * 80.0,
+        2 => {
+            let side_sign = if dash_index == 0 { 1.0 } else { -1.0 };
+            player_pos + lateral * side_sign * 100.0
+        }
+        _ => {
+            let base_angle = (dash_start.y - player_pos.y).atan2(dash_start.x - player_pos.x);
+            let angle = base_angle + dash_index as f32 * std::f32::consts::TAU / 3.0;
+            player_pos + Vec2::new(angle.cos(), angle.sin()) * 100.0
+        }
+    };
+
+    clamp_room_position(target, 36.0)
+}
+
+fn spawn_shadow_trail_line(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    start: Vec2,
+    end: Vec2,
+    shadow_duration_s: f32,
+    damage: f32,
+) {
+    let delta = end - start;
+    let distance = delta.length();
+    let dir = delta.normalize_or_zero();
+    let steps = (distance / 25.0).ceil().max(1.0) as u32;
+
+    for index in 0..=steps {
+        let travel = (index as f32 * 25.0).min(distance);
+        let trail_pos = start + dir * travel;
+        commands.spawn((
+            SpriteBundle {
+                texture: assets.textures.white.clone(),
+                transform: Transform::from_translation(trail_pos.extend(0.5)),
+                sprite: Sprite {
+                    color: Color::srgba(0.4, 0.1, 0.6, 0.7),
+                    custom_size: Some(Vec2::splat(20.0)),
+                    ..default()
+                },
+                ..default()
+            },
+            ShadowTrail {
+                lifetime: Timer::from_seconds(shadow_duration_s, TimerMode::Once),
+                damage,
+                radius: 20.0,
+            },
+            InGameEntity,
+            Name::new("ShadowTrail"),
+        ));
+    }
+}
+
+fn spawn_tide_hunter_reposition_projectiles(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    boss_pos: Vec2,
+    player_pos: Vec2,
+    boss_phase: u8,
+    stats: &EnemyStats,
+) {
+    if boss_phase < 2 {
+        return;
+    }
+
+    let dir = direction_to(boss_pos, player_pos);
+    let projectile_speed = stats.projectile_speed * 0.65;
+    let damage = stats.attack_damage * 0.4;
+    let origin = boss_pos + dir * 18.0;
+
+    if boss_phase == 2 {
+        projectiles::spawn_projectile(
+            commands,
+            assets,
+            Team::Enemy,
+            origin,
+            dir * projectile_speed,
+            damage,
+        );
+        return;
+    }
+
+    for angle in [
+        -15.0_f32.to_radians(),
+        0.0,
+        15.0_f32.to_radians(),
+    ] {
+        let shot_dir = Mat2::from_angle(angle).mul_vec2(dir);
+        projectiles::spawn_projectile(
+            commands,
+            assets,
+            Team::Enemy,
+            origin,
+            shot_dir * projectile_speed,
+            damage,
+        );
     }
 }
 

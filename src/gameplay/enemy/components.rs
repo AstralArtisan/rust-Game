@@ -96,9 +96,9 @@ pub struct BossDecoy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TideHunterPhase {
     Stalk,
-    WindupTelegraph,
-    Lunge,
-    Cooldown,
+    Telegraph,
+    ShadowDash,
+    Reposition,
     Stunned,
 }
 
@@ -106,8 +106,21 @@ pub enum TideHunterPhase {
 pub struct TideHunterState {
     pub phase: TideHunterPhase,
     pub timer: Timer,
-    pub lunge_dir: Vec2,
+    pub dash_target: Vec2,
+    pub dash_start: Vec2,
+    pub dashes_remaining: u8,
+    pub dashes_per_cycle: u8,
+    pub shadow_duration_s: f32,
+    pub stalk_duration_s: f32,
+    pub reposition_duration_s: f32,
     pub parry_window_active: bool,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct ShadowTrail {
+    pub lifetime: Timer,
+    pub damage: f32,
+    pub radius: f32,
 }
 
 /// CubeCore satellite core that orbits the main boss body.

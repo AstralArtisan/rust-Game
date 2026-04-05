@@ -114,6 +114,8 @@ impl Plugin for EnemySystemsPlugin {
                     boss::boss_decoy_system,
                     boss::tide_hunter_state_machine,
                     boss::tide_hunter_parry_check.after(boss::tide_hunter_state_machine),
+                    boss::shadow_trail_fade_system.after(boss::tide_hunter_state_machine),
+                    boss::shadow_trail_damage_system.after(boss::shadow_trail_fade_system),
                     ai::boss_movement_override.after(ai::update_enemy_ai),
                     boss::boss_subcore_orbit,
                     boss::boss_core_shield_update,
@@ -576,9 +578,10 @@ pub fn spawn_boss(
         CoopNetRotation(0.0),
     ));
     let (kind, phase, timer, cycle) = boss::spawn_boss_bundle(data, archetype);
-    commands
-        .entity(id)
-        .insert((kind, archetype, phase, timer, cycle));
+    commands.entity(id).insert((kind, archetype, phase));
+    if !matches!(archetype, BossArchetype::TideHunter) {
+        commands.entity(id).insert((timer, cycle));
+    }
     match archetype {
         BossArchetype::Floor1Guardian => {
             commands.entity(id).insert(BossDirectionalDefense {
@@ -604,8 +607,14 @@ pub fn spawn_boss(
         BossArchetype::TideHunter => {
             commands.entity(id).insert(TideHunterState {
                 phase: TideHunterPhase::Stalk,
-                timer: Timer::from_seconds(0.1, TimerMode::Once),
-                lunge_dir: Vec2::NEG_X,
+                timer: Timer::from_seconds(1.8, TimerMode::Once),
+                dash_target: Vec2::ZERO,
+                dash_start: Vec2::ZERO,
+                dashes_remaining: 0,
+                dashes_per_cycle: 1,
+                shadow_duration_s: 2.5,
+                stalk_duration_s: 1.8,
+                reposition_duration_s: 0.9,
                 parry_window_active: false,
             });
         }

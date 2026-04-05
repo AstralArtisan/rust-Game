@@ -323,12 +323,14 @@ pub fn boss_movement_override(
             BossArchetype::TideHunter => {
                 if let Some(state) = tide_state {
                     vel.0 = match state.phase {
-                        TideHunterPhase::Lunge => state.lunge_dir * speed * 5.0,
-                        TideHunterPhase::Stunned | TideHunterPhase::WindupTelegraph => Vec2::ZERO,
-                        TideHunterPhase::Stalk | TideHunterPhase::Cooldown => {
+                        TideHunterPhase::Stalk => {
                             let orbit = Vec2::new(-dir.y, dir.x) * 1.6;
                             (dir * 0.6 + orbit).normalize_or_zero() * speed
                         }
+                        TideHunterPhase::Telegraph
+                        | TideHunterPhase::ShadowDash
+                        | TideHunterPhase::Reposition
+                        | TideHunterPhase::Stunned => Vec2::ZERO,
                     };
                 }
             }

@@ -465,8 +465,8 @@ pub fn update_rune_and_curse_ui(
         (&RuneHudSlot, &mut BackgroundColor, &mut BorderColor),
         Without<RuneHudText>,
     >,
-    mut rune_text_q: Query<(&RuneHudText, &mut Text)>,
-    mut curse_text_q: Query<&mut Text, With<CurseStatusText>>,
+    mut rune_text_q: Query<(&RuneHudText, &mut Text), Without<CurseStatusText>>,
+    mut curse_text_q: Query<&mut Text, (With<CurseStatusText>, Without<RuneHudText>)>,
 ) {
     let Ok((rune_loadout, curse_state)) = player_q.get_single() else {
         return;
