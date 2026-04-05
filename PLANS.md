@@ -1,518 +1,383 @@
-# 奖励系统重构 — 第一步：铭文数据模型 + 诅咒系统 + 祝福祠堂骨架
+# 奖励系统重构 + 怪物扩充
 
 ## Context
 
-引入双轨奖励系统：属性成长（保留现有）+ 铭文系统（全新）。本步只做数据骨架和 UI 流程，不实现铭文的战斗效果。
+试玩反馈四个核心问题：
+1. 奖励房太少（4 层只见到 1 个），角色成长存在感低
+2. 所有成长走同一管道（三选一），频率低、形式单一、缺乏构建感
+3. 小怪池太小，精英与普通怪无机制区别
+4. TideHunter（Floor 3 Boss）威胁太低，太好打
 
-铭文系统：4 个槽位（近战/远程/冲刺/终结技），每槽装 1 个铭文，装新的替换旧的。
-祝福祠堂（原 Reward 房）：提供 2 个铭文选项，每个附带诅咒，诅咒持续 N 个房间后消除。
+重构目标：将成长拆为两层独立系统，大幅增加获取频率和构建多样性，同时扩充怪物池和精英机制。
 
 ---
 
-## 影响文件
+## 设计总览
 
-### 新增文件
+### 两层成长体系
 
-| 文件 | 内容 |
+**第 1 层：属性成长（确定性）**
+- 经验值 + 升级制：击杀敌人获得 XP，累积升级
+- 升级时从 2-3 个属性选项中选 1 个（+ATK, +HP, +Speed, +Crit 等）
+- 商店仍可购买属性强化
+- Boss 击杀自动给大幅属性提升
+
+**第 2 层：强化构建（随机性）**
+- 统一的"强化"(Augment) 系统，替代旧的铭文+精通
+- ~30 个强化，分 3 个稀有度（普通/精英/传说）
+- 4 个类别：近战、远程、机动、通用
+- 同类强化可升级（第 2 次获得 → 强化版）
+- 无槽位限制，实际上限约 8 个/局
+- 多渠道获取：战斗掉落、精英房、Boss、商店、事件房、祝福祠堂
+
+### 强化池
+
+**近战类（8 个）**
+| ID | 稀有度 | 效果 | 升级效果 |
+|----|--------|------|----------|
+| LifestealSlash | 普通 | 近战命中回复 3% 伤害为 HP | 5% |
+| HeavyStrike | 普通 | 近战击退 +80%，伤害 +15% | 击退 +120%，伤害 +25% |
+| ComboAccelerate | 普通 | 连击 5+ 时攻速 +25% | 连击 3+ 时攻速 +40% |
+| Whirlwind | 精英 | 近战攻击变为 360° 旋风（伤害 70%） | 旋风伤害 100% |
+| ArmorBreak | 精英 | 近战命中降低敌人受伤抗性 20%，持续 3s | 30%，5s |
+| Reflect | 精英 | 近战攻击反弹附近弹幕 | 反弹弹幕伤害 +50% |
+| SwordWave | 传说 | 近战释放远程剑气（35% 伤害） | 剑气穿透 + 50% 伤害 |
+| Executioner | 传说 | 敌人 HP<15% 时近战秒杀 | HP<25% |
+
+**远程类（8 个）**
+| ID | 稀有度 | 效果 | 升级效果 |
+|----|--------|------|----------|
+| Piercing | 普通 | 弹丸穿透 1 个敌人 | 穿透 2 个 |
+| SpeedBoost | 普通 | 弹速 +30% | +50% |
+| ExtraProjectile | 普通 | 每次射击额外 +1 弹 | +2 弹 |
+| Homing | 精英 | 弹丸轻微追踪最近敌人 | 强追踪 |
+| ChainLightning | 精英 | 命中后闪电跳到 1 个附近敌人（50% 伤害） | 跳 2 个 |
+| Scatter | 精英 | 射击变为 3 发扇形（每发 50% 伤害） | 5 发扇形 |
+| BulletStorm | 传说 | 终结技改为全屏弹幕（8 方向 ×3 波） | 12 方向 ×5 波 |
+| Freeze | 传说 | 远程命中 15% 概率冻结敌人 1.5s | 25% 概率，2s |
+
+**机动类（6 个）**
+| ID | 稀有度 | 效果 | 升级效果 |
+|----|--------|------|----------|
+| DashTrail | 普通 | 冲刺留下伤害轨迹（ATK×40%） | ATK×70% |
+| DashEnergy | 普通 | 冲刺穿过敌人回复 10 能量 | 15 能量 |
+| ExtendedInvuln | 普通 | 冲刺无敌时间 +0.15s | +0.25s |
+| DashReset | 精英 | 击杀敌人刷新冲刺冷却 | 击杀 +30% 移速 2s |
+| DashShield | 精英 | 冲刺结束获得护盾（吸收 1 次伤害，3s） | 护盾持续 5s |
+| Blink | 传说 | 冲刺改为瞬移（无中间帧） | 瞬移距离 +50% |
+
+**通用类（8 个）**
+| ID | 稀有度 | 效果 | 升级效果 |
+|----|--------|------|----------|
+| GoldBonus | 普通 | 金币掉落 +25% | +50% |
+| XpBonus | 普通 | 经验获取 +25% | +50% |
+| PickupRange | 普通 | 拾取范围 +60% | +100% |
+| Thorns | 精英 | 受伤时反弹 15 点伤害 | 25 点 |
+| KillHeal | 精英 | 击杀回复 5 HP | 8 HP |
+| CritEnhance | 精英 | 暴击率 +10%，暴击伤害 +30% | +15%，+50% |
+| Phoenix | 传说 | 死亡时复活（50% HP，每局 1 次） | 复活 80% HP |
+| Greed | 传说 | 每 100 金币 → +5% 伤害 | 每 80 金币 |
+
+### 事件房（8 种随机事件）
+
+**风险回报型**
+1. 赌博机：花 50 金币，随机获得 1 个强化（60% 普通，30% 精英，10% 传说）
+2. 诅咒祭坛：接受 1 个诅咒，立即获得 1 个精英强化选择
+3. 血之契约：消耗 30% 当前 HP，获得 1 个强化选择（2 选 1）
+
+**纯收益型**
+4. 宝箱房：直接获得 1 个普通强化 + 30 金币
+5. 治疗泉：回复 40% 最大 HP
+6. 旅商：提供 2 个半价强化可购买
+
+**挑战型**
+7. 限时挑战：30 秒内击杀一波敌人，成功获得精英强化
+8. 精英遭遇：单挑 1 个带词缀精英，击杀必掉精英强化
+
+### 商店扩展
+
+| 区域 | 内容 | 备注 |
+|------|------|------|
+| 属性区 | HP/ATK/速度/暴击/攻速 | 保留现有 |
+| 强化区 | 2-3 个随机强化 | 新增，价格按稀有度 |
+| 消耗品 | 回血药水、临时增益 | 新增 |
+| 诅咒移除 | 花 80 金币移除当前诅咒 | 新增 |
+
+### 新增小怪（3 种）
+
+| 类型 | 解锁层 | 机制 |
+|------|--------|------|
+| Bomber | Floor 2+ | 靠近后蓄力 1s 自爆，范围伤害。蓄力期间可击杀阻止 |
+| Shielder | Floor 3+ | 正面免疫远程伤害，缓慢推进保护后排。需绕背或近战 |
+| Summoner | Floor 4+ | 远离玩家，周期召唤 1-2 个小型 MeleeChaser。本体脆弱 |
+
+### 精英词缀系统
+
+精英怪 = 普通怪 + 1 个随机词缀（替代纯数值放大）
+
+| 词缀 | 效果 |
 |------|------|
-| `src/gameplay/rune/mod.rs` | 铭文模块入口，注册 RunePlugin |
-| `src/gameplay/rune/data.rs` | RuneSlot, RuneTier, RuneId 枚举，RuneLoadout Component |
-| `src/gameplay/curse/mod.rs` | CurseId, ActiveCurse, CurseState Component, CursePlugin |
-| `assets/configs/runes.ron` | 铭文元数据配置 |
-| `assets/configs/curses.ron` | 诅咒元数据配置 |
+| Swift | 移速 +50%，攻速 +30% |
+| Splitting | 死亡时分裂为 2 个弱化版本（50% HP，70% 伤害） |
+| Shielded | 战斗开始有 1 层护盾吸收 1 次伤害 |
+| Vampiric | 命中玩家回复自身 10% 最大 HP |
+| Berserk | HP<30% 时伤害翻倍，变红 |
+| Teleporting | 每 3s 短距离闪现 |
 
-### 修改文件
+视觉：体型 1.3x，金色光环，词缀图标显示在头顶。
 
-| 文件 | 改动 |
-|------|------|
-| `src/gameplay/mod.rs` | 新增 `pub mod rune;` 和 `pub mod curse;` |
-| `src/app.rs` | 注册 RunePlugin 和 CursePlugin |
-| `src/gameplay/player/components.rs` | 在 Player spawn 时挂载 RuneLoadout 和 CurseState |
-| `src/data/definitions.rs` | 新增 RuneConfig/RunesConfig 和 CurseConfig/CursesConfig 解析 |
-| `src/gameplay/session_core/mod.rs` | 新增 `generate_blessing_choices()` 和 `RewardDraftMode::Blessing` |
-| `src/gameplay/rewards/systems.rs` | 祝福祠堂触发流程（Reward 房进入时走 Blessing 模式） |
-| `src/ui/reward_select.rs` | 新增祝福祠堂 UI（2 个铭文+诅咒选项 + 离开按钮） |
-| `src/ui/hud.rs` | 铭文槽位显示 + 诅咒状态显示 |
-| `src/gameplay/map/room.rs` | 祝福房生成规则调整 |
+### TideHunter 数值调整
 
----
-
-## 步骤一：铭文数据模型
-
-### 1a. 新建 `src/gameplay/rune/data.rs`
-
-```rust
-use serde::{Deserialize, Serialize};
-use bevy::prelude::*;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RuneSlot {
-    Melee,
-    Ranged,
-    Dash,
-    Finisher,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RuneTier {
-    Common,
-    Elite,
-    Legendary,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum RuneId {
-    // 近战 Common
-    ImpactWave,
-    SlowOnHit,
-    ThirdStrikeExpand,
-    // 近战 Elite
-    WhirlSlash,
-    ChainLightning,
-    ExplosiveFist,
-    VampireBlade,
-    FrostTouch,
-    // 远程 Common
-    PierceOne,
-    MarkOnHit,
-    RapidFireWeak,
-    // 远程 Elite
-    Scatter,
-    HomingBullet,
-    VenomShot,
-    BarrageMode,
-    // 冲刺 Common
-    DashEndShockwave,
-    DashFirstCrit,
-    Afterimage,
-    // 冲刺 Elite
-    ShadowClone,
-    PhaseDash,
-    BlinkDash,
-    // 终结技 Elite
-    GroundSplitter,
-    BoomerangBlade,
-    DeathChain,
-    WeaknessExpose,
-    StormField,
-    InstantThunder,
-    // 传说
-    PhoenixSoul,
-    Berserker,
-    ThornBody,
-    EnergyShield,
-}
-
-#[derive(Component, Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RuneLoadout {
-    pub melee: Option<RuneId>,
-    pub ranged: Option<RuneId>,
-    pub dash: Option<RuneId>,
-    pub finisher: Option<RuneId>,
-}
-
-impl RuneLoadout {
-    pub fn get(&self, slot: RuneSlot) -> Option<RuneId> {
-        match slot {
-            RuneSlot::Melee => self.melee,
-            RuneSlot::Ranged => self.ranged,
-            RuneSlot::Dash => self.dash,
-            RuneSlot::Finisher => self.finisher,
-        }
-    }
-
-    pub fn equip(&mut self, slot: RuneSlot, rune: RuneId) -> Option<RuneId> {
-        let slot_ref = match slot {
-            RuneSlot::Melee => &mut self.melee,
-            RuneSlot::Ranged => &mut self.ranged,
-            RuneSlot::Dash => &mut self.dash,
-            RuneSlot::Finisher => &mut self.finisher,
-        };
-        let old = slot_ref.take();
-        *slot_ref = Some(rune);
-        old
-    }
-}
-```
-
-### 1b. 新建 `src/gameplay/rune/mod.rs`
-
-```rust
-pub mod data;
-
-use bevy::prelude::*;
-
-pub struct RunePlugin;
-
-impl Plugin for RunePlugin {
-    fn build(&self, _app: &mut App) {
-        // 后续步骤注册系统
-    }
-}
-```
-
-### 1c. 配置文件 `assets/configs/runes.ron`
-
-每个铭文一条记录，格式：
-
-```ron
-(
-  runes: [
-    ( id: ImpactWave, slot: Melee, tier: Common, title: "命中冲击波", description: "近战命中释放小范围冲击波", drawback: "", shop_cost: 120 ),
-    ( id: SlowOnHit, slot: Melee, tier: Common, title: "霜击", description: "近战命中减速敌人1秒", drawback: "", shop_cost: 120 ),
-    ( id: ThirdStrikeExpand, slot: Melee, tier: Common, title: "重击", description: "每第3下近战范围×1.5", drawback: "", shop_cost: 120 ),
-    ( id: WhirlSlash, slot: Melee, tier: Elite, title: "回旋斩", description: "近战变360°旋转攻击", drawback: "攻速-30%", shop_cost: 200 ),
-    ( id: ChainLightning, slot: Melee, tier: Elite, title: "连锁闪电", description: "命中时闪电跳到附近2敌(40%伤害)", drawback: "", shop_cost: 200 ),
-    ( id: ExplosiveFist, slot: Melee, tier: Elite, title: "爆裂拳", description: "每第3次命中产生爆炸", drawback: "前两下伤害-15%", shop_cost: 200 ),
-    ( id: VampireBlade, slot: Melee, tier: Elite, title: "吸血刃", description: "近战伤害8%转化为HP", drawback: "近战范围-25%", shop_cost: 200 ),
-    ( id: FrostTouch, slot: Melee, tier: Elite, title: "冰霜触碰", description: "命中冻结敌人0.5秒", drawback: "攻击间隔+20%", shop_cost: 200 ),
-    ( id: PierceOne, slot: Ranged, tier: Common, title: "穿透弹", description: "弹道穿透1个敌人", drawback: "", shop_cost: 120 ),
-    ( id: MarkOnHit, slot: Ranged, tier: Common, title: "标记弹", description: "命中标记敌人3秒(受伤+15%)", drawback: "", shop_cost: 120 ),
-    ( id: RapidFireWeak, slot: Ranged, tier: Common, title: "速射", description: "射速+30%", drawback: "伤害-15%", shop_cost: 120 ),
-    ( id: Scatter, slot: Ranged, tier: Elite, title: "散射弹", description: "每次射击发射3颗弹", drawback: "每颗伤害-50%", shop_cost: 220 ),
-    ( id: HomingBullet, slot: Ranged, tier: Elite, title: "追踪弹", description: "弹道轻微追踪最近敌人", drawback: "弹速-30%", shop_cost: 220 ),
-    ( id: VenomShot, slot: Ranged, tier: Elite, title: "毒液弹", description: "命中附加3秒持续伤害(60%命中伤害)", drawback: "直接命中伤害-20%", shop_cost: 220 ),
-    ( id: BarrageMode, slot: Ranged, tier: Elite, title: "弹幕模式", description: "射速×2", drawback: "每颗伤害-60%", shop_cost: 220 ),
-    ( id: DashEndShockwave, slot: Dash, tier: Common, title: "冲击波", description: "冲刺终点产生冲击波伤害周围敌人", drawback: "", shop_cost: 120 ),
-    ( id: DashFirstCrit, slot: Dash, tier: Common, title: "先手暴击", description: "冲刺后1秒内首次攻击暴击率+30%", drawback: "", shop_cost: 120 ),
-    ( id: Afterimage, slot: Dash, tier: Common, title: "残影", description: "冲刺路径对经过的敌人造成伤害", drawback: "", shop_cost: 120 ),
-    ( id: ShadowClone, slot: Dash, tier: Elite, title: "影分身", description: "冲刺起点留下分身2秒自动攻击", drawback: "", shop_cost: 220 ),
-    ( id: PhaseDash, slot: Dash, tier: Elite, title: "相位冲刺", description: "冲刺距离×1.5全程无敌", drawback: "冷却+40%", shop_cost: 220 ),
-    ( id: BlinkDash, slot: Dash, tier: Elite, title: "闪现", description: "冲刺变瞬移冷却-30%", drawback: "无无敌帧", shop_cost: 220 ),
-    ( id: GroundSplitter, slot: Finisher, tier: Elite, title: "裂地斩", description: "剑气命中地面留下3秒灼烧地带", drawback: "", shop_cost: 250 ),
-    ( id: BoomerangBlade, slot: Finisher, tier: Elite, title: "回旋刃", description: "剑气飞出后返回来回各一次伤害", drawback: "", shop_cost: 250 ),
-    ( id: DeathChain, slot: Finisher, tier: Elite, title: "死亡连锁", description: "被标记目标死亡时标记传递给最近敌人", drawback: "", shop_cost: 250 ),
-    ( id: WeaknessExpose, slot: Finisher, tier: Elite, title: "弱点暴露", description: "标记不造成即时伤害目标5秒受伤×2", drawback: "", shop_cost: 250 ),
-    ( id: StormField, slot: Finisher, tier: Elite, title: "雷暴领域", description: "冲刺路径变为持续4秒电场区域", drawback: "", shop_cost: 250 ),
-    ( id: InstantThunder, slot: Finisher, tier: Elite, title: "瞬雷", description: "距离变0以自身为中心释放全屏闪电", drawback: "", shop_cost: 250 ),
-    ( id: PhoenixSoul, slot: Dash, tier: Legendary, title: "不死鸟", description: "每层首次致死伤害改为回复1HP+2秒无敌", drawback: "", shop_cost: 0 ),
-    ( id: Berserker, slot: Melee, tier: Legendary, title: "狂战士", description: "HP<30%时攻击力+50%攻速+30%", drawback: "", shop_cost: 0 ),
-    ( id: ThornBody, slot: Dash, tier: Legendary, title: "荆棘之体", description: "受伤时反弹30%伤害给攻击者", drawback: "", shop_cost: 0 ),
-    ( id: EnergyShield, slot: Finisher, tier: Legendary, title: "能量护盾", description: "能量满时自动消耗50能量抵挡致命伤害", drawback: "", shop_cost: 0 ),
-  ],
-)
-```
-
-### 1d. `src/data/definitions.rs` 新增
-
-在 `GameDataRegistry` 中新增 `pub runes: RunesConfig` 字段，并在加载逻辑中解析 `runes.ron`。
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuneConfig {
-    pub id: RuneId,
-    pub slot: RuneSlot,
-    pub tier: RuneTier,
-    pub title: String,
-    pub description: String,
-    pub drawback: String,
-    pub shop_cost: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunesConfig {
-    pub runes: Vec<RuneConfig>,
-}
-```
-
-同样新增 `CurseConfig` 和 `CursesConfig`。
+| 参数 | 旧值 | 新值 |
+|------|------|------|
+| Stalk 时间 (P1/P2/P3) | 1.8/1.4/1.0 | 1.2/0.8/0.5 |
+| 影子伤害倍率 | contact_damage × 0.6 | × 1.0 |
+| P3 影子持续 | 4.5s | 6.0s |
+| 穿越时直接伤害 | 无 | 穿越路径上的玩家受 contact_damage |
+| P2+ 目标预判 | 无 | 预判玩家移动方向 |
 
 ---
 
-## 步骤二：诅咒系统
+## 实施阶段
 
-### 2a. 新建 `src/gameplay/curse/mod.rs`
+### 阶段 1：强化数据模型 + XP/升级系统（基础骨架）
 
-```rust
-use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
+**目标**：替换旧铭文数据模型为强化系统，加入 XP/升级，游戏可编译可运行。
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum CurseId {
-    Fragile,     // 受伤+25%
-    Sluggish,    // 移速-20%
-    Exhaustion,  // 能量获取-40%
-    Exposed,     // 冲刺冷却+50%
-    Weakness,    // 造成伤害-20%
-}
+**新建文件**：
+- `src/gameplay/augment/mod.rs` — AugmentPlugin
+- `src/gameplay/augment/data.rs` — AugmentId, AugmentRarity, AugmentCategory, AugmentDef, HeldAugment, AugmentInventory Component
+- `src/gameplay/progression/mod.rs` — ProgressionPlugin
+- `src/gameplay/progression/experience.rs` — PlayerLevel Component, XpGainEvent, LevelUpEvent, process_xp_gains system
+- `assets/configs/augments.ron` — 30 个强化定义（id, category, rarity, title, description, upgraded_description, shop_cost）
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActiveCurse {
-    pub curse: CurseId,
-    pub rooms_remaining: u32,
-}
+**修改文件**：
+- `src/gameplay/player/systems.rs` — spawn_player: 挂载 `AugmentInventory::default()` + `PlayerLevel::default()`，移除 `RuneLoadout`
+- `src/gameplay/enemy/systems.rs` — enemy_death_system: 击杀时发送 `XpGainEvent`（普通怪 8-15 XP，精英 25-40 XP）
+- `src/gameplay/enemy/boss.rs` — Boss 击杀发送大量 XP（100-200）
+- `src/data/definitions.rs` — 新增 `AugmentConfig`/`AugmentsConfig` 结构，替换 `RuneConfig`/`RunesConfig`
+- `src/data/loaders.rs` — 加载 `augments.ron` 替换 `runes.ron`
+- `src/app.rs` — 注册 AugmentPlugin + ProgressionPlugin，移除旧 RunePlugin
 
-#[derive(Component, Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CurseState {
-    pub active: Vec<ActiveCurse>,
-}
+**移除/替换**：
+- `src/gameplay/rune/` 目录 → 被 `src/gameplay/augment/` 替代
+- `RewardModifiers` 中的 `melee_mastery_stacks`/`ranged_mastery_stacks` 字段暂时保留（Phase 3 实现效果时再迁移）
 
-impl CurseState {
-    pub fn has_any_curse(&self) -> bool {
-        !self.active.is_empty()
-    }
-
-    pub fn add_curse(&mut self, curse: CurseId, duration: u32) {
-        self.active.push(ActiveCurse { curse, rooms_remaining: duration });
-    }
-
-    /// 每次进入新房间时调用，返回刚消除的诅咒列表
-    pub fn tick_room(&mut self) -> Vec<CurseId> {
-        let mut expired = Vec::new();
-        self.active.retain_mut(|c| {
-            c.rooms_remaining = c.rooms_remaining.saturating_sub(1);
-            if c.rooms_remaining == 0 {
-                expired.push(c.curse);
-                false
-            } else {
-                true
-            }
-        });
-        expired
-    }
-
-    pub fn damage_taken_mult(&self) -> f32 {
-        let mut mult = 1.0;
-        for c in &self.active {
-            if c.curse == CurseId::Fragile { mult *= 1.25; }
-        }
-        mult
-    }
-
-    pub fn move_speed_mult(&self) -> f32 {
-        let mut mult = 1.0;
-        for c in &self.active {
-            if c.curse == CurseId::Sluggish { mult *= 0.80; }
-        }
-        mult
-    }
-
-    pub fn energy_gain_mult(&self) -> f32 {
-        let mut mult = 1.0;
-        for c in &self.active {
-            if c.curse == CurseId::Exhaustion { mult *= 0.60; }
-        }
-        mult
-    }
-
-    pub fn dash_cooldown_mult(&self) -> f32 {
-        let mut mult = 1.0;
-        for c in &self.active {
-            if c.curse == CurseId::Exposed { mult *= 1.50; }
-        }
-        mult
-    }
-
-    pub fn damage_dealt_mult(&self) -> f32 {
-        let mut mult = 1.0;
-        for c in &self.active {
-            if c.curse == CurseId::Weakness { mult *= 0.80; }
-        }
-        mult
-    }
-}
-
-pub struct CursePlugin;
-
-impl Plugin for CursePlugin {
-    fn build(&self, _app: &mut App) {
-        // 后续注册诅咒递减系统
-    }
-}
-```
-
-### 2b. 配置文件 `assets/configs/curses.ron`
-
-```ron
-(
-  curses: [
-    ( id: Fragile, title: "脆弱", description: "受到伤害+25%", duration: 3 ),
-    ( id: Sluggish, title: "迟缓", description: "移速-20%", duration: 3 ),
-    ( id: Exhaustion, title: "枯竭", description: "能量获取-40%", duration: 3 ),
-    ( id: Exposed, title: "暴露", description: "冲刺冷却+50%", duration: 2 ),
-    ( id: Weakness, title: "虚弱", description: "造成伤害-20%", duration: 3 ),
-  ],
-)
-```
+**验证**：`cargo check` + `cargo test`
 
 ---
 
-## 步骤三：Player 挂载新 Component
+### 阶段 2：强化获取流程 + 升级选择 UI
 
-在 `src/gameplay/player/components.rs` 或 Player spawn 逻辑中，给 Player entity 新增：
+**目标**：玩家能通过战斗、升级、Boss 获得强化和属性提升。
 
-```rust
-RuneLoadout::default(),
-CurseState::default(),
+**新建文件**：
+- `src/ui/augment_select.rs` — 强化选择 UI（展示 2-3 张强化卡片，玩家选 1 个）
+- `src/ui/levelup_select.rs` — 升级属性选择 UI（展示 2-3 个属性选项，选 1 个）
+
+**修改文件**：
+- `src/states.rs` — AppState 新增 `AugmentSelect` 和 `LevelUpSelect` 状态
+- `src/gameplay/session_core/mod.rs` — 重写 `on_room_cleared`：
+  - 战斗房通关：40% 概率进入 AugmentSelect（普通池）
+  - Boss 房通关：必定进入 AugmentSelect（精英/传说池）+ 自动属性大幅提升
+  - 升级时进入 LevelUpSelect
+- `src/gameplay/rewards/systems.rs` — 重写奖励流程，区分属性选择和强化选择
+- `src/ui/reward_select.rs` — 简化，只保留 Boss 后的双重奖励模式；普通房不再用三选一
+- `src/gameplay/session_core/mod.rs` — `generate_augment_choices`: 从 AugmentsConfig 按稀有度随机抽取 2-3 个
+- `src/gameplay/progression/experience.rs` — LevelUpEvent 触发 AppState::LevelUpSelect
+
+**关键逻辑**：
+```
+战斗房通关 → 金币 + XP → 40% 概率 AugmentSelect(Common)
+精英房通关 → 金币 + XP → 必定 AugmentSelect(Common+Elite)
+Boss 通关 → 金币 + 大量 XP + 自动属性提升 → 必定 AugmentSelect(Elite+Legendary)
+XP 累积升级 → LevelUpSelect（2-3 属性选 1）
 ```
 
-找到 Player spawn 的位置（搜索 `commands.spawn` 附近有 `Health`、`RewardModifiers` 的地方），在 bundle 中追加这两个 Component。
+**验证**：`cargo check` + `cargo test` + 手动验证强化选择流程
 
 ---
 
-## 步骤四：祝福祠堂流程
+### 阶段 3：强化战斗效果实现
 
-### 4a. `session_core/mod.rs` 新增
+**目标**：所有 30 个强化产生实际战斗效果。这是最大的阶段。
 
-在 `RewardDraftMode` 枚举中新增 `Blessing` 变体：
+**修改文件**：
+- `src/gameplay/player/combat.rs` — 近战系统读取 AugmentInventory，应用近战类强化效果
+  - LifestealSlash: 命中后回血
+  - HeavyStrike: 增加击退和伤害
+  - ComboAccelerate: 连击加速
+  - Whirlwind: 改变攻击为 360°
+  - ArmorBreak: 命中标记敌人（新 Component `ArmorBroken`）
+  - Reflect: 近战范围内反弹弹幕
+  - SwordWave: 近战时生成远程剑气
+  - Executioner: 低血秒杀判定
+- `src/gameplay/player/systems.rs` — 远程系统读取 AugmentInventory
+  - Piercing/SpeedBoost/ExtraProjectile: 修改弹丸属性
+  - Homing: 弹丸追踪
+  - ChainLightning: 命中后生成闪电跳
+  - Scatter: 改变射击模式
+  - BulletStorm: 替换终结技效果
+  - Freeze: 命中概率冻结
+- `src/gameplay/player/systems.rs` — 冲刺系统读取 AugmentInventory
+  - DashTrail/DashEnergy/ExtendedInvuln/DashReset/DashShield/Blink
+- `src/gameplay/combat/damage.rs` — 通用类强化
+  - Thorns: 受伤反弹
+  - KillHeal: 击杀回血
+  - CritEnhance: 暴击修正
+  - Phoenix: 死亡复活
+  - Greed: 金币转伤害
+- `src/gameplay/rewards/apply.rs` — GoldBonus/XpBonus/PickupRange 修正
 
-```rust
-pub enum RewardDraftMode {
-    SingleBuff,
-    HealOrBuff,
-    DualBuff,
-    LoneSurvivor,
-    Blessing,  // 新增：祝福祠堂模式
-}
-```
+**移除**：
+- `RewardModifiers` 中的 `melee_mastery_stacks`/`ranged_mastery_stacks` 及相关逻辑
+- 旧的 `EnhanceMeleeWeapon`/`EnhanceRangedWeapon` RewardType
 
-新增函数 `generate_blessing_choices`：
+**建议分批实现**：先做 10 个最常见的普通强化，再做精英，最后传说。每批验证编译。
 
-```rust
-pub fn generate_blessing_choices(
-    rng: &mut GameRng,
-    floor_number: u32,
-    rune_loadout: &RuneLoadout,
-    runes_config: &RunesConfig,
-    curses_config: &CursesConfig,
-) -> Vec<BlessingOffer> {
-    // 1. 根据楼层决定等级池：Floor2-3 精英为主，Floor4 必含传说
-    // 2. 过滤掉玩家已装备的同 ID 铭文
-    // 3. 随机选 2 个铭文
-    // 4. 每个铭文随机配一个诅咒
-    // 返回 Vec<BlessingOffer>，长度为 2
-}
-
-pub struct BlessingOffer {
-    pub rune_id: RuneId,
-    pub rune_slot: RuneSlot,
-    pub rune_tier: RuneTier,
-    pub rune_title: String,
-    pub rune_description: String,
-    pub rune_drawback: String,
-    pub curse_id: CurseId,
-    pub curse_title: String,
-    pub curse_description: String,
-    pub curse_duration: u32,
-}
-```
-
-### 4b. Reward 房进入逻辑修改
-
-在 `on_room_enter` 中，当 `room_type == RoomType::Reward` 时：
-- 检查 `CurseState::has_any_curse()`：如果有诅咒，不触发祝福（跳过，房间为空）
-- 检查楼层：Floor 1 不触发
-- 否则返回 `RewardDraftMode::Blessing`
-
-```rust
-RoomType::Reward => {
-    if floor_number <= 1 || has_active_curse {
-        RoomEnterDecision { reward_mode: None, auto_open_shop: false }
-    } else {
-        RoomEnterDecision { reward_mode: Some(RewardDraftMode::Blessing), auto_open_shop: false }
-    }
-}
-```
-
-### 4c. `rewards/systems.rs` 处理 Blessing 模式
-
-当 `RewardDraftMode::Blessing` 时：
-1. 调用 `generate_blessing_choices` 生成 2 个 BlessingOffer
-2. 存入新 Resource `BlessingFlow`
-3. 切换到 `AppState::RewardSelect`（复用现有状态，UI 根据模式切换显示）
+**验证**：`cargo check` + `cargo test` + 手动验证各强化效果
 
 ---
 
-## 步骤五：祝福祠堂 UI
+### 阶段 4：事件房 + 商店扩展 + 祝福祠堂改造
 
-### 5a. `ui/reward_select.rs` 新增 Blessing 模式
+**目标**：丰富非战斗房间内容，增加强化获取渠道。
 
-在 `spawn_reward_select_ui` 中，检测 `RewardFlowMode::Blessing`（新增变体）时：
+**新建文件**：
+- `src/gameplay/event_room/mod.rs` — EventRoomPlugin
+- `src/gameplay/event_room/events.rs` — EventType 枚举（8 种事件）、事件触发和结算逻辑
+- `src/ui/event_room.rs` — 事件房 UI（事件描述 + 选择按钮）
 
-布局：
-```
-┌─────────────────────────────────────┐
-│         祝福祠堂                      │
-├────────────────┬────────────────────┤
-│  [1] 铭文A      │  [2] 铭文B          │
-│  名称 + 描述    │  名称 + 描述        │
-│  取舍（红字）    │  取舍（红字）        │
-│  ─────────     │  ─────────         │
-│  诅咒：脆弱     │  诅咒：迟缓          │
-│  受伤+25%      │  移速-20%           │
-│  持续3房间      │  持续3房间           │
-├────────────────┴────────────────────┤
-│           [Esc] 离开                  │
-└─────────────────────────────────────┘
-```
+**修改文件**：
+- `src/states.rs` — AppState 新增 `EventRoom` 状态
+- `src/gameplay/map/generator.rs` — 调整房间类型权重：
+  - 每层保证至少 1 个非战斗房（事件/商店）
+  - 每层保证 1 个精英战斗房
+  - `RoomType` 枚举新增 `Event` 和 `EliteCombat`
+- `src/gameplay/session_core/mod.rs` — 
+  - `on_room_enter`: Event 房间进入时触发随机事件
+  - EliteCombat 房间通关必给强化选择
+  - 祝福祠堂改造：提供传说强化 + 诅咒（复用诅咒系统）
+- `src/gameplay/shop/mod.rs` — 商店扩展：
+  - 新增强化商品区（2-3 个随机强化，价格：普通 40-60，精英 80-120，传说 150-200）
+  - 新增消耗品（回血药水 30 金，临时攻击增益 50 金）
+  - 新增诅咒移除服务（80 金）
+- `src/ui/shop.rs` — 商店 UI 扩展显示新商品区
 
-- 按 1 选择左侧：装备铭文A + 获得诅咒A
-- 按 2 选择右侧：装备铭文B + 获得诅咒B
-- 按 Esc 离开：不拿任何东西
-
-选择后：
-1. `RuneLoadout::equip(slot, rune_id)` 装备铭文
-2. `CurseState::add_curse(curse_id, duration)` 添加诅咒
-3. 退出 RewardSelect 状态
+**验证**：`cargo check` + `cargo test` + 手动验证事件房和商店流程
 
 ---
 
-## 步骤六：HUD 显示
+### 阶段 5：新怪物 + 精英词缀 + TideHunter 调整
 
-### 6a. 铭文槽位（`ui/hud.rs`）
+**目标**：扩充小怪池，精英差异化，Boss 威胁提升。
 
-在技能栏上方或旁边显示 4 个小方块：
-- 空槽：灰色边框 `Color::srgb(0.3, 0.3, 0.3)`
-- 已装备：根据槽位着色（近战红、远程蓝、冲刺绿、终结技金）+ 铭文名称首字
+**修改文件**：
+- `src/gameplay/enemy/components.rs` —
+  - EnemyType 新增 `Bomber`, `Shielder`, `Summoner`
+  - 新增 `EliteAffix` 枚举（Swift/Splitting/Shielded/Vampiric/Berserk/Teleporting）
+  - 新增 `EliteAffixState` Component
+  - Shielder 新增 `ShielderFacing` Component（朝向判定）
+  - Bomber 新增 `BomberState` Component（蓄力计时器）
+  - Summoner 新增 `SummonerState` Component（召唤冷却）
+- `src/gameplay/enemy/systems.rs` —
+  - `choose_enemy_types`: Floor 2+ 加入 Bomber，Floor 3+ 加入 Shielder，Floor 4+ 加入 Summoner
+  - `spawn_enemy`: 精英生成时随机分配 1 个词缀，体型 1.3x，金色光环
+  - 新增 Bomber AI：靠近 → 蓄力 → 自爆/被击杀
+  - 新增 Shielder AI：正面朝向玩家推进，正面免疫远程
+  - 新增 Summoner AI：远离玩家，周期召唤
+- `src/gameplay/enemy/ai.rs` — 新增词缀行为系统：
+  - `elite_affix_system`: Swift 加速、Berserk 狂暴检测、Teleporting 闪现
+  - `elite_splitting_death`: Splitting 死亡分裂
+  - `elite_shielded_system`: Shielded 护盾吸收
+  - `elite_vampiric_system`: Vampiric 命中回血
+- `assets/configs/enemies.ron` — 新增 Bomber/Shielder/Summoner 数值
+- `src/gameplay/enemy/boss.rs` — TideHunter 调整：
+  - Stalk 时间：1.2/0.8/0.5
+  - 影子伤害：contact_damage × 1.0
+  - P3 影子持续：6.0s
+  - 穿越时对路径上玩家造成直接伤害
+  - P2+ 目标预判玩家移动方向
 
-### 6b. 诅咒状态
-
-在 HP 条下方显示当前诅咒：
-- 红色文字：诅咒名称 + 剩余房间数
-- 例如："脆弱 (3)" 显示为红色小字
+**验证**：`cargo check` + `cargo test` + 手动验证新怪物和精英词缀
 
 ---
 
-## 步骤七：祝福房生成规则
+### 阶段 6：HUD + 平衡 + 收尾
 
-在房间生成逻辑中（`rooms.ron` 或 `session_core` 中的房间布局函数）：
-- 每层最多 1 个 Reward 房
-- Floor 1 不生成 Reward 房
-- 如果当前有诅咒，跳过 Reward 房生成（或生成但进入时为空）
+**目标**：UI 完善，数值平衡，清理旧代码。
 
-找到房间布局生成的代码（搜索 `RoomType::Reward` 的分配逻辑），添加这些限制。
+**修改文件**：
+- `src/ui/hud.rs` —
+  - 替换铭文槽位显示为强化图标列表（稀有度着色）
+  - 新增 XP 条和等级显示
+  - 精英词缀图标显示在敌人头顶
+- `src/ui/pause.rs` — 暂停菜单显示完整强化列表和等级信息
+- `assets/configs/game_balance.ron` — XP 曲线、强化掉落率、商店价格调整
+- 清理旧代码：
+  - 删除 `src/gameplay/rune/` 目录
+  - 删除 `assets/configs/runes.ron`
+  - 清理 `RewardModifiers` 中已迁移的精通字段
+  - 清理 `RewardType` 中已废弃的枚举值
+
+**验证**：`cargo check` + `cargo test` + 完整游玩测试 4 层
 
 ---
 
-## 步骤八：注册到 App
+## 影响文件总览
 
-在 `src/app.rs` 的 `GamePlugin::build` 中：
-
-```rust
-.add_plugins(gameplay::rune::RunePlugin)
-.add_plugins(gameplay::curse::CursePlugin)
-```
-
-在 `src/gameplay/mod.rs` 中：
-
-```rust
-pub mod rune;
-pub mod curse;
-```
+| 文件 | 阶段 | 操作 |
+|------|------|------|
+| `src/gameplay/augment/mod.rs` | 1 | 新建 |
+| `src/gameplay/augment/data.rs` | 1 | 新建 |
+| `src/gameplay/progression/mod.rs` | 1 | 新建 |
+| `src/gameplay/progression/experience.rs` | 1 | 新建 |
+| `assets/configs/augments.ron` | 1 | 新建 |
+| `src/ui/augment_select.rs` | 2 | 新建 |
+| `src/ui/levelup_select.rs` | 2 | 新建 |
+| `src/gameplay/event_room/mod.rs` | 4 | 新建 |
+| `src/gameplay/event_room/events.rs` | 4 | 新建 |
+| `src/ui/event_room.rs` | 4 | 新建 |
+| `src/app.rs` | 1 | 修改 |
+| `src/states.rs` | 2,4 | 修改 |
+| `src/data/definitions.rs` | 1 | 修改 |
+| `src/data/loaders.rs` | 1 | 修改 |
+| `src/gameplay/player/systems.rs` | 1,3 | 修改 |
+| `src/gameplay/player/combat.rs` | 3 | 修改 |
+| `src/gameplay/enemy/systems.rs` | 1,5 | 修改 |
+| `src/gameplay/enemy/components.rs` | 5 | 修改 |
+| `src/gameplay/enemy/boss.rs` | 1,5 | 修改 |
+| `src/gameplay/enemy/ai.rs` | 5 | 修改 |
+| `src/gameplay/session_core/mod.rs` | 2,4 | 修改 |
+| `src/gameplay/rewards/systems.rs` | 2 | 修改 |
+| `src/gameplay/rewards/apply.rs` | 3 | 修改 |
+| `src/gameplay/combat/damage.rs` | 3 | 修改 |
+| `src/gameplay/shop/mod.rs` | 4 | 修改 |
+| `src/gameplay/map/generator.rs` | 4 | 修改 |
+| `src/ui/reward_select.rs` | 2 | 修改 |
+| `src/ui/hud.rs` | 6 | 修改 |
+| `src/ui/pause.rs` | 6 | 修改 |
+| `assets/configs/enemies.ron` | 5 | 修改 |
+| `assets/configs/game_balance.ron` | 6 | 修改 |
+| `src/gameplay/rune/` | 6 | 删除 |
+| `assets/configs/runes.ron` | 6 | 删除 |
 
 ---
 
 ## 验证方法
 
+每个阶段完成后：
 ```bash
 cargo check --quiet
-cargo test --quiet   # 期望：33+ passed
+cargo test --quiet
 ```
 
-**此步不实现铭文战斗效果**。验证目标：
-1. 编译通过
-2. 测试通过
-3. Reward 房在 Floor 2+ 进入时显示祝福祠堂 UI（2 个铭文+诅咒选项）
-4. 选择后 HUD 显示铭文槽位和诅咒倒计时
-5. 诅咒在经过 N 个房间后自动消除
-6. 有诅咒时不再出现新的祝福房
+最终验证：手动游玩完整 4 层，检查：
+1. 经验升级正常触发，属性选择 UI 正常
+2. 强化在战斗房/精英房/Boss/商店/事件房正常获取
+3. 30 个强化效果全部生效
+4. 新怪物（Bomber/Shielder/Summoner）正常出现和行为
+5. 精英词缀可见且有实际效果
+6. TideHunter 威胁度明显提升
+7. 事件房 8 种事件正常触发
+8. 商店新增区域正常购买

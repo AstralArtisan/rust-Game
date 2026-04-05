@@ -1,4 +1,5 @@
 pub mod difficulty;
+pub mod experience;
 pub mod floor;
 pub mod stats;
 
@@ -10,10 +11,17 @@ pub struct ProgressionPlugin;
 
 impl Plugin for ProgressionPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::InGame), floor::setup_floor)
+        app.add_event::<experience::XpGainEvent>()
+            .add_event::<experience::LevelUpEvent>()
+            .add_systems(OnEnter(AppState::InGame), floor::setup_floor)
             .add_systems(
                 Update,
-                (floor::complete_floor, stats::update_run_stats).run_if(in_state(AppState::InGame)),
+                (
+                    floor::complete_floor,
+                    stats::update_run_stats,
+                    experience::process_xp_gains,
+                )
+                    .run_if(in_state(AppState::InGame)),
             );
     }
 }

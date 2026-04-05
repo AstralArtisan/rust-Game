@@ -12,4 +12,5 @@ pub struct GameDataRegistry {
     pub curses: CursesConfig,
     pub rooms: RoomGenConfig,
     pub balance: GameBalanceConfig,
+    pub augments: AugmentsConfig,
 }

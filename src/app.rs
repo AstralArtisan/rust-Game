@@ -40,6 +40,7 @@ impl Plugin for GamePlugin {
                 UiPlugin,
             ))
             .add_plugins((
+                crate::gameplay::augment::AugmentPlugin,
                 crate::gameplay::rune::RunePlugin,
                 crate::gameplay::curse::CursePlugin,
             ));

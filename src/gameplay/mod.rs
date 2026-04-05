@@ -1,3 +1,4 @@
+pub mod augment;
 pub mod combat;
 pub mod curse;
 pub mod effects;

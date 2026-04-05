@@ -28,6 +28,7 @@ fn try_load_all() -> Result<GameDataRegistry> {
         curses: load_ron("assets/configs/curses.ron")?,
         rooms: load_ron("assets/configs/rooms.ron")?,
         balance: load_ron("assets/configs/game_balance.ron")?,
+        augments: load_ron("assets/configs/augments.ron").unwrap_or(AugmentsConfig { augments: vec![] }),
     })
 }
 
@@ -170,5 +171,6 @@ fn default_registry() -> GameDataRegistry {
             elite_damage_mult: 1.55,
             elite_gold_bonus: 5,
         },
+        augments: AugmentsConfig { augments: vec![] },
     }
 }

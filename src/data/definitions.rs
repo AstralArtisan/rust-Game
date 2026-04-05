@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::gameplay::augment::data::{AugmentCategory, AugmentId, AugmentRarity};
 use crate::gameplay::curse::CurseId;
 use crate::gameplay::enemy::components::EnemyType;
 use crate::gameplay::map::room::RoomType;
@@ -141,4 +142,20 @@ pub struct GameBalanceConfig {
     pub elite_hp_mult: f32,
     pub elite_damage_mult: f32,
     pub elite_gold_bonus: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AugmentConfig {
+    pub id: AugmentId,
+    pub category: AugmentCategory,
+    pub rarity: AugmentRarity,
+    pub title: String,
+    pub description: String,
+    pub upgraded_description: String,
+    pub shop_cost: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AugmentsConfig {
+    pub augments: Vec<AugmentConfig>,
 }
