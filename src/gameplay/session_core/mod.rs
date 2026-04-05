@@ -8,6 +8,9 @@ use crate::gameplay::rewards::apply::{
     dash_cooldown_gain_s, heal_amount, max_health_gain, move_speed_gain,
 };
 use crate::gameplay::rewards::data::RewardType;
+use crate::data::definitions::{CursesConfig, RunesConfig};
+use crate::gameplay::curse::CurseId;
+use crate::gameplay::rune::data::{RuneId, RuneLoadout, RuneSlot, RuneTier};
 use crate::utils::rng::GameRng;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +34,7 @@ pub enum RewardDraftMode {
     HealOrBuff,
     DualBuff,
     LoneSurvivor,
+    Blessing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,6 +84,20 @@ pub struct RewardSelection {
     pub mode: RewardDraftMode,
     pub primary: Option<RewardOptionDraft>,
     pub secondary: Option<RewardOptionDraft>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlessingOffer {
+    pub rune_id: RuneId,
+    pub rune_slot: RuneSlot,
+    pub rune_tier: RuneTier,
+    pub rune_title: String,
+    pub rune_description: String,
+    pub rune_drawback: String,
+    pub curse_id: CurseId,
+    pub curse_title: String,
+    pub curse_description: String,
+    pub curse_duration: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,7 +158,11 @@ pub enum ShopPurchaseResult {
     NoEffect,
 }
 
-pub fn on_room_enter(ctx: SessionRuleContext, first_visit: bool) -> RoomEnterDecision {
+pub fn on_room_enter(
+    ctx: SessionRuleContext,
+    first_visit: bool,
+    has_active_curse: bool,
+) -> RoomEnterDecision {
     if !first_visit {
         return RoomEnterDecision {
             reward_mode: None,
@@ -149,10 +171,19 @@ pub fn on_room_enter(ctx: SessionRuleContext, first_visit: bool) -> RoomEnterDec
     }
 
     match ctx.room_type {
-        RoomType::Reward => RoomEnterDecision {
-            reward_mode: Some(RewardDraftMode::SingleBuff),
-            auto_open_shop: false,
-        },
+        RoomType::Reward => {
+            if ctx.floor <= 1 || has_active_curse {
+                RoomEnterDecision {
+                    reward_mode: None,
+                    auto_open_shop: false,
+                }
+            } else {
+                RoomEnterDecision {
+                    reward_mode: Some(RewardDraftMode::Blessing),
+                    auto_open_shop: false,
+                }
+            }
+        }
         RoomType::Shop => RoomEnterDecision {
             reward_mode: None,
             auto_open_shop: true,
@@ -408,6 +439,7 @@ fn reward_options_for_mode(
                 Vec::new(),
             )
         }
+        RewardDraftMode::Blessing => (Vec::new(), Vec::new()),
     }
 }
 
@@ -590,6 +622,121 @@ fn generate_dual_reward_choices(
         secondary = generate_reward_choices(rng, mods, &[]);
     }
     (primary, secondary)
+}
+
+pub fn generate_blessing_choices(
+    rng: &mut GameRng,
+    floor_number: u32,
+    rune_loadout: &RuneLoadout,
+    runes_config: &RunesConfig,
+    curses_config: &CursesConfig,
+) -> Vec<BlessingOffer> {
+    if curses_config.curses.is_empty() {
+        return Vec::new();
+    }
+
+    let equipped = RuneSlot::ALL
+        .into_iter()
+        .filter_map(|slot| rune_loadout.get(slot))
+        .collect::<Vec<_>>();
+    let mut available = runes_config
+        .runes
+        .iter()
+        .filter(|rune| !equipped.contains(&rune.id))
+        .collect::<Vec<_>>();
+    if available.is_empty() {
+        return Vec::new();
+    }
+
+    let mut selected = Vec::new();
+    if floor_number >= 4 {
+        let mut legendaries = available
+            .iter()
+            .copied()
+            .filter(|rune| rune.tier == RuneTier::Legendary)
+            .collect::<Vec<_>>();
+        rng.shuffle(&mut legendaries);
+        if let Some(legendary) = legendaries.into_iter().next() {
+            selected.push(legendary);
+            available.retain(|rune| rune.id != legendary.id);
+        }
+    }
+
+    let preferred_tiers = if floor_number >= 4 {
+        [RuneTier::Elite, RuneTier::Common, RuneTier::Legendary]
+    } else {
+        [RuneTier::Elite, RuneTier::Common, RuneTier::Legendary]
+    };
+    let mut ordered = ordered_rune_candidates(rng, &available, &preferred_tiers);
+    while selected.len() < 2 {
+        let Some(next) = ordered.pop() else {
+            break;
+        };
+        if selected.iter().any(|rune| rune.id == next.id) {
+            continue;
+        }
+        if floor_number < 4 && next.tier == RuneTier::Legendary {
+            continue;
+        }
+        selected.push(next);
+    }
+
+    if selected.len() < 2 {
+        let mut fallback = available;
+        rng.shuffle(&mut fallback);
+        for rune in fallback {
+            if selected.iter().any(|picked| picked.id == rune.id) {
+                continue;
+            }
+            selected.push(rune);
+            if selected.len() == 2 {
+                break;
+            }
+        }
+    }
+
+    let mut curses = curses_config.curses.iter().collect::<Vec<_>>();
+    rng.shuffle(&mut curses);
+
+    selected
+        .into_iter()
+        .take(2)
+        .enumerate()
+        .filter_map(|(index, rune)| {
+            let curse = curses.get(index).copied().or_else(|| curses.first().copied())?;
+            Some(BlessingOffer {
+                rune_id: rune.id,
+                rune_slot: rune.slot,
+                rune_tier: rune.tier,
+                rune_title: rune.title.clone(),
+                rune_description: rune.description.clone(),
+                rune_drawback: rune.drawback.clone(),
+                curse_id: curse.id,
+                curse_title: curse.title.clone(),
+                curse_description: curse.description.clone(),
+                curse_duration: curse.duration,
+            })
+        })
+        .collect()
+}
+
+fn ordered_rune_candidates<'a>(
+    rng: &mut GameRng,
+    available: &[&'a crate::data::definitions::RuneConfig],
+    preferred_tiers: &[RuneTier],
+) -> Vec<&'a crate::data::definitions::RuneConfig> {
+    let mut ordered = Vec::new();
+    for tier in preferred_tiers {
+        let mut tier_pool = available
+            .iter()
+            .copied()
+            .filter(|rune| rune.tier == *tier)
+            .collect::<Vec<_>>();
+        rng.shuffle(&mut tier_pool);
+        ordered.extend(tier_pool);
+    }
+    ordered.reverse();
+    ordered
 }
 
 fn reward_pool() -> Vec<RewardType> {

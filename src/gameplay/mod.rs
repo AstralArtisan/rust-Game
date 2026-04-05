@@ -1,4 +1,5 @@
 pub mod combat;
+pub mod curse;
 pub mod effects;
 pub mod enemy;
 pub mod map;
@@ -6,6 +7,7 @@ pub mod player;
 pub mod progression;
 pub mod puzzle;
 pub mod rewards;
+pub mod rune;
 pub mod session_core;
 pub mod shop;
 pub mod skills;

@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use crate::gameplay::curse::CurseId;
 use crate::gameplay::enemy::components::EnemyType;
 use crate::gameplay::map::room::RoomType;
 use crate::gameplay::rewards::data::RewardType;
+use crate::gameplay::rune::data::{RuneId, RuneSlot, RuneTier};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerConfig {
@@ -90,6 +92,35 @@ pub struct RewardConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RewardsConfig {
     pub rewards: Vec<RewardConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuneConfig {
+    pub id: RuneId,
+    pub slot: RuneSlot,
+    pub tier: RuneTier,
+    pub title: String,
+    pub description: String,
+    pub drawback: String,
+    pub shop_cost: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunesConfig {
+    pub runes: Vec<RuneConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CurseConfig {
+    pub id: CurseId,
+    pub title: String,
+    pub description: String,
+    pub duration: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CursesConfig {
+    pub curses: Vec<CurseConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -6,7 +6,11 @@ use crate::gameplay::player::components::{Health, Player, RewardModifiers};
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::rewards::apply::heal_amount;
 use crate::gameplay::rewards::data::RewardType;
-use crate::gameplay::rewards::systems::{RewardChoices, RewardFlow, RewardFlowMode};
+use crate::gameplay::rewards::systems::{
+    BlessingFlow, BlessingPendingAction, BlessingUiAction, RewardChoices, RewardFlow,
+    RewardFlowMode,
+};
+use crate::gameplay::rune::data::{RuneSlot, RuneTier};
 use crate::ui::widgets;
 use crate::utils::entity::safe_despawn_recursive;
 
@@ -19,10 +23,19 @@ pub struct RewardButton {
     pub group: RewardChoiceGroup,
 }
 
+#[derive(Component, Debug, Clone, Copy)]
+pub struct BlessingButton {
+    pub index: usize,
+}
+
+#[derive(Component)]
+pub struct BlessingLeaveButton;
+
 pub fn setup_reward_ui(
     mut commands: Commands,
     assets: Res<GameAssets>,
     choices: Res<RewardChoices>,
+    blessing_flow: Res<BlessingFlow>,
     flow: Res<RewardFlow>,
     floor: Option<Res<FloorNumber>>,
     player_q: Query<(&RewardModifiers, &Health), With<Player>>,
@@ -46,6 +59,47 @@ pub fn setup_reward_ui(
         .with_children(|root| {
             root.spawn(widgets::panel_node(Color::srgba(0.02, 0.02, 0.03, 0.92)))
                 .with_children(|panel| match flow.mode {
+                    RewardFlowMode::Blessing => {
+                        panel.spawn(widgets::title_text(&assets, "祝福祠堂", 30.0));
+                        panel.spawn(widgets::title_text(
+                            &assets,
+                            "按 1 / 2 接受祝福与诅咒，或按 Esc 离开",
+                            16.0,
+                        ));
+                        panel
+                            .spawn(NodeBundle {
+                                style: Style {
+                                    column_gap: Val::Px(18.0),
+                                    align_items: AlignItems::FlexStart,
+                                    ..default()
+                                },
+                                ..default()
+                            })
+                            .with_children(|row| {
+                                for (index, offer) in blessing_flow.offers.iter().take(2).enumerate()
+                                {
+                                    spawn_blessing_card(row, &assets, index, offer);
+                                }
+                            });
+                        panel.spawn((
+                            ButtonBundle {
+                                style: Style {
+                                    width: Val::Px(280.0),
+                                    height: Val::Px(48.0),
+                                    justify_content: JustifyContent::Center,
+                                    align_items: AlignItems::Center,
+                                    margin: UiRect::top(Val::Px(6.0)),
+                                    ..default()
+                                },
+                                background_color: BackgroundColor(Color::srgb(0.38, 0.18, 0.18)),
+                                ..default()
+                            },
+                            BlessingLeaveButton,
+                        ))
+                        .with_children(|button| {
+                            button.spawn(widgets::title_text(&assets, "[Esc] 离开", 18.0));
+                        });
+                    }
                     RewardFlowMode::SingleBuff => {
                         panel.spawn(widgets::title_text(&assets, "选择一项强化", 30.0));
                         panel.spawn(widgets::title_text(
@@ -223,13 +277,52 @@ pub fn update_reward_ui(
 
 pub fn reward_ui_input_system(
     mut interaction_q: Query<
-        (&Interaction, &RewardButton, &mut BackgroundColor),
+        (
+            &Interaction,
+            Option<&RewardButton>,
+            Option<&BlessingButton>,
+            Option<&BlessingLeaveButton>,
+            &mut BackgroundColor,
+        ),
         (Changed<Interaction>, With<Button>),
     >,
     flow: Res<RewardFlow>,
     mut chosen: EventWriter<RewardChosenEvent>,
+    mut blessing_pending: ResMut<BlessingPendingAction>,
 ) {
-    for (interaction, button, mut color) in &mut interaction_q {
+    for (interaction, reward_button, blessing_button, leave_button, mut color) in &mut interaction_q {
+        if flow.mode == RewardFlowMode::Blessing {
+            if let Some(button) = blessing_button {
+                match *interaction {
+                    Interaction::Hovered => {
+                        color.0 = Color::srgb(0.24, 0.28, 0.38);
+                    }
+                    Interaction::None => {
+                        color.0 = Color::srgb(0.18, 0.22, 0.30);
+                    }
+                    Interaction::Pressed => {
+                        blessing_pending.0 = Some(BlessingUiAction::Select(button.index));
+                    }
+                }
+            } else if leave_button.is_some() {
+                match *interaction {
+                    Interaction::Hovered => {
+                        color.0 = Color::srgb(0.48, 0.22, 0.22);
+                    }
+                    Interaction::None => {
+                        color.0 = Color::srgb(0.38, 0.18, 0.18);
+                    }
+                    Interaction::Pressed => {
+                        blessing_pending.0 = Some(BlessingUiAction::Leave);
+                    }
+                }
+            }
+            continue;
+        }
+
+        let Some(button) = reward_button else {
+            continue;
+        };
         match *interaction {
             Interaction::Hovered => {
                 if !group_locked(&flow, button.group) {
@@ -377,6 +470,103 @@ fn spawn_reward_column(
                     button.spawn(widgets::body_text(assets, progress, 13.0));
                 }
             });
+    }
+}
+
+fn spawn_blessing_card(
+    parent: &mut ChildBuilder,
+    assets: &GameAssets,
+    index: usize,
+    offer: &crate::gameplay::session_core::BlessingOffer,
+) {
+    parent
+        .spawn((
+            ButtonBundle {
+                style: Style {
+                    width: Val::Px(340.0),
+                    min_height: Val::Px(320.0),
+                    padding: UiRect::all(Val::Px(14.0)),
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::FlexStart,
+                    align_items: AlignItems::FlexStart,
+                    row_gap: Val::Px(8.0),
+                    ..default()
+                },
+                background_color: BackgroundColor(Color::srgb(0.18, 0.22, 0.30)),
+                ..default()
+            },
+            BlessingButton { index },
+        ))
+        .with_children(|button| {
+            button.spawn(widgets::title_text(
+                assets,
+                format!("[{}] {}", index + 1, offer.rune_title),
+                22.0,
+            ));
+            button.spawn(widgets::body_text(
+                assets,
+                format!(
+                    "{} | {}",
+                    rune_slot_label(offer.rune_slot),
+                    rune_tier_label(offer.rune_tier)
+                ),
+                13.0,
+            ));
+            button.spawn(widgets::body_text(assets, &offer.rune_description, 15.0));
+            if !offer.rune_drawback.is_empty() {
+                button.spawn(colored_text(
+                    assets,
+                    format!("取舍：{}", offer.rune_drawback),
+                    14.0,
+                    Color::srgb(0.92, 0.42, 0.42),
+                ));
+            }
+            button.spawn(colored_text(
+                assets,
+                format!("诅咒：{}", offer.curse_title),
+                16.0,
+                Color::srgb(0.96, 0.52, 0.52),
+            ));
+            button.spawn(widgets::body_text(assets, &offer.curse_description, 14.0));
+            button.spawn(colored_text(
+                assets,
+                format!("持续 {} 房间", offer.curse_duration),
+                14.0,
+                Color::srgb(0.96, 0.52, 0.52),
+            ));
+        });
+}
+
+fn colored_text(
+    assets: &GameAssets,
+    text: impl Into<String>,
+    size: f32,
+    color: Color,
+) -> TextBundle {
+    TextBundle::from_section(
+        text,
+        TextStyle {
+            font: assets.font.clone(),
+            font_size: size,
+            color,
+        },
+    )
+}
+
+fn rune_slot_label(slot: RuneSlot) -> &'static str {
+    match slot {
+        RuneSlot::Melee => "近战",
+        RuneSlot::Ranged => "远程",
+        RuneSlot::Dash => "冲刺",
+        RuneSlot::Finisher => "终结技",
+    }
+}
+
+fn rune_tier_label(tier: RuneTier) -> &'static str {
+    match tier {
+        RuneTier::Common => "普通",
+        RuneTier::Elite => "精英",
+        RuneTier::Legendary => "传说",
     }
 }
 

@@ -24,6 +24,8 @@ fn try_load_all() -> Result<GameDataRegistry> {
         enemies: load_ron("assets/configs/enemies.ron")?,
         bosses: load_ron("assets/configs/boss.ron")?,
         rewards: load_ron("assets/configs/rewards.ron")?,
+        runes: load_ron("assets/configs/runes.ron")?,
+        curses: load_ron("assets/configs/curses.ron")?,
         rooms: load_ron("assets/configs/rooms.ron")?,
         balance: load_ron("assets/configs/game_balance.ron")?,
     })
@@ -150,6 +152,8 @@ fn default_registry() -> GameDataRegistry {
             },
         },
         rewards: RewardsConfig { rewards: vec![] },
+        runes: RunesConfig { runes: vec![] },
+        curses: CursesConfig { curses: vec![] },
         rooms: RoomGenConfig {
             room_sequence: vec![],
         },

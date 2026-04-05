@@ -283,7 +283,7 @@ fn host_bootstrap_match(
     commands.insert_resource(RoomState::Idle);
 
     let mut layout = FloorLayout {
-        rooms: build_rooms(Some(data.as_ref()), 1, &mut rng),
+        rooms: build_rooms(Some(data.as_ref()), 1, false, &mut rng),
         current: RoomId(0),
     };
     normalize_coop_layout(&mut layout);
@@ -760,7 +760,7 @@ fn host_process_phase_commands(
                 let next_floor = floor.0 + 1;
                 floor.0 = next_floor;
                 **layout = FloorLayout {
-                    rooms: build_rooms(Some(data), next_floor, &mut rng),
+                    rooms: build_rooms(Some(data), next_floor, false, &mut rng),
                     current: RoomId(0),
                 };
                 normalize_coop_layout(layout.as_mut());

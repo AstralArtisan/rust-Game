@@ -7,6 +7,7 @@ use crate::coop::components::{CoopSessionState, LocalControlled};
 use crate::coop::net::{CoopNetConfig, NetMode};
 use crate::core::assets::GameAssets;
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::curse::CurseState;
 use crate::gameplay::enemy::components::Enemy;
 use crate::gameplay::enemy::components::{EnemyKind, EnemyType};
 use crate::gameplay::map::VisitedRooms;
@@ -15,6 +16,7 @@ use crate::gameplay::player::components::{
     DashCooldown, Energy, Gold, Health, Player, PlayerSkillState, SkillSlot, SkillSlots,
 };
 use crate::gameplay::progression::floor::FloorNumber;
+use crate::gameplay::rune::data::{RuneLoadout, RuneSlot};
 use crate::states::RoomState;
 use crate::ui::widgets;
 use crate::utils::entity::safe_despawn_recursive;
@@ -57,6 +59,15 @@ pub struct SkillSlotKey(pub SkillSlot);
 
 #[derive(Component)]
 pub struct FloorText;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct RuneHudSlot(pub RuneSlot);
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct RuneHudText(pub RuneSlot);
+
+#[derive(Component)]
+pub struct CurseStatusText;
 
 #[derive(Component)]
 pub struct BossHealthBar;
@@ -155,6 +166,10 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                     widgets::title_text(&assets, "HP: 100 / 100", 15.0),
                     HealthText,
                 ));
+                col.spawn((
+                    widgets::body_text(&assets, "诅咒：无", 13.0),
+                    CurseStatusText,
+                ));
                 col.spawn(NodeBundle {
                     style: Style {
                         margin: UiRect::top(Val::Px(6.0)),
@@ -243,6 +258,55 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                     });
 
                     row.spawn((widgets::title_text(&assets, "冲刺：就绪", 16.0), DashText));
+                });
+
+                col.spawn(NodeBundle {
+                    style: Style {
+                        margin: UiRect::top(Val::Px(4.0)),
+                        row_gap: Val::Px(6.0),
+                        flex_direction: FlexDirection::Column,
+                        ..default()
+                    },
+                    ..default()
+                })
+                .with_children(|runes| {
+                    runes.spawn(widgets::title_text(&assets, "铭文", 15.0));
+                    runes
+                        .spawn(NodeBundle {
+                            style: Style {
+                                column_gap: Val::Px(8.0),
+                                ..default()
+                            },
+                            ..default()
+                        })
+                        .with_children(|row| {
+                            for slot in RuneSlot::ALL {
+                                row.spawn((
+                                    NodeBundle {
+                                        style: Style {
+                                            width: Val::Px(40.0),
+                                            height: Val::Px(40.0),
+                                            border: UiRect::all(Val::Px(2.0)),
+                                            justify_content: JustifyContent::Center,
+                                            align_items: AlignItems::Center,
+                                            ..default()
+                                        },
+                                        background_color: BackgroundColor(Color::srgb(
+                                            0.10, 0.12, 0.16,
+                                        )),
+                                        border_color: BorderColor(Color::srgb(0.3, 0.3, 0.3)),
+                                        ..default()
+                                    },
+                                    RuneHudSlot(slot),
+                                ))
+                                .with_children(|box_ui| {
+                                    box_ui.spawn((
+                                        widgets::title_text(&assets, "-", 18.0),
+                                        RuneHudText(slot),
+                                    ));
+                                });
+                            }
+                        });
                 });
 
                 col.spawn(NodeBundle {
@@ -389,6 +453,84 @@ pub fn update_health_text(
         return;
     };
     text.sections[0].value = format!("HP: {:.0} / {:.0}", hp.current, hp.max);
+}
+
+pub fn update_rune_and_curse_ui(
+    data: Option<Res<GameDataRegistry>>,
+    player_q: Query<
+        (Option<&RuneLoadout>, Option<&CurseState>),
+        (With<Player>, With<LocalControlled>),
+    >,
+    mut rune_slot_q: Query<
+        (&RuneHudSlot, &mut BackgroundColor, &mut BorderColor),
+        Without<RuneHudText>,
+    >,
+    mut rune_text_q: Query<(&RuneHudText, &mut Text)>,
+    mut curse_text_q: Query<&mut Text, With<CurseStatusText>>,
+) {
+    let Ok((rune_loadout, curse_state)) = player_q.get_single() else {
+        return;
+    };
+
+    for (slot, mut background, mut border) in &mut rune_slot_q {
+        let equipped = rune_loadout.and_then(|loadout| loadout.get(slot.0));
+        let color = rune_slot_color(slot.0);
+        border.0 = if equipped.is_some() {
+            color
+        } else {
+            Color::srgb(0.3, 0.3, 0.3)
+        };
+        background.0 = if equipped.is_some() {
+            color.with_alpha(0.28)
+        } else {
+            Color::srgb(0.10, 0.12, 0.16)
+        };
+    }
+
+    for (slot, mut text) in &mut rune_text_q {
+        let equipped = rune_loadout.and_then(|loadout| loadout.get(slot.0));
+        if let Some(rune_id) = equipped {
+            text.sections[0].value = rune_glyph(data.as_deref(), rune_id);
+            text.sections[0].style.color = Color::WHITE;
+        } else {
+            text.sections[0].value = "-".to_string();
+            text.sections[0].style.color = Color::srgb(0.62, 0.64, 0.70);
+        }
+    }
+
+    let Ok(mut curse_text) = curse_text_q.get_single_mut() else {
+        return;
+    };
+    let active = curse_state
+        .map(|state| {
+            state
+                .active
+                .iter()
+                .map(|curse| {
+                    let title = data
+                        .as_deref()
+                        .and_then(|registry| {
+                            registry
+                                .curses
+                                .curses
+                                .iter()
+                                .find(|config| config.id == curse.curse)
+                        })
+                        .map(|config| config.title.as_str())
+                        .unwrap_or("未知");
+                    format!("{title} ({})", curse.rooms_remaining)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if active.is_empty() {
+        curse_text.sections[0].value = "诅咒：无".to_string();
+        curse_text.sections[0].style.color = Color::srgb(0.74, 0.78, 0.86);
+    } else {
+        curse_text.sections[0].value = format!("诅咒：{}", active.join(" · "));
+        curse_text.sections[0].style.color = Color::srgb(0.96, 0.48, 0.48);
+    }
 }
 
 pub fn update_gold_text(
@@ -874,6 +1016,28 @@ fn room_distances_from_start(layout: &FloorLayout) -> HashMap<RoomId, u32> {
     }
 
     distances
+}
+
+fn rune_slot_color(slot: RuneSlot) -> Color {
+    match slot {
+        RuneSlot::Melee => Color::srgb(0.82, 0.28, 0.24),
+        RuneSlot::Ranged => Color::srgb(0.24, 0.48, 0.86),
+        RuneSlot::Dash => Color::srgb(0.20, 0.72, 0.46),
+        RuneSlot::Finisher => Color::srgb(0.88, 0.70, 0.24),
+    }
+}
+
+fn rune_glyph(data: Option<&GameDataRegistry>, rune_id: crate::gameplay::rune::data::RuneId) -> String {
+    data.and_then(|registry| {
+        registry
+            .runes
+            .runes
+            .iter()
+            .find(|config| config.id == rune_id)
+            .and_then(|config| config.title.chars().next())
+    })
+    .map(|glyph| glyph.to_string())
+    .unwrap_or_else(|| "?".to_string())
 }
 
 fn room_color(room_type: RoomType) -> (Color, f32) {

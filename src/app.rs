@@ -38,6 +38,10 @@ impl Plugin for GamePlugin {
                 CoopPlugin,
                 PvpPlugin,
                 UiPlugin,
+            ))
+            .add_plugins((
+                crate::gameplay::rune::RunePlugin,
+                crate::gameplay::curse::CursePlugin,
             ));
     }
 }

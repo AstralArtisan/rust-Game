@@ -8,6 +8,8 @@ pub struct GameDataRegistry {
     pub enemies: EnemiesConfig,
     pub bosses: BossesConfig,
     pub rewards: RewardsConfig,
+    pub runes: RunesConfig,
+    pub curses: CursesConfig,
     pub rooms: RoomGenConfig,
     pub balance: GameBalanceConfig,
 }

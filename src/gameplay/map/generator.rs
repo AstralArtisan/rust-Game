@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::events::SpawnEnemyEvent;
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::curse::CurseState;
 use crate::gameplay::map::room::{
     CurrentRoom, Direction, FloorLayout, RoomBounds, RoomConnections, RoomData, RoomId, RoomType,
 };
@@ -31,6 +32,7 @@ pub fn generate_and_spawn_floor(
     existing_transition: Option<Res<RoomTransition>>,
     mut visited: Option<ResMut<VisitedRooms>>,
     mut player_q: Query<(&mut Transform, &mut Velocity, &mut DashState), With<Player>>,
+    player_curse_q: Query<&CurseState, With<Player>>,
 ) {
     if let Some(layout) = existing_layout.as_deref() {
         if existing_current.is_none() {
@@ -49,7 +51,11 @@ pub fn generate_and_spawn_floor(
     commands.insert_resource(RoomTransition::default());
 
     let floor_number = floor.as_deref().map(|floor| floor.0).unwrap_or(1);
-    let rooms = build_rooms(data.as_deref(), floor_number, &mut rng);
+    let has_active_curse = player_curse_q
+        .get_single()
+        .map(CurseState::has_any_curse)
+        .unwrap_or(false);
+    let rooms = build_rooms(data.as_deref(), floor_number, has_active_curse, &mut rng);
 
     let layout = FloorLayout {
         rooms,
@@ -73,11 +79,12 @@ pub fn spawn_current_room(commands: &mut Commands, _spawn_ev: &EventWriter<Spawn
 pub(crate) fn build_rooms(
     data: Option<&GameDataRegistry>,
     floor: u32,
+    has_active_curse: bool,
     rng: &mut GameRng,
 ) -> Vec<RoomData> {
-    if let Some(data) = data {
+    let generated = if let Some(data) = data {
         if !data.rooms.room_sequence.is_empty() {
-            return linear_rooms(
+            linear_rooms(
                 data.rooms
                     .room_sequence
                     .iter()
@@ -87,12 +94,38 @@ pub(crate) fn build_rooms(
                         mystery: false,
                     })
                     .collect(),
-            );
+            )
+        } else {
+            branching_rooms(data.balance.floor_rooms.max(4), floor, rng)
         }
-        return branching_rooms(data.balance.floor_rooms.max(4), floor, rng);
+    } else {
+        branching_rooms(7, floor, rng)
+    };
+
+    enforce_reward_room_rules(generated, floor, has_active_curse)
+}
+
+fn enforce_reward_room_rules(
+    mut rooms: Vec<RoomData>,
+    floor: u32,
+    has_active_curse: bool,
+) -> Vec<RoomData> {
+    let rewards_allowed = floor > 1 && !has_active_curse;
+    let mut reward_kept = false;
+
+    for room in &mut rooms {
+        if room.room_type != RoomType::Reward {
+            continue;
+        }
+        if !rewards_allowed || reward_kept {
+            room.room_type = RoomType::Normal;
+            room.mystery = false;
+        } else {
+            reward_kept = true;
+        }
     }
 
-    branching_rooms(7, floor, rng)
+    rooms
 }
 
 fn linear_rooms(sequence: Vec<GeneratedRoom>) -> Vec<RoomData> {
