@@ -103,7 +103,7 @@ pub fn apply_damage_events(
 
         if let Ok(state) = tide_hunter_q.get(entity) {
             if state.phase == TideHunterPhase::Stunned {
-                amount *= 2.0;
+                amount *= 1.5;
             }
         }
 

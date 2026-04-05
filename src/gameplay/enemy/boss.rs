@@ -449,7 +449,7 @@ pub fn boss_core_phase_respawn(
             for i in 0..count {
                 let angle = i as f32 / count as f32 * std::f32::consts::TAU;
                 let spawn_pos = boss_pos + Vec2::new(angle.cos(), angle.sin()) * 85.0;
-                let core_hp = 70.0 + ev.phase as f32 * 20.0;
+                let core_hp = 40.0 + ev.phase as f32 * 10.0;
                 spawn_cube_core_subcore(
                     &mut commands,
                     &assets,

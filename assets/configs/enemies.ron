@@ -28,7 +28,7 @@
   ),
   flanker: (
     max_hp: 46.0,
-    move_speed: 208.0,
+    move_speed: 195.0,
     attack_damage: 15.0,
     attack_cooldown_s: 0.82,
     aggro_range: 700.0,
@@ -38,20 +38,20 @@
   sniper: (
     max_hp: 44.0,
     move_speed: 108.0,
-    attack_damage: 20.0,
+    attack_damage: 17.0,
     attack_cooldown_s: 1.45,
     aggro_range: 860.0,
     attack_range: 620.0,
     projectile_speed: 840.0,
   ),
   support_caster: (
-    max_hp: 54.0,
-    move_speed: 126.0,
-    attack_damage: 0.0,
-    attack_cooldown_s: 1.90,
+    max_hp: 38.0,
+    move_speed: 108.0,
+    attack_damage: 9.0,
+    attack_cooldown_s: 2.20,
     aggro_range: 700.0,
-    attack_range: 260.0,
-    projectile_speed: 0.0,
+    attack_range: 240.0,
+    projectile_speed: 340.0,
   ),
 )
 

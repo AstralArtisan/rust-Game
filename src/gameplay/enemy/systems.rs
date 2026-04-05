@@ -622,7 +622,7 @@ pub fn spawn_boss(
                     spawn_pos,
                     angle,
                     0.55,
-                    70.0,
+                    40.0,
                 );
             }
         }
@@ -770,7 +770,7 @@ pub fn enemy_attack_system(
             }
             EnemyType::SupportCaster => {
                 let mut buffed_any = false;
-                let buff_kind_toggle = entity.index() % 2 == 0;
+                let nearest_player_pos = Some(player_pos);
                 let mut candidates = enemy_positions
                     .iter()
                     .copied()
@@ -781,11 +781,11 @@ pub fn enemy_attack_system(
                     })
                     .collect::<Vec<_>>();
                 candidates.sort_by(|a, b| pos.distance(a.2).total_cmp(&pos.distance(b.2)));
-                for (ally_entity, _, ally_pos) in candidates.into_iter().take(2) {
+                for (ally_entity, _, ally_pos) in candidates.into_iter().take(3) {
                     commands.entity(ally_entity).insert(EnemyBuffState {
-                        speed_mult: if buff_kind_toggle { 1.35 } else { 1.0 },
-                        cooldown_mult: if buff_kind_toggle { 1.0 } else { 1.40 },
-                        timer: Timer::from_seconds(3.4, TimerMode::Once),
+                        speed_mult: 1.50,
+                        cooldown_mult: 1.67,
+                        timer: Timer::from_seconds(3.8, TimerMode::Once),
                     });
                     particles::spawn_hit_particles(
                         &mut commands,
@@ -794,6 +794,17 @@ pub fn enemy_attack_system(
                         Color::srgba(0.55, 0.95, 0.88, 0.82),
                     );
                     buffed_any = true;
+                }
+                if let Some(target_pos) = nearest_player_pos {
+                    let dir = (target_pos - pos).normalize_or_zero();
+                    projectiles::spawn_projectile(
+                        &mut commands,
+                        &assets,
+                        Team::Enemy,
+                        pos,
+                        dir * stats.projectile_speed,
+                        stats.attack_damage,
+                    );
                 }
                 cd.timer = Timer::from_seconds(
                     if buffed_any {
@@ -895,14 +906,16 @@ pub fn enemy_death_system(
         let floor_number = floor.as_deref().map(|f| f.0).unwrap_or(1);
         let base_gold = match reward_kind {
             Some(EnemyType::Boss) => match floor_number {
-                1 => 28,
-                2 => 30,
-                3 => 32,
-                _ => 34,
+                1 => 30,
+                2 => 45,
+                3 => 58,
+                _ => 70,
             },
             _ => match floor_number {
-                1 | 2 => 9,
-                _ => 7,
+                1 => 8,
+                2 => 10,
+                3 => 13,
+                _ => 16,
             },
         };
         let reward_gold = base_gold
