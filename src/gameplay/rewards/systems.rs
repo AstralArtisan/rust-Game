@@ -99,7 +99,6 @@ impl Plugin for RewardsSystemsPlugin {
                     handle_reward_choice_input,
                     crate::ui::reward_select::reward_ui_input_system,
                     crate::ui::reward_select::update_reward_ui,
-                    crate::ui::reward_select::update_card_anim,
                 )
                     .run_if(in_state(AppState::RewardSelect)),
             )
