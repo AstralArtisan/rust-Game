@@ -346,3 +346,34 @@
 ### 已知问题 / 后续工作
 - 需要实际游玩验证影子伤害数值和持续时间是否合理
 - `cargo test` 33 项全部通过
+
+## 17. 奖励系统重构——强化数据模型 + XP/升级系统骨架（2026-04-06）
+
+### 改动内容
+- **强化模块** (`src/gameplay/augment/`)：`AugmentId`（30 个强化枚举）、`AugmentRarity`（普通/精英/传说）、`AugmentCategory`（近战/远程/机动/通用）、`HeldAugment`（含叠加层数）、`AugmentInventory` Component（自由收集，无槽位限制）
+- **经验系统** (`src/gameplay/progression/experience.rs`)：`PlayerLevel` Component（等级/XP/升级阈值）、`XpGainEvent`/`LevelUpEvent` 事件、`process_xp_gains` 系统
+- **配置文件** `assets/configs/augments.ron`：30 个强化的完整定义（id、类别、稀有度、名称、描述、升级描述、商店价格）
+- **数据注册**：`AugmentConfig`/`AugmentsConfig` 接入 `GameDataRegistry`，加载器支持 `augments.ron`
+- **玩家 spawn**：`spawn_player` 挂载 `AugmentInventory::default()` + `PlayerLevel::default()`
+
+### 目的与动机
+试玩反馈：奖励房太少（4 层只见 1 个）、成长存在感低、所有成长走同一管道（三选一）缺乏构建感。决定将成长拆为两层独立系统：
+- 第 1 层：属性成长（经验升级 + 简单属性选择，确定性）
+- 第 2 层：强化构建（Augment 系统，随机性，替代旧铭文+精通）
+
+本次为阶段 1，只建立数据骨架和事件管线，不实现战斗效果。
+
+### 关键决策
+- 强化系统替代旧铭文系统（RuneLoadout 4 槽位 → AugmentInventory 无槽位限制），旧铭文模块暂时保留以避免大规模破坏性重构
+- 同类强化可升级（stacks max 2），而非无限叠加
+- XP 阈值公式 `40 + (level-1) × 15`，保证前期升级快、后期放缓
+- augments.ron 使用 `unwrap_or` 容错加载，缺失时不阻塞游戏启动
+
+### 已知问题 / 后续工作
+- 阶段 2：强化获取流程 + 升级选择 UI（AugmentSelect/LevelUpSelect 状态）
+- 阶段 3：30 个强化的战斗效果实现
+- 阶段 4：事件房 + 商店扩展 + 祝福祠堂改造
+- 阶段 5：新怪物（Bomber/Shielder/Summoner）+ 精英词缀 + TideHunter 调整
+- 阶段 6：HUD + 平衡 + 旧代码清理
+- 完整设计文档：`PLANS.md`
+- `cargo test` 33 项全部通过
