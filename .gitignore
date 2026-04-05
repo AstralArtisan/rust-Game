@@ -5,6 +5,9 @@ Cargo.lock
 
 # Claude Code
 .claude/
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/settings.json
 .agents/
 .omx/
 
