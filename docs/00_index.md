@@ -1,7 +1,7 @@
 # 工程交接文档索引
 
-- 适用版本：当前工作树（HEAD `aa90cf3c`，tag `saved-version-20260330-161713`）
-- 最后校验：2026-03-31；`cargo check` 通过，`cargo test` 24 项通过
+- 适用版本：当前工作树（HEAD `672a0fdc`，branch `claude-playground`）
+- 最后校验：2026-04-06；`cargo check` 通过，`cargo test` 33 项通过
 - 关联源码：`README.md`、`src/`、`assets/configs/`、`docs/`
 - 实验性内容：包含。本文档会显式区分稳定模块、联机原型和历史审计材料
 
@@ -62,7 +62,7 @@
 
 ## 当前质量结论
 - `cargo check` 可通过，但仍存在大量告警
-- `cargo test` 当前通过 33 个单元测试
+- `cargo test` 当前通过 33 个单元测试（含 Boss 差异化与平衡调整后验证）
 - 现有测试主要集中在 `session_core`、`coop::net`、`coop::runtime` 与部分玩家行为约束
 - 多人文档已从旧的“0 tests”阶段演进，阅读旧文档时必须注意时间背景
 
