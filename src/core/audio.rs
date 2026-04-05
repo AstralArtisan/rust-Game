@@ -405,7 +405,8 @@ pub struct AudioPlugin;
 
 impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BgmState>()
+        app.add_plugins(bevy_kira_audio::AudioPlugin)
+            .init_resource::<BgmState>()
             .add_systems(Startup, generate_sfx_assets)
             .add_systems(Update, (sfx_playback_system, sfx_bridge_system, bgm_state_sync_system));
     }
