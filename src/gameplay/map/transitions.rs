@@ -192,11 +192,6 @@ fn opposite_direction(dir: Direction) -> Direction {
     }
 }
 
-fn player_spawn_position(entry_from: Direction, z: f32, y_offset: f32) -> Vec3 {
-    match entry_from {
-        Direction::Left => Vec3::new(-ROOM_HALF_WIDTH * 0.6, y_offset, z),
-        Direction::Right => Vec3::new(ROOM_HALF_WIDTH * 0.6, y_offset, z),
-        Direction::Up => Vec3::new(0.0, ROOM_HALF_HEIGHT * 0.55 + y_offset, z),
-        Direction::Down => Vec3::new(0.0, -ROOM_HALF_HEIGHT * 0.55 + y_offset, z),
-    }
+fn player_spawn_position(_entry_from: Direction, z: f32, y_offset: f32) -> Vec3 {
+    Vec3::new(-ROOM_HALF_WIDTH * 0.6, y_offset, z)
 }

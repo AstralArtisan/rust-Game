@@ -8,6 +8,7 @@ use crate::gameplay::curse::{CurseId, CurseState};
 use crate::gameplay::enemy::components::EnemyType;
 use crate::gameplay::enemy::spawner;
 use crate::gameplay::enemy::systems::{spawn_enemy, spawn_room_enemies};
+use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::player::components::{Gold, Health, Player};
 use crate::gameplay::progression::difficulty::{
@@ -31,13 +32,21 @@ impl Plugin for EventRoomPlugin {
             )
             .add_systems(
                 Update,
+                event_interact_system.run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
                 tick_timed_challenge.run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 Update,
                 event_room_input.run_if(in_state(AppState::EventRoom)),
             )
-            .add_systems(Update, resolve_event_room_clear);
+            .add_systems(
+                Update,
+                resolve_event_room_clear
+                    .run_if(in_state(AppState::InGame).or_else(in_state(AppState::CoopGame))),
+            );
     }
 }
 
@@ -86,6 +95,34 @@ impl EventType {
             Self::Merchant => "挑一件半价强化带走。",
             Self::TimedChallenge => "30 秒内清空房间，可得精英强化。",
             Self::EliteEncounter => "击败单个精英，直接获得精英强化。",
+        }
+    }
+
+    pub fn accent_color(self) -> Color {
+        match self {
+            Self::Gambler => Color::srgb(0.94, 0.76, 0.28),
+            Self::CurseAltar => Color::srgb(0.70, 0.36, 0.90),
+            Self::BloodPact => Color::srgb(0.88, 0.30, 0.34),
+            Self::Treasure => Color::srgb(0.30, 0.82, 0.54),
+            Self::HealingSpring => Color::srgb(0.28, 0.72, 0.96),
+            Self::Merchant => Color::srgb(0.94, 0.56, 0.24),
+            Self::PressurePlate | Self::SwitchOrder | Self::TrapSurvival => {
+                Color::srgb(0.82, 0.82, 0.88)
+            }
+            Self::TimedChallenge | Self::EliteEncounter => Color::srgb(0.96, 0.42, 0.24),
+        }
+    }
+
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Gambler => "◈",
+            Self::CurseAltar => "☠",
+            Self::BloodPact => "♦",
+            Self::Treasure => "✦",
+            Self::HealingSpring => "✿",
+            Self::Merchant => "⚙",
+            Self::PressurePlate | Self::SwitchOrder | Self::TrapSurvival => "⌘",
+            Self::TimedChallenge | Self::EliteEncounter => "⚔",
         }
     }
 
@@ -138,6 +175,7 @@ pub struct ActiveEvent {
     pub event_type: Option<EventType>,
     pub resolved: bool,
     pub room: Option<RoomId>,
+    pub interaction_ready: bool,
     pub choices: Vec<EventChoice>,
     choice_payloads: Vec<EventChoicePayload>,
     combat_reward_ready: bool,
@@ -150,6 +188,7 @@ impl Default for ActiveEvent {
             event_type: None,
             resolved: false,
             room: None,
+            interaction_ready: false,
             choices: Vec::new(),
             choice_payloads: Vec::new(),
             combat_reward_ready: false,
@@ -164,11 +203,16 @@ pub fn reset_active_event(active: &mut ActiveEvent) {
 
 fn mark_event_resolved(active: &mut ActiveEvent) {
     active.resolved = true;
+    active.event_type = None;
+    active.interaction_ready = false;
     active.choices.clear();
     active.choice_payloads.clear();
     active.combat_reward_ready = false;
     active.timed_challenge_timer = None;
 }
+
+#[derive(Component)]
+pub struct EventInteractPrompt;
 
 fn select_and_spawn_event(
     mut commands: Commands,
@@ -180,7 +224,6 @@ fn select_and_spawn_event(
     mut active: ResMut<ActiveEvent>,
     mut active_puzzle: ResMut<puzzle::ActivePuzzle>,
     mut rng: ResMut<GameRng>,
-    mut next_state: ResMut<NextState<AppState>>,
     floor: Option<Res<FloorNumber>>,
 ) {
     let (Some(layout), Some(current_room)) = (layout, current_room) else {
@@ -192,7 +235,7 @@ fn select_and_spawn_event(
     if room.room_type != RoomType::Event {
         return;
     }
-    if active.room == Some(current_room.0) && (active.resolved || active.event_type.is_some()) {
+    if active.room == Some(current_room.0) {
         return;
     }
     if active.room != Some(current_room.0) {
@@ -203,6 +246,7 @@ fn select_and_spawn_event(
     let event_type = pick_weighted_event(&mut rng);
     active.event_type = Some(event_type);
     active.resolved = false;
+    active.interaction_ready = false;
     active.choices.clear();
     active.choice_payloads.clear();
     active.combat_reward_ready = event_type.is_combat();
@@ -265,9 +309,66 @@ fn select_and_spawn_event(
         | EventType::HealingSpring
         | EventType::Merchant => {
             configure_non_combat_event(&mut active, data.as_deref(), &mut rng);
-            next_state.set(AppState::EventRoom);
+            *room_state = RoomState::Locked;
+            active.interaction_ready = true;
+            spawn_event_interact_prompt(&mut commands, &assets, event_type);
         }
     }
+}
+
+fn spawn_event_interact_prompt(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    event_type: EventType,
+) {
+    commands.spawn((
+        Text2dBundle {
+            text: Text::from_section(
+                format!("【{}】\n按 E 交互", event_type.title()),
+                TextStyle {
+                    font: assets.font.clone(),
+                    font_size: 20.0,
+                    color: event_type.accent_color(),
+                },
+            )
+            .with_justify(JustifyText::Center),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
+            ..default()
+        },
+        EventInteractPrompt,
+        InGameEntity,
+        Name::new("EventInteractPrompt"),
+    ));
+}
+
+fn event_interact_system(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut active: ResMut<ActiveEvent>,
+    mut next_state: ResMut<NextState<AppState>>,
+    player_q: Query<&GlobalTransform, With<Player>>,
+    prompt_q: Query<(Entity, &GlobalTransform), With<EventInteractPrompt>>,
+    mut commands: Commands,
+) {
+    if !active.interaction_ready || !keyboard.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+
+    let Ok(player_transform) = player_q.get_single() else {
+        return;
+    };
+    let player_pos = player_transform.translation().truncate();
+    let can_interact = prompt_q.iter().any(|(_, prompt_transform)| {
+        player_pos.distance(prompt_transform.translation().truncate()) <= 80.0
+    });
+    if !can_interact {
+        return;
+    }
+
+    for (entity, _) in &prompt_q {
+        commands.entity(entity).despawn_recursive();
+    }
+    active.interaction_ready = false;
+    next_state.set(AppState::EventRoom);
 }
 
 fn tick_timed_challenge(time: Res<Time>, mut active: ResMut<ActiveEvent>) {
@@ -305,7 +406,13 @@ fn event_room_input(
         return;
     };
 
+    if active.resolved {
+        next_state.set(AppState::InGame);
+        return;
+    }
+
     if keyboard.just_pressed(KeyCode::Escape) {
+        *room_state = RoomState::Cleared;
         mark_event_resolved(&mut active);
         next_state.set(AppState::InGame);
         return;
@@ -334,6 +441,7 @@ fn event_room_input(
     match apply_choice_payload(payload, &mut gold, &mut health, &mut inventory, &mut curses) {
         EventInputOutcome::StayOpen => {}
         EventInputOutcome::Leave => {
+            *room_state = RoomState::Cleared;
             mark_event_resolved(&mut active);
             next_state.set(AppState::InGame);
         }

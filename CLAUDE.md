@@ -55,7 +55,7 @@ $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_
 
 ## Plan-to-Codex 工作流
 
-本仓库使用 Claude 规划 + Codex 执行的分工模式。
+本仓库使用 Claude 规划 + Codex 执行的分工模式。所有代码交给codex完成，你不进行代码的修改。如果调用失败，你不要进行代码的修改工作。
 
 ### 角色分工
 
@@ -67,39 +67,37 @@ $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_
 ### 工作流程
 
 1. **Claude 规划**：使用 `plan-to-codex` skill，分析任务后写入 `PLANS.md`
-2. **Codex 执行**：运行 `./scripts/codex-from-plan.ps1`（或 `.sh`），Codex 读取 `AGENTS.md` + `PLANS.md` 并实现
+2. **Codex 执行**：使用 `codex:rescue` skill 启动 Codex（见下方调用方式）
 3. **Claude 审查**：对比 `PLANS.md` 与实际改动，检查范围、质量、回归
 4. **收尾**：执行 `doc-maintenance` 和 `git-maintenance` skills
 
 ### 关键文件
 
-| 文件                          | 用途                                         |
-| ----------------------------- | -------------------------------------------- |
-| `AGENTS.md`                   | Codex 的执行契约（范围、代码风格、报告格式） |
-| `PLANS.md`                    | 任务交接模板，Claude 写入，Codex 读取        |
-| `scripts/codex-from-plan.sh`  | Bash 启动脚本                                |
-| `scripts/codex-from-plan.ps1` | PowerShell 启动脚本                          |
+| 文件        | 用途                                         |
+| ----------- | -------------------------------------------- |
+| `AGENTS.md` | Codex 的执行契约（范围、代码风格、报告格式） |
+| `PLANS.md`  | 任务交接模板，Claude 写入，Codex 读取        |
 
-### Codex 调用方式
+### Codex 调用方式（必须遵守）
 
-在 Claude Code 中调用 Codex 写代码，使用 `codex-companion.mjs` 的 `task --write` 模式：
+**主要方式**：使用 `codex:rescue` skill，传入以下 prompt：
 
-```bash
-node "C:/Users/OMEN/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs" task --fresh --write "任务描述"
+```
+读取项目根目录的 PLANS.md，严格按照计划实现所有代码改动。遵守 AGENTS.md 执行契约。完成后运行 cargo check --quiet 和 cargo test --quiet，并按 AGENTS.md 格式输出报告。
 ```
 
-**关键参数：**
-- `--write`：必须加，否则 Codex 只能读不能写文件
-- `--fresh`：开新线程（默认）
-- `--resume`：继续上一个线程
-- `--model <model>`：指定模型
-- `--effort <level>`：推理力度（none/minimal/low/medium/high/xhigh）
+- `codex:rescue` 会自动处理线程续接（`--resume`/`--fresh`）
+- 如果是全新任务，选 `Start a new Codex thread`
+- 如果是跟进修复，选 `Continue current Codex thread`
 
-**注意事项：**
-- 不要直接在 Bash 中运行 `codex` CLI（需要 TTY，会失败）
-- `/codex:rescue` skill 默认不带 `--write`，需要写代码时应直接调用上述命令
-- Codex 遵循 `AGENTS.md` 执行契约，任务描述应明确指定要修改的文件和验证命令
-- 写完 PLANS.md 后可直接启动 Codex，不需要询问用户
+**备选方式**（`codex:rescue` 失败时）：直接调用 `mcp__codex-cli__codex` MCP 工具：
+- `sandbox`: `"workspace-write"`（必须，否则无法写文件）
+- `workingDirectory`: `"E:/rust_game_merge"`
+- `fullAuto`: `true`
+
+**禁止的方式：**
+- 不要在 Bash 中运行 `codex` CLI（需要 TTY，会失败）
+- 不要调用 `node codex-companion.mjs`（需要 TTY）
 
 ### 默认行为
 
