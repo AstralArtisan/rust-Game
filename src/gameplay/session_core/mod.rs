@@ -1,3 +1,7 @@
+use crate::data::definitions::{CursesConfig, RunesConfig};
+use crate::data::registry::GameDataRegistry;
+use crate::gameplay::augment::data::{AugmentId, AugmentRarity};
+use crate::gameplay::curse::CurseId;
 use crate::gameplay::map::room::RoomType;
 use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Health,
@@ -8,8 +12,6 @@ use crate::gameplay::rewards::apply::{
     dash_cooldown_gain_s, heal_amount, max_health_gain, move_speed_gain,
 };
 use crate::gameplay::rewards::data::RewardType;
-use crate::data::definitions::{CursesConfig, RunesConfig};
-use crate::gameplay::curse::CurseId;
 use crate::gameplay::rune::data::{RuneId, RuneLoadout, RuneSlot, RuneTier};
 use crate::utils::rng::GameRng;
 
@@ -137,6 +139,9 @@ pub enum SharedShopItem {
     IncreaseEnergyMax,
     IncreaseCritChance,
     IncreaseAttackSpeed,
+    Augment(AugmentId),
+    HealingPotion,
+    RemoveCurse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,6 +155,8 @@ pub struct ShopOfferDraft {
 pub struct ShopDraft {
     pub refresh_count: u32,
     pub offers: Vec<ShopOfferDraft>,
+    pub augment_offers: Vec<ShopOfferDraft>,
+    pub utility_offers: Vec<ShopOfferDraft>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,10 +334,20 @@ pub fn reward_option_requests_revive(option: RewardOptionDraft) -> bool {
     option == RewardOptionDraft::Revive
 }
 
-pub fn build_shop_draft(floor_number: u32, mods: RewardModifiers, rng: &mut GameRng) -> ShopDraft {
+pub fn build_shop_draft(
+    floor_number: u32,
+    mods: RewardModifiers,
+    rng: &mut GameRng,
+    registry: Option<&GameDataRegistry>,
+    has_curse: bool,
+) -> ShopDraft {
     ShopDraft {
         refresh_count: 0,
         offers: build_shop_offers(floor_number, mods, rng),
+        augment_offers: registry
+            .map(|registry| build_augment_offers(registry, rng, floor_number))
+            .unwrap_or_default(),
+        utility_offers: build_utility_offers(has_curse),
     }
 }
 
@@ -339,10 +356,16 @@ pub fn refresh_shop_draft(
     floor_number: u32,
     mods: RewardModifiers,
     rng: &mut GameRng,
+    registry: Option<&GameDataRegistry>,
+    has_curse: bool,
 ) -> ShopDraft {
     ShopDraft {
         refresh_count: refresh_count.saturating_add(1),
         offers: build_shop_offers(floor_number, mods, rng),
+        augment_offers: registry
+            .map(|registry| build_augment_offers(registry, rng, floor_number))
+            .unwrap_or_default(),
+        utility_offers: build_utility_offers(has_curse),
     }
 }
 
@@ -513,6 +536,57 @@ fn build_shop_offers(
         .collect()
 }
 
+fn build_augment_offers(
+    registry: &GameDataRegistry,
+    rng: &mut GameRng,
+    floor_number: u32,
+) -> Vec<ShopOfferDraft> {
+    let target_count = if floor_number >= 3 { 3 } else { 2 };
+    let mut pool = registry.augments.augments.iter().collect::<Vec<_>>();
+    if pool.is_empty() {
+        return Vec::new();
+    }
+
+    rng.shuffle(&mut pool);
+    pool.truncate(target_count.min(pool.len()));
+
+    pool.into_iter()
+        .map(|augment| ShopOfferDraft {
+            item: SharedShopItem::Augment(augment.id),
+            cost: augment_shop_cost(augment.shop_cost, augment.rarity),
+            purchased: false,
+        })
+        .collect()
+}
+
+fn build_utility_offers(has_curse: bool) -> Vec<ShopOfferDraft> {
+    let mut offers = vec![ShopOfferDraft {
+        item: SharedShopItem::HealingPotion,
+        cost: 30,
+        purchased: false,
+    }];
+    if has_curse {
+        offers.push(ShopOfferDraft {
+            item: SharedShopItem::RemoveCurse,
+            cost: 80,
+            purchased: false,
+        });
+    }
+    offers
+}
+
+fn augment_shop_cost(shop_cost: u32, rarity: AugmentRarity) -> u32 {
+    if shop_cost > 0 {
+        shop_cost
+    } else {
+        match rarity {
+            AugmentRarity::Common => 40,
+            AugmentRarity::Elite => 70,
+            AugmentRarity::Legendary => 120,
+        }
+    }
+}
+
 fn apply_shop_item(
     item: SharedShopItem,
     floor_number: u32,
@@ -589,6 +663,13 @@ fn apply_shop_item(
                 effects.mods.shop_attack_speed_purchases.saturating_add(1);
             true
         }
+        SharedShopItem::Augment(_) => false,
+        SharedShopItem::HealingPotion => {
+            let heal = effects.health.max * 0.25;
+            effects.health.current = (effects.health.current + heal).min(effects.health.max);
+            true
+        }
+        SharedShopItem::RemoveCurse => false,
     }
 }
 
@@ -703,7 +784,10 @@ pub fn generate_blessing_choices(
         .take(2)
         .enumerate()
         .filter_map(|(index, rune)| {
-            let curse = curses.get(index).copied().or_else(|| curses.first().copied())?;
+            let curse = curses
+                .get(index)
+                .copied()
+                .or_else(|| curses.first().copied())?;
             Some(BlessingOffer {
                 rune_id: rune.id,
                 rune_slot: rune.slot,
@@ -773,12 +857,19 @@ fn shop_item_extra_cost(item: SharedShopItem) -> u32 {
         SharedShopItem::IncreaseEnergyMax => 12,
         SharedShopItem::IncreaseCritChance => 20,
         SharedShopItem::IncreaseAttackSpeed => 20,
+        SharedShopItem::Augment(_)
+        | SharedShopItem::HealingPotion
+        | SharedShopItem::RemoveCurse => 0,
     }
 }
 
 fn shop_purchase_count(mods: RewardModifiers, item: SharedShopItem) -> u8 {
     match item {
-        SharedShopItem::Heal | SharedShopItem::IncreaseEnergyMax => 0,
+        SharedShopItem::Heal
+        | SharedShopItem::IncreaseEnergyMax
+        | SharedShopItem::Augment(_)
+        | SharedShopItem::HealingPotion
+        | SharedShopItem::RemoveCurse => 0,
         SharedShopItem::IncreaseMaxHealth => mods.shop_max_health_purchases,
         SharedShopItem::IncreaseAttackPower => mods.shop_attack_power_purchases,
         SharedShopItem::ReduceDashCooldown => mods.shop_dash_purchases,

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
-use crate::gameplay::shop::{ShopOffers, ShopUiLine, next_refresh_cost};
+use crate::gameplay::shop::{ShopLine, ShopOffers, ShopUiLine, next_refresh_cost};
 use crate::states::AppState;
 use crate::ui::widgets;
 
@@ -47,7 +47,7 @@ pub fn setup_shop_ui(mut commands: Commands, assets: Res<GameAssets>) {
                 panel.spawn(widgets::title_text(&assets, "商店", 28.0));
                 panel.spawn(widgets::body_text(
                     &assets,
-                    "按 1/2/3 购买；R 刷新；Esc 关闭。购买后会自动关闭商店。",
+                    "1/2/3 属性 | 4/5/6 强化 | 7/8 工具 | R 刷新 | Esc 关闭",
                     18.0,
                 ));
                 panel.spawn((
@@ -88,25 +88,39 @@ pub fn update_shop_ui(
             format!("刷新：{} 金币", refresh_cost)
         };
         lines.spawn((widgets::body_text(&assets, refresh_text, 18.0), ShopUiLine));
-        for (i, line) in offers.lines.iter().enumerate() {
-            lines.spawn((
-                widgets::body_text(
-                    &assets,
-                    if line.purchased {
-                        format!("{}）{}（已购买）", i + 1, line.title)
-                    } else {
-                        format!("{}）{}（价格：{}）", i + 1, line.title, line.cost)
-                    },
-                    20.0,
-                ),
-                ShopUiLine,
-            ));
-            lines.spawn((
-                widgets::body_text(&assets, line.description.clone(), 16.0),
-                ShopUiLine,
-            ));
-        }
+        spawn_shop_section(lines, &assets, "属性", &offers.lines, 1);
+        spawn_shop_section(lines, &assets, "强化", &offers.augment_lines, 4);
+        spawn_shop_section(lines, &assets, "工具", &offers.utility_lines, 7);
     });
+}
+
+fn spawn_shop_section(
+    lines: &mut ChildBuilder,
+    assets: &GameAssets,
+    title: &str,
+    section_lines: &[ShopLine],
+    key_start: usize,
+) {
+    lines.spawn((widgets::title_text(assets, title, 22.0), ShopUiLine));
+    for (i, line) in section_lines.iter().enumerate() {
+        let key = key_start + i;
+        lines.spawn((
+            widgets::body_text(
+                assets,
+                if line.purchased {
+                    format!("{}）{}（已购买）", key, line.title)
+                } else {
+                    format!("{}）{}（价格：{}）", key, line.title, line.cost)
+                },
+                20.0,
+            ),
+            ShopUiLine,
+        ));
+        lines.spawn((
+            widgets::body_text(assets, line.description.clone(), 16.0),
+            ShopUiLine,
+        ));
+    }
 }
 
 pub fn shop_ui_input_system(
