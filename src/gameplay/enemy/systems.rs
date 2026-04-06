@@ -554,6 +554,23 @@ pub fn spawn_enemy(
             }
             EliteAffix::Swift | EliteAffix::Splitting | EliteAffix::Vampiric => {}
         }
+        entity.with_children(|parent| {
+            parent.spawn((
+                Text2dBundle {
+                    text: Text::from_section(
+                        affix.label(),
+                        TextStyle {
+                            font_size: 12.0,
+                            color: affix.color(),
+                            ..default()
+                        },
+                    ),
+                    transform: Transform::from_translation(Vec3::new(0.0, 20.0, 10.0)),
+                    ..default()
+                },
+                EliteAffixLabel,
+            ));
+        });
     }
 
     if enemy_type == EnemyType::Charger {

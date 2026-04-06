@@ -57,6 +57,32 @@ pub enum EliteAffix {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct EliteAffixMarker(pub EliteAffix);
 
+#[derive(Component)]
+pub struct EliteAffixLabel;
+
+impl EliteAffix {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Swift => "迅捷",
+            Self::Splitting => "分裂",
+            Self::Shielded => "护盾",
+            Self::Vampiric => "吸血",
+            Self::Berserk => "狂暴",
+            Self::Teleporting => "闪现",
+        }
+    }
+    pub fn color(&self) -> Color {
+        match self {
+            Self::Swift => Color::srgb(0.3, 0.9, 1.0),
+            Self::Splitting => Color::srgb(0.5, 1.0, 0.5),
+            Self::Shielded => Color::srgb(0.7, 0.7, 1.0),
+            Self::Vampiric => Color::srgb(1.0, 0.3, 0.3),
+            Self::Berserk => Color::srgb(1.0, 0.5, 0.0),
+            Self::Teleporting => Color::srgb(0.8, 0.4, 1.0),
+        }
+    }
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct ShieldedAffixState {
     pub charges: u8,
