@@ -491,9 +491,11 @@ pub fn freeze_system(
             (0.15, 1.5)
         };
         if rng.gen_range_f32(0.0, 1.0) < chance {
-            commands.entity(event.target).insert(Frozen {
-                timer: Timer::from_seconds(duration, TimerMode::Once),
-            });
+            if let Some(mut ec) = commands.get_entity(event.target) {
+                ec.insert(Frozen {
+                    timer: Timer::from_seconds(duration, TimerMode::Once),
+                });
+            }
         }
     }
 }
