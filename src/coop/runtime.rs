@@ -29,10 +29,17 @@ use crate::gameplay::player::components::{
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::puzzle::{ActivePuzzle, reset_active_puzzle};
+use crate::data::definitions::RewardScalingConfig;
 use crate::gameplay::rewards::apply::{
     apply_reward_to_player_components, attack_power_gain, attack_speed_gain_s, crit_gain,
     dash_cooldown_gain_s, heal_amount, max_health_gain, move_speed_gain,
 };
+
+fn scaling_from_registry(data: &Option<Res<GameDataRegistry>>) -> RewardScalingConfig {
+    data.as_ref()
+        .map(|d| d.rewards.scaling.clone())
+        .unwrap_or_else(RewardScalingConfig::default_config)
+}
 use crate::gameplay::rewards::data::RewardType;
 use crate::gameplay::shop::next_refresh_cost;
 use crate::states::{AppState, RoomState};
@@ -695,10 +702,12 @@ fn host_process_phase_commands(
             CoopCommandMessage::BuyShopItem { slot, index }
                 if session.phase == CoopPhase::Shop && slot_client_id(slot) == client_id =>
             {
+                let scaling = scaling_from_registry(&data);
                 try_purchase_shop_item(
                     slot,
                     index as usize,
                     &mut session,
+                    &scaling,
                     &mut player_queries.p0(),
                 );
             }
@@ -723,10 +732,12 @@ fn host_process_phase_commands(
 
     if session.phase == CoopPhase::Reward && reward_phase_complete(&session) {
         let revive_data = {
+            let scaling = scaling_from_registry(&data);
             let mut players = player_queries.p0();
             apply_reward_phase(
                 &mut session,
                 floor.as_deref().map(|value| value.0).unwrap_or(1),
+                &scaling,
                 &mut players,
             )
         };
@@ -1691,6 +1702,7 @@ fn sync_reward_phase_state(
 fn apply_reward_phase(
     session: &mut CoopSessionState,
     floor_number: u32,
+    scaling: &RewardScalingConfig,
     players: &mut Query<
         (
             &PlayerSlot,
@@ -1748,6 +1760,7 @@ fn apply_reward_phase(
                 selected,
                 player_state.mode,
                 floor_number,
+                scaling,
                 &mut health,
                 &mut move_speed,
                 &mut attack_power,
@@ -1778,6 +1791,7 @@ fn apply_reward_option_effect(
     selected: CoopRewardOption,
     mode: CoopRewardMode,
     floor_number: u32,
+    scaling: &RewardScalingConfig,
     health: &mut Health,
     move_speed: &mut MoveSpeed,
     attack_power: &mut AttackPower,
@@ -1793,6 +1807,7 @@ fn apply_reward_option_effect(
                 reward,
                 floor_number,
                 reward_scale_for_mode(mode),
+                scaling,
                 mods,
                 health,
                 move_speed,
@@ -1805,7 +1820,7 @@ fn apply_reward_option_effect(
             false
         }
         CoopRewardOption::Rest => {
-            let heal = heal_amount(health.max, floor_number);
+            let heal = heal_amount(scaling, health.max, floor_number);
             health.current = (health.current + heal).min(health.max);
             false
         }
@@ -1986,6 +2001,7 @@ fn try_purchase_shop_item(
     slot: PlayerSlot,
     index: usize,
     session: &mut CoopSessionState,
+    scaling: &RewardScalingConfig,
     players: &mut Query<
         (
             &PlayerSlot,
@@ -2040,6 +2056,7 @@ fn try_purchase_shop_item(
         if !apply_shop_item(
             offer.item,
             session.floor_number.max(1),
+            &scaling,
             &mut health,
             &mut energy,
             &mut move_speed,
@@ -2099,6 +2116,7 @@ fn build_shop_offers_for_player(
 fn apply_shop_item(
     item: CoopShopItem,
     floor_number: u32,
+    scaling: &RewardScalingConfig,
     health: &mut Health,
     energy: &mut Energy,
     move_speed: &mut MoveSpeed,
@@ -2115,14 +2133,14 @@ fn apply_shop_item(
             true
         }
         CoopShopItem::IncreaseMaxHealth => {
-            let gain = max_health_gain(floor_number);
+            let gain = max_health_gain(scaling, floor_number);
             health.max += gain;
             health.current = (health.current + gain).min(health.max);
             mods.shop_max_health_purchases = mods.shop_max_health_purchases.saturating_add(1);
             true
         }
         CoopShopItem::IncreaseAttackPower => {
-            attack_power.0 += attack_power_gain(floor_number);
+            attack_power.0 += attack_power_gain(scaling, floor_number);
             mods.shop_attack_power_purchases = mods.shop_attack_power_purchases.saturating_add(1);
             true
         }
@@ -2131,13 +2149,13 @@ fn apply_shop_item(
             if remain <= 0.0 {
                 return false;
             }
-            mods.shop_dash_cooldown_reduction_s += dash_cooldown_gain_s(floor_number).min(remain);
+            mods.shop_dash_cooldown_reduction_s += dash_cooldown_gain_s(scaling, floor_number).min(remain);
             dash_cd.apply_reduction(mods.total_dash_cooldown_reduction());
             mods.shop_dash_purchases = mods.shop_dash_purchases.saturating_add(1);
             true
         }
         CoopShopItem::IncreaseMoveSpeed => {
-            let gain = move_speed_gain(floor_number) * 0.75;
+            let gain = move_speed_gain(scaling, floor_number) * 0.75;
             move_speed.0 += gain;
             mods.shop_move_speed_purchases = mods.shop_move_speed_purchases.saturating_add(1);
             true
@@ -2148,7 +2166,7 @@ fn apply_shop_item(
             true
         }
         CoopShopItem::IncreaseCritChance => {
-            let gain = crit_gain(floor_number) * 0.75;
+            let gain = crit_gain(scaling, floor_number) * 0.75;
             let next = (crit.0 + gain).clamp(0.0, 1.0);
             if (next - crit.0).abs() < f32::EPSILON {
                 return false;
@@ -2162,7 +2180,7 @@ fn apply_shop_item(
             if remain <= 0.0 {
                 return false;
             }
-            mods.shop_attack_speed_reduction_s += attack_speed_gain_s(floor_number).min(remain);
+            mods.shop_attack_speed_reduction_s += attack_speed_gain_s(scaling, floor_number).min(remain);
             attack_cd.apply_speed_bonus(mods.total_melee_speed_bonus());
             ranged_cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
             mods.shop_attack_speed_purchases = mods.shop_attack_speed_purchases.saturating_add(1);
@@ -2644,11 +2662,13 @@ mod tests {
             mut ranged_cd,
             mut mods,
         ) = sample_player_stats();
+        let scaling = RewardScalingConfig::default_config();
 
         let revive = apply_reward_option_effect(
             CoopRewardOption::Rest,
             CoopRewardMode::HealOrBuff,
             1,
+            &scaling,
             &mut health,
             &mut move_speed,
             &mut attack_power,
@@ -2665,6 +2685,7 @@ mod tests {
             CoopRewardOption::Revive,
             CoopRewardMode::LoneSurvivor,
             1,
+            &scaling,
             &mut health,
             &mut move_speed,
             &mut attack_power,
@@ -2699,12 +2720,14 @@ mod tests {
             mut boss_ranged_cd,
             mut boss_mods,
         ) = sample_player_stats();
+        let scaling = RewardScalingConfig::default_config();
 
         let reward = CoopRewardOption::Buff(RewardType::IncreaseAttackPower);
         assert!(!apply_reward_option_effect(
             reward,
             CoopRewardMode::SingleBuff,
             1,
+            &scaling,
             &mut single_health,
             &mut single_move_speed,
             &mut single_attack_power,
@@ -2718,6 +2741,7 @@ mod tests {
             reward,
             CoopRewardMode::DualBuff,
             1,
+            &scaling,
             &mut boss_health,
             &mut boss_move_speed,
             &mut boss_attack_power,
@@ -2783,10 +2807,12 @@ mod tests {
             current: 30.0,
             max: 75.0,
         };
+        let scaling = RewardScalingConfig::default_config();
 
         assert!(apply_shop_item(
             CoopShopItem::IncreaseEnergyMax,
             1,
+            &scaling,
             &mut health,
             &mut energy,
             &mut move_speed,

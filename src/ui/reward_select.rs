@@ -4,6 +4,8 @@ use crate::core::assets::GameAssets;
 use crate::core::events::{RewardChoiceGroup, RewardChosenEvent};
 use crate::gameplay::player::components::{Health, Player, RewardModifiers};
 use crate::gameplay::progression::floor::FloorNumber;
+use crate::data::definitions::RewardScalingConfig;
+use crate::data::registry::GameDataRegistry;
 use crate::gameplay::rewards::apply::heal_amount;
 use crate::gameplay::rewards::data::RewardType;
 use crate::gameplay::rewards::systems::{
@@ -38,6 +40,7 @@ pub fn setup_reward_ui(
     blessing_flow: Res<BlessingFlow>,
     flow: Res<RewardFlow>,
     floor: Option<Res<FloorNumber>>,
+    registry: Option<Res<GameDataRegistry>>,
     player_q: Query<(&RewardModifiers, &Health), With<Player>>,
 ) {
     let (mods, health) = player_q
@@ -52,7 +55,8 @@ pub fn setup_reward_ui(
         ));
 
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let heal_value = heal_amount(health.max, floor_number);
+    let scaling = registry.as_ref().map(|d| d.rewards.scaling.clone()).unwrap_or_else(RewardScalingConfig::default_config);
+    let heal_value = heal_amount(&scaling, health.max, floor_number);
 
     commands
         .spawn((widgets::root_node(), RewardUi, Name::new("RewardRoot")))

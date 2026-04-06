@@ -9,6 +9,7 @@ use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Health,
     MoveSpeed, RangedCooldown, RewardModifiers,
 };
+use crate::data::definitions::RewardScalingConfig;
 use crate::gameplay::rewards::apply::{
     apply_reward_to_player_components, attack_power_gain, attack_speed_gain_s, crit_gain,
     dash_cooldown_gain_s, heal_amount, max_health_gain, move_speed_gain,
@@ -315,12 +316,13 @@ pub fn apply_reward_selection(
     floor_number: u32,
     effects: &mut PlayerRuleEffects<'_>,
     post_reward: PostRewardDecision,
+    scaling: &RewardScalingConfig,
 ) -> PostRewardDecision {
     for option in [selection.primary, selection.secondary]
         .into_iter()
         .flatten()
     {
-        let _ = apply_reward_option(option, selection.mode, floor_number, effects);
+        let _ = apply_reward_option(option, selection.mode, floor_number, effects, scaling);
     }
     post_reward
 }
@@ -377,8 +379,9 @@ pub fn apply_shop_purchase(
     item: SharedShopItem,
     floor_number: u32,
     effects: &mut PlayerRuleEffects<'_>,
+    scaling: &RewardScalingConfig,
 ) -> ShopPurchaseResult {
-    if apply_shop_item(item, floor_number, effects) {
+    if apply_shop_item(item, floor_number, effects, scaling) {
         ShopPurchaseResult::Applied
     } else {
         ShopPurchaseResult::NoEffect
@@ -474,6 +477,7 @@ fn apply_reward_option(
     mode: RewardDraftMode,
     floor_number: u32,
     effects: &mut PlayerRuleEffects<'_>,
+    scaling: &RewardScalingConfig,
 ) -> bool {
     match option {
         RewardOptionDraft::Buff(reward) => {
@@ -481,6 +485,7 @@ fn apply_reward_option(
                 reward,
                 floor_number,
                 reward_scale_for_mode(mode),
+                scaling,
                 effects.mods,
                 effects.health,
                 effects.move_speed,
@@ -493,7 +498,7 @@ fn apply_reward_option(
             false
         }
         RewardOptionDraft::Rest => {
-            let heal = heal_amount(effects.health.max, floor_number);
+            let heal = heal_amount(scaling, effects.health.max, floor_number);
             effects.health.current = (effects.health.current + heal).min(effects.health.max);
             false
         }
@@ -594,6 +599,7 @@ fn apply_shop_item(
     item: SharedShopItem,
     floor_number: u32,
     effects: &mut PlayerRuleEffects<'_>,
+    scaling: &RewardScalingConfig,
 ) -> bool {
     match item {
         SharedShopItem::Heal => {
@@ -601,7 +607,7 @@ fn apply_shop_item(
             true
         }
         SharedShopItem::IncreaseMaxHealth => {
-            let gain = max_health_gain(floor_number);
+            let gain = max_health_gain(scaling, floor_number);
             effects.health.max += gain;
             effects.health.current = (effects.health.current + gain).min(effects.health.max);
             effects.mods.shop_max_health_purchases =
@@ -609,7 +615,7 @@ fn apply_shop_item(
             true
         }
         SharedShopItem::IncreaseAttackPower => {
-            effects.attack_power.0 += attack_power_gain(floor_number);
+            effects.attack_power.0 += attack_power_gain(scaling, floor_number);
             effects.mods.shop_attack_power_purchases =
                 effects.mods.shop_attack_power_purchases.saturating_add(1);
             true
@@ -620,7 +626,7 @@ fn apply_shop_item(
                 return false;
             }
             effects.mods.shop_dash_cooldown_reduction_s +=
-                dash_cooldown_gain_s(floor_number).min(remain);
+                dash_cooldown_gain_s(scaling, floor_number).min(remain);
             effects
                 .dash_cooldown
                 .apply_reduction(effects.mods.total_dash_cooldown_reduction());
@@ -628,7 +634,7 @@ fn apply_shop_item(
             true
         }
         SharedShopItem::IncreaseMoveSpeed => {
-            let gain = move_speed_gain(floor_number) * 0.75;
+            let gain = move_speed_gain(scaling, floor_number) * 0.75;
             effects.move_speed.0 += gain;
             effects.mods.shop_move_speed_purchases =
                 effects.mods.shop_move_speed_purchases.saturating_add(1);
@@ -640,7 +646,7 @@ fn apply_shop_item(
             true
         }
         SharedShopItem::IncreaseCritChance => {
-            let gain = crit_gain(floor_number) * 0.75;
+            let gain = crit_gain(scaling, floor_number) * 0.75;
             let next = (effects.crit.0 + gain).clamp(0.0, 1.0);
             if (next - effects.crit.0).abs() < f32::EPSILON {
                 return false;
@@ -655,7 +661,7 @@ fn apply_shop_item(
                 return false;
             }
             effects.mods.shop_attack_speed_reduction_s +=
-                attack_speed_gain_s(floor_number).min(remain);
+                attack_speed_gain_s(scaling, floor_number).min(remain);
             effects
                 .attack_cooldown
                 .apply_speed_bonus(effects.mods.total_melee_speed_bonus());
@@ -1067,6 +1073,7 @@ mod tests {
 
     #[test]
     fn energy_shop_item_increases_energy_max() {
+        let scaling = RewardScalingConfig::default_config();
         let (
             mut health,
             mut energy,
@@ -1090,7 +1097,7 @@ mod tests {
             mods: &mut mods,
         };
 
-        let result = apply_shop_purchase(SharedShopItem::IncreaseEnergyMax, 1, &mut effects);
+        let result = apply_shop_purchase(SharedShopItem::IncreaseEnergyMax, 1, &mut effects, &scaling);
         assert_eq!(result, ShopPurchaseResult::Applied);
         assert_eq!(effects.energy.max, 125.0);
         assert_eq!(effects.energy.current, 75.0);
@@ -1163,6 +1170,7 @@ mod tests {
             mods: &mut mods,
         };
 
+        let scaling = RewardScalingConfig::default_config();
         let post = apply_reward_selection(
             RewardSelection {
                 mode: RewardDraftMode::HealOrBuff,
@@ -1172,6 +1180,7 @@ mod tests {
             1,
             &mut effects,
             PostRewardDecision::ResumeRun,
+            &scaling,
         );
 
         assert_eq!(post, PostRewardDecision::ResumeRun);

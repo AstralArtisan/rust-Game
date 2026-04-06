@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::utils::HashSet;
 
 use crate::core::events::{RewardChoiceGroup, RewardChosenEvent, RoomClearedEvent};
+use crate::data::definitions::RewardScalingConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentInventory, AugmentRarity};
 use crate::gameplay::curse::CurseState;
@@ -435,6 +436,7 @@ fn apply_reward_choice(
     mut spawned_for_room: ResMut<SpawnedForRoom>,
     mut grace: ResMut<ClearGrace>,
     mut spawn_count: ResMut<EnemySpawnCount>,
+    registry: Option<Res<GameDataRegistry>>,
 ) {
     if flow.mode == RewardFlowMode::Blessing {
         let Some(action) = blessing_pending.0.take() else {
@@ -531,11 +533,13 @@ fn apply_reward_choice(
                 ranged_cooldown: &mut ranged_cd,
                 mods: &mut mods,
             };
+            let scaling = registry.as_ref().map(|d| d.rewards.scaling.clone()).unwrap_or_else(RewardScalingConfig::default_config);
             let _ = apply_shared_reward_selection(
                 selection,
                 floor_number,
                 &mut effects,
                 PostRewardDecision::ResumeRun,
+                &scaling,
             );
         } else {
             warn!("reward chosen but no player entity was found");

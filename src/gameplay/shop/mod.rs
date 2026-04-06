@@ -3,6 +3,7 @@
 use bevy::prelude::*;
 
 use crate::core::achievements::ShopPurchaseEvent;
+use crate::data::definitions::RewardScalingConfig;
 use crate::core::assets::GameAssets;
 use crate::core::input::PlayerInputState;
 use crate::data::registry::GameDataRegistry;
@@ -536,10 +537,12 @@ pub fn handle_shop_purchase_input(
                 ranged_cooldown: &mut ranged_cd,
                 mods: &mut mods,
             };
+            let scaling = data.as_ref().map(|d| &d.rewards.scaling).cloned().unwrap_or_else(RewardScalingConfig::default_config);
             apply_shop_purchase(
                 shared_shop_item_from_shop_item(line.item),
                 floor_number,
                 &mut effects,
+                &scaling,
             ) == ShopPurchaseResult::Applied
         }
     };
