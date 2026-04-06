@@ -549,3 +549,34 @@ Boss 死亡同时触发 hitstop（`Time<Virtual>` 降到 0.05x）和 ScreenFlash
 - Phase 4c：事件房（合并 Puzzle → Event，11 种事件类型）
 - 商店 cache 按房间级别存储，诅咒状态变化后需刷新才能更新工具区
 - `cargo check` 通过，`cargo test` 44 项全部通过
+
+---
+
+## 2026-04-06 Phase 4c：事件房系统（Puzzle → Event 合并）
+
+### 改动内容
+- **`RoomType::Puzzle` → `RoomType::Event`**：全局重命名，涉及 17 个文件（room.rs/generator.rs/tiles.rs/doors.rs/hud.rs/achievements.rs/session_core/enemy systems/coop runtime/coop ui 等）
+- **新增 `AppState::EventRoom`**：用于非战斗事件的 UI 交互状态
+- **新建 `src/gameplay/event_room/mod.rs`**（748 行）：`EventRoomPlugin` + `EventType` 枚举（11 种事件）+ `ActiveEvent` 资源 + 事件选择/执行/完成系统
+  - 3 种旧谜题保留：PressurePlate/SwitchOrder/TrapSurvival（调用 puzzle 模块）
+  - 6 种非战斗事件：Gambler（50g→随机强化）、CurseAltar（接受诅咒→精英强化）、BloodPact（-30%HP→2选1强化）、Treasure（免费Common强化+30g）、HealingSpring（回复40%HP）、Merchant（2个半价强化）
+  - 2 种战斗事件：TimedChallenge（30s击杀→精英强化）、EliteEncounter（单挑精英→精英强化）
+- **新建 `src/ui/event_room.rs`**（60 行）：事件房选择 UI（标题+描述+选项列表）
+- **修改 `src/gameplay/enemy/systems.rs`**：Event 房 spawn 改由 event_room 模块统一调度
+- **修改 `src/app.rs`**：注册 EventRoom 的 OnEnter/OnExit
+- **Coop 兼容**：Event 房在 Coop 中仍转为 Normal（保持现有行为）
+
+### 目的与动机
+原 Puzzle 房只有 3 种谜题，内容单薄且 Coop 中被降级为 Normal。合并为 Event 房后，房间类型从 3 种扩展到 11 种，增加了风险回报型（赌博/诅咒祭坛/血之契约）、纯收益型（宝箱/治疗泉/旅商）和挑战型（限时/精英遭遇）事件，大幅提升房间多样性和重玩价值。
+
+### 关键决策
+- 复用 `puzzle` 模块而非重写：3 种谜题作为 EventType 的子类型，由 event_room 调度 puzzle 模块执行
+- 非战斗事件转到 `AppState::EventRoom` UI，战斗事件保持 `InGame` + `RoomState::Locked`
+- Event 房通关不触发 RewardSelect（奖励由事件自身处理）
+- 由 Codex（`codex exec --dangerously-bypass-approvals-and-sandbox`）实现，Claude 审查
+
+### 已知问题 / 后续工作
+- Phase 4 全部完成（4a 掉落物 + 4b 商店扩展 + 4c 事件房）
+- 下一步：Phase 5（新怪物 + 精英词缀 + TideHunter 调整）或 Phase 6（HUD + 平衡 + 旧代码清理）
+- 需要手动游玩验证事件房各分支的运行时表现
+- `cargo check` 通过，`cargo test` 44 项全部通过
