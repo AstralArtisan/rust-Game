@@ -411,10 +411,7 @@ pub fn next_refresh_cost(refresh_count: u32) -> u32 {
 
 fn room_clear_requires_reward(mode: SessionMode, room_type: RoomType) -> bool {
     match mode {
-        SessionMode::Solo => matches!(
-            room_type,
-            RoomType::Normal | RoomType::Boss
-        ),
+        SessionMode::Solo => matches!(room_type, RoomType::Normal | RoomType::Boss),
         SessionMode::Coop => matches!(room_type, RoomType::Normal | RoomType::Boss),
     }
 }

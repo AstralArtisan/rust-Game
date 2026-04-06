@@ -110,16 +110,27 @@ pub struct EventChoice {
 #[derive(Debug, Clone)]
 enum EventChoicePayload {
     Leave,
-    Gambler { cost: u32, augment_id: AugmentId },
+    Gambler {
+        cost: u32,
+        augment_id: AugmentId,
+    },
     CurseAltar {
         curse_id: CurseId,
         duration: u32,
         augment_id: AugmentId,
     },
-    BloodPact { augment_id: AugmentId },
-    Treasure { augment_id: AugmentId, gold_bonus: u32 },
+    BloodPact {
+        augment_id: AugmentId,
+    },
+    Treasure {
+        augment_id: AugmentId,
+        gold_bonus: u32,
+    },
     HealingSpring,
-    Merchant { cost: u32, augment_id: AugmentId },
+    Merchant {
+        cost: u32,
+        augment_id: AugmentId,
+    },
 }
 
 #[derive(Resource, Debug, Clone)]
@@ -215,8 +226,7 @@ fn select_and_spawn_event(
             };
             *room_state = RoomState::Locked;
             active.combat_reward_ready = true;
-            active.timed_challenge_timer =
-                Some(Timer::from_seconds(30.0, TimerMode::Once));
+            active.timed_challenge_timer = Some(Timer::from_seconds(30.0, TimerMode::Once));
             let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
             let enemy_count = get_floor_enemy_count(data, floor_number).max(4);
             let floor_multiplier = get_floor_difficulty_multiplier(data, floor_number);
@@ -280,7 +290,15 @@ fn event_room_input(
     mut room_state: ResMut<RoomState>,
     mut next_state: ResMut<NextState<AppState>>,
     mut cleared: EventWriter<RoomClearedEvent>,
-    mut player_q: Query<(&mut Gold, &mut Health, &mut AugmentInventory, &mut CurseState), With<Player>>,
+    mut player_q: Query<
+        (
+            &mut Gold,
+            &mut Health,
+            &mut AugmentInventory,
+            &mut CurseState,
+        ),
+        With<Player>,
+    >,
 ) {
     let Some(room) = active.room else {
         next_state.set(AppState::InGame);
@@ -345,11 +363,9 @@ fn resolve_event_room_clear(
             Some(EventType::TimedChallenge | EventType::EliteEncounter)
         ) && active.combat_reward_ready
         {
-            if let Some(augment_id) = pick_random_augment_id(
-                data.as_deref(),
-                &mut rng,
-                AugmentPool::EliteOnly,
-            ) {
+            if let Some(augment_id) =
+                pick_random_augment_id(data.as_deref(), &mut rng, AugmentPool::EliteOnly)
+            {
                 if let Ok(mut inventory) = player_q.get_single_mut() {
                     inventory.add(augment_id);
                 }
@@ -412,7 +428,9 @@ fn configure_non_combat_event(
             active.choices = vec![
                 EventChoice {
                     label: "接受代价".to_string(),
-                    description: format!("获得诅咒“{curse_title}”，并立刻得到强化“{augment_title}”。"),
+                    description: format!(
+                        "获得诅咒“{curse_title}”，并立刻得到强化“{augment_title}”。"
+                    ),
                 },
                 leave_choice(),
             ];
@@ -484,10 +502,8 @@ fn configure_non_combat_event(
                 },
                 leave_choice(),
             ];
-            active.choice_payloads = vec![
-                EventChoicePayload::HealingSpring,
-                EventChoicePayload::Leave,
-            ];
+            active.choice_payloads =
+                vec![EventChoicePayload::HealingSpring, EventChoicePayload::Leave];
         }
         EventType::Merchant => {
             let Some(data) = data else {
@@ -569,7 +585,11 @@ fn pick_weighted_event(rng: &mut GameRng) -> EventType {
         (EventType::TimedChallenge, 1),
         (EventType::EliteEncounter, 1),
     ];
-    let total_weight = weighted.iter().map(|(_, weight)| *weight).sum::<u32>().max(1);
+    let total_weight = weighted
+        .iter()
+        .map(|(_, weight)| *weight)
+        .sum::<u32>()
+        .max(1);
     let mut pick = rng.gen_range_f32(0.0, total_weight as f32).floor() as u32;
     for (event_type, weight) in weighted {
         if pick < weight {
@@ -640,22 +660,16 @@ fn pick_augment_offers(
         .collect()
 }
 
-fn pick_random_curse(
-    data: &GameDataRegistry,
-    rng: &mut GameRng,
-) -> Option<(CurseId, u32, String)> {
+fn pick_random_curse(data: &GameDataRegistry, rng: &mut GameRng) -> Option<(CurseId, u32, String)> {
     let mut curses = data.curses.curses.iter().collect::<Vec<_>>();
     if curses.is_empty() {
         return None;
     }
     rng.shuffle(&mut curses);
-    curses.into_iter().next().map(|curse| {
-        (
-            curse.id,
-            curse.duration,
-            curse.title.clone(),
-        )
-    })
+    curses
+        .into_iter()
+        .next()
+        .map(|curse| (curse.id, curse.duration, curse.title.clone()))
 }
 
 fn half_price_augment_cost(data: &GameDataRegistry, augment_id: AugmentId) -> u32 {

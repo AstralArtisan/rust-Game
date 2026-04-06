@@ -5,9 +5,9 @@ use lightyear::prelude::Replicated;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::coop::components::GhostState;
 use crate::gameplay::enemy::components::{
-    BomberPhase, BomberState, BossArchetype, ChargerPhase, ChargerState, EnemyBuffState,
-    EnemyKind, EnemyStats, EnemyType, FlankerPhase, FlankerState, ShielderState, SniperPhase,
-    SniperState, SummonerState, TideHunterPhase, TideHunterState,
+    BomberPhase, BomberState, BossArchetype, ChargerPhase, ChargerState, EnemyBuffState, EnemyKind,
+    EnemyStats, EnemyType, FlankerPhase, FlankerState, ShielderState, SniperPhase, SniperState,
+    SummonerState, TideHunterPhase, TideHunterState,
 };
 use crate::gameplay::player::components::Player;
 use crate::utils::math::{clamp_in_room, clamp_length, direction_to};
