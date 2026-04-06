@@ -498,3 +498,31 @@ Boss 死亡同时触发 hitstop（`Time<Virtual>` 降到 0.05x）和 ScreenFlash
 - 阶段3的12个普通级和10个精英级效果已在之前由 Codex 实现，本次补完传说级
 - 阶段4：事件房、商店扩展、掉落物系统
 - `cargo check` 通过，`cargo test` 44 项全部通过
+
+---
+
+## 2026-04-06 Phase 4a：掉落物系统
+
+### 改动内容
+- **新建 `src/gameplay/drops/mod.rs`**（~280 行）：`DropPlugin` + 5 个系统
+  - `spawn_drops_on_death`：监听 `DeathEvent`，根据敌人类型/精英/Boss/楼层生成金币和 XP 球实体，随机散射方向
+  - `drop_physics`：速度指数衰减 + sin 浮动 bob 动画
+  - `drop_magnet`：玩家附近的掉落物自动飞向玩家，`PickupRange` 强化扩大磁吸范围（1.6x/2.0x）
+  - `drop_collect`：距离 < 28px 时拾取，金币直接加 `Gold`，XP 发送 `XpGainEvent`，播放 `SfxKind::RewardPickup`
+  - `drop_expire`：15s 后自动 despawn
+- **修改 `src/gameplay/enemy/systems.rs`**：`enemy_death_system` 移除直接加金币（~L964-976）和发 XP 事件（~L962）的逻辑，这些职责迁移到 drops 模块
+- **修改 `src/gameplay/mod.rs`**：注册 `drops::DropPlugin`
+
+### 目的与动机
+原来敌人死亡时金币和 XP 瞬间发放到玩家账户，无视觉反馈。改为物理掉落物实体：金币（8×8 金色方块）和 XP 球（6×6 青色方块），散射后浮动，玩家靠近自动磁吸拾取。增加战斗的即时反馈感和"捡东西"的满足感。
+
+### 关键决策
+- `spawn_drops_on_death` 排序 `.before(enemy_death_system)`：因为 death system 会 despawn 实体，必须在 despawn 前读取敌人信息
+- GoldBonus 在掉落生成时按玩家乘数应用，XpBonus 在 `experience.rs` 处理——避免双重计算
+- Boss/精英/SubCore 各有独立掉落数值，普通怪按楼层递增
+- 系统同时支持 `InGame`（单机）和 `CoopGame`（主机权威）
+
+### 已知问题 / 后续工作
+- Phase 4b：商店扩展（强化购买、消耗品、诅咒移除）
+- Phase 4c：事件房（合并 Puzzle → Event，11 种事件类型）
+- `cargo check` 通过，`cargo test` 44 项全部通过
