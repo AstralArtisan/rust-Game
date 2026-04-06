@@ -24,8 +24,7 @@ impl Plugin for DropPlugin {
         app.add_systems(
             Update,
             (
-                spawn_drops_on_death
-                    .before(crate::gameplay::enemy::systems::enemy_death_system),
+                spawn_drops_on_death.before(crate::gameplay::enemy::systems::enemy_death_system),
                 drop_physics,
                 drop_magnet,
                 drop_collect,
@@ -96,13 +95,24 @@ pub fn spawn_drops_on_death(
         // Gold calculation (same as old enemy_death_system)
         let base_gold: u32 = match kind {
             EnemyType::Boss => match floor_number {
-                1 => 30, 2 => 45, 3 => 58, _ => 70,
+                1 => 30,
+                2 => 45,
+                3 => 58,
+                _ => 70,
             },
             _ => match floor_number {
-                1 => 8, 2 => 10, 3 => 13, _ => 16,
+                1 => 8,
+                2 => 10,
+                3 => 13,
+                _ => 16,
             },
         };
-        let reward_gold = base_gold + if is_elite { data.balance.elite_gold_bonus } else { 0 };
+        let reward_gold = base_gold
+            + if is_elite {
+                data.balance.elite_gold_bonus
+            } else {
+                0
+            };
 
         // XP calculation (raw, XpBonus applied in experience.rs)
         let xp_amount: u32 = match kind {
@@ -117,17 +127,33 @@ pub fn spawn_drops_on_death(
                 .map(|inv| inv.stacks(AugmentId::GoldBonus))
                 .unwrap_or(0)
             {
-                2 => 1.50, 1 => 1.25, _ => 1.0,
+                2 => 1.50,
+                1 => 1.25,
+                _ => 1.0,
             };
             let final_gold = (reward_gold as f32 * gold_mult) as u32;
             if final_gold > 0 {
-                spawn_drop(&mut commands, &assets, &mut rng, pos, DropKind::Gold, final_gold);
+                spawn_drop(
+                    &mut commands,
+                    &assets,
+                    &mut rng,
+                    pos,
+                    DropKind::Gold,
+                    final_gold,
+                );
             }
         }
 
         // Spawn single XP drop (XpBonus handled downstream)
         if xp_amount > 0 {
-            spawn_drop(&mut commands, &assets, &mut rng, pos, DropKind::Xp, xp_amount);
+            spawn_drop(
+                &mut commands,
+                &assets,
+                &mut rng,
+                pos,
+                DropKind::Xp,
+                xp_amount,
+            );
         }
     }
 }
@@ -189,7 +215,10 @@ pub fn drop_physics(
 
 pub fn drop_magnet(
     time: Res<Time>,
-    player_q: Query<(&GlobalTransform, Option<&AugmentInventory>), (With<Player>, Without<Replicated>)>,
+    player_q: Query<
+        (&GlobalTransform, Option<&AugmentInventory>),
+        (With<Player>, Without<Replicated>),
+    >,
     mut drop_q: Query<(&DroppedItem, &mut DropVelocity, &GlobalTransform), Without<Player>>,
 ) {
     let dt = time.delta_seconds();
@@ -206,7 +235,9 @@ pub fn drop_magnet(
                 .map(|inv| inv.stacks(AugmentId::PickupRange))
                 .unwrap_or(0)
             {
-                2 => 2.0, 1 => 1.6, _ => 1.0,
+                2 => 2.0,
+                1 => 1.6,
+                _ => 1.0,
             };
             let range = 140.0 * pickup_mult;
             if dist < closest_dist {
@@ -257,7 +288,9 @@ pub fn drop_collect(
                 xp_events.send(XpGainEvent { amount: item.value });
             }
         }
-        sfx_events.send(SfxEvent { kind: SfxKind::RewardPickup });
+        sfx_events.send(SfxEvent {
+            kind: SfxKind::RewardPickup,
+        });
         safe_despawn_recursive(&mut commands, drop_entity);
     }
 }

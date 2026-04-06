@@ -108,9 +108,8 @@ impl Plugin for CursePlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            tick_curses_on_room_change.run_if(
-                in_state(AppState::InGame).or_else(in_state(AppState::CoopGame)),
-            ),
+            tick_curses_on_room_change
+                .run_if(in_state(AppState::InGame).or_else(in_state(AppState::CoopGame))),
         );
     }
 }

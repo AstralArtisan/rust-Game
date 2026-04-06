@@ -27,12 +27,12 @@ use crate::gameplay::player::components::{Health as PlayerHealth, Player};
 use crate::gameplay::progression::difficulty::{
     get_floor_difficulty_multiplier, get_floor_enemy_count,
 };
+use crate::gameplay::progression::experience::XpGainEvent;
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::puzzle::{
     ActivePuzzle, PuzzleEntity, reset_active_puzzle, spawn_puzzle_for_room,
 };
 use crate::gameplay::shop::ShopKiosk;
-use crate::gameplay::progression::experience::XpGainEvent;
 use crate::gameplay::skills::ChargeGainEvent;
 use crate::states::{AppState, RoomState};
 use crate::utils::collision::aabb_from_transform_size;
@@ -594,20 +594,22 @@ pub fn spawn_boss(
                 facing: Vec2::NEG_X,
             });
             // 盾牌方向指示器：显示在 Boss 正面的橙色矩形
-            let shield_indicator = commands.spawn((
-                SpriteBundle {
-                    texture: assets.textures.white.clone(),
-                    transform: Transform::from_translation(Vec3::new(-40.0, 0.0, 1.0)),
-                    sprite: Sprite {
-                        color: Color::srgba(1.0, 0.55, 0.1, 0.85),
-                        custom_size: Some(Vec2::new(10.0, 52.0)),
+            let shield_indicator = commands
+                .spawn((
+                    SpriteBundle {
+                        texture: assets.textures.white.clone(),
+                        transform: Transform::from_translation(Vec3::new(-40.0, 0.0, 1.0)),
+                        sprite: Sprite {
+                            color: Color::srgba(1.0, 0.55, 0.1, 0.85),
+                            custom_size: Some(Vec2::new(10.0, 52.0)),
+                            ..default()
+                        },
                         ..default()
                     },
-                    ..default()
-                },
-                GuardianShieldIndicator,
-                InGameEntity,
-            )).id();
+                    GuardianShieldIndicator,
+                    InGameEntity,
+                ))
+                .id();
             commands.entity(id).add_child(shield_indicator);
         }
         BossArchetype::TideHunter => {
@@ -626,19 +628,13 @@ pub fn spawn_boss(
         }
         BossArchetype::CubeCore => {
             let boss_pos = Vec2::new(220.0, 0.0);
-            commands.entity(id).insert(BossCoreShield { cores_alive: 4 });
+            commands
+                .entity(id)
+                .insert(BossCoreShield { cores_alive: 4 });
             for i in 0..4u8 {
                 let angle = i as f32 / 4.0 * std::f32::consts::TAU;
                 let spawn_pos = boss_pos + Vec2::new(angle.cos(), angle.sin()) * 85.0;
-                boss::spawn_cube_core_subcore(
-                    commands,
-                    assets,
-                    id,
-                    spawn_pos,
-                    angle,
-                    0.55,
-                    40.0,
-                );
+                boss::spawn_cube_core_subcore(commands, assets, id, spawn_pos, angle, 0.55, 40.0);
             }
         }
         BossArchetype::MirrorWarden => {}

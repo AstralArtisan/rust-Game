@@ -45,7 +45,11 @@ pub fn setup_levelup_ui(
     choices: Res<LevelUpChoices>,
 ) {
     commands
-        .spawn((widgets::root_node(), LevelUpSelectUi, Name::new("LevelUpRoot")))
+        .spawn((
+            widgets::root_node(),
+            LevelUpSelectUi,
+            Name::new("LevelUpRoot"),
+        ))
         .with_children(|root| {
             root.spawn(widgets::panel_node(Color::srgba(0.02, 0.04, 0.02, 0.94)))
                 .with_children(|panel| {
@@ -54,11 +58,7 @@ pub fn setup_levelup_ui(
                         &format!("升级！ Lv.{}", choices.new_level),
                         30.0,
                     ));
-                    panel.spawn(widgets::title_text(
-                        &assets,
-                        "选择一项属性提升",
-                        16.0,
-                    ));
+                    panel.spawn(widgets::title_text(&assets, "选择一项属性提升", 16.0));
                     panel
                         .spawn(NodeBundle {
                             style: Style {
@@ -134,7 +134,14 @@ pub fn levelup_input(
     keys: Res<ButtonInput<KeyCode>>,
     choices: Res<LevelUpChoices>,
     mut player_q: Query<
-        (&mut Health, &mut AttackPower, &mut MoveSpeed, &mut CritChance, &mut AttackCooldown, &mut DashCooldown),
+        (
+            &mut Health,
+            &mut AttackPower,
+            &mut MoveSpeed,
+            &mut CritChance,
+            &mut AttackCooldown,
+            &mut DashCooldown,
+        ),
         With<Player>,
     >,
     mut next_state: ResMut<NextState<AppState>>,
@@ -157,7 +164,9 @@ pub fn levelup_input(
     }
 
     let Some(index) = picked else { return };
-    let Some(opt) = choices.options.get(index) else { return };
+    let Some(opt) = choices.options.get(index) else {
+        return;
+    };
 
     if let Ok((mut health, mut atk, mut spd, mut crit, mut atk_cd, mut dash_cd)) =
         player_q.get_single_mut()
@@ -172,11 +181,15 @@ pub fn levelup_input(
             LevelUpStat::CritChance(v) => crit.0 = (crit.0 + v).min(0.80),
             LevelUpStat::AttackSpeed(v) => {
                 let new_dur = (atk_cd.timer.duration().as_secs_f32() - v).max(0.15);
-                atk_cd.timer.set_duration(std::time::Duration::from_secs_f32(new_dur));
+                atk_cd
+                    .timer
+                    .set_duration(std::time::Duration::from_secs_f32(new_dur));
             }
             LevelUpStat::DashCooldown(v) => {
                 let new_dur = (dash_cd.timer.duration().as_secs_f32() - v).max(0.3);
-                dash_cd.timer.set_duration(std::time::Duration::from_secs_f32(new_dur));
+                dash_cd
+                    .timer
+                    .set_duration(std::time::Duration::from_secs_f32(new_dur));
             }
         }
     }
@@ -185,10 +198,7 @@ pub fn levelup_input(
     next_state.set(return_to);
 }
 
-pub fn cleanup_levelup_ui(
-    mut commands: Commands,
-    q: Query<Entity, With<LevelUpSelectUi>>,
-) {
+pub fn cleanup_levelup_ui(mut commands: Commands, q: Query<Entity, With<LevelUpSelectUi>>) {
     for entity in &q {
         commands.entity(entity).despawn_recursive();
     }

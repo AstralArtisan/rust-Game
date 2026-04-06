@@ -8,9 +8,7 @@ use crate::coop::net::{CoopNetConfig, NetMode};
 use crate::core::events::{BossPhaseChangeEvent, DeathEvent};
 use crate::data::definitions::BossFloorConfig;
 use crate::data::registry::GameDataRegistry;
-use crate::gameplay::combat::components::{
-    DamageKind, Hitbox, Hurtbox, Knockback, Lifetime, Team,
-};
+use crate::gameplay::combat::components::{DamageKind, Hitbox, Hurtbox, Knockback, Lifetime, Team};
 use crate::gameplay::combat::projectiles;
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
@@ -216,11 +214,14 @@ pub fn boss_color(archetype: BossArchetype) -> Color {
 
 pub fn boss_guardian_facing_system(
     player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
-    mut q: Query<
-        (Entity, &Transform, &mut BossDirectionalDefense),
-        With<BossDirectionalDefense>,
+    mut q: Query<(Entity, &Transform, &mut BossDirectionalDefense), With<BossDirectionalDefense>>,
+    mut shield_q: Query<
+        &mut Transform,
+        (
+            With<GuardianShieldIndicator>,
+            Without<BossDirectionalDefense>,
+        ),
     >,
-    mut shield_q: Query<&mut Transform, (With<GuardianShieldIndicator>, Without<BossDirectionalDefense>)>,
     children_q: Query<&Children>,
 ) {
     let player_positions: Vec<Vec2> = player_q
@@ -418,7 +419,12 @@ pub fn tide_hunter_parry_check(
         (With<Player>, Without<Replicated>),
     >,
     mut boss_q: Query<
-        (&Transform, &mut TideHunterState, &mut Sprite, Option<&mut Flash>),
+        (
+            &Transform,
+            &mut TideHunterState,
+            &mut Sprite,
+            Option<&mut Flash>,
+        ),
         With<TideHunterState>,
     >,
 ) {
@@ -456,7 +462,9 @@ pub fn shadow_trail_fade_system(
 ) {
     for (entity, mut trail, mut sprite) in &mut q {
         trail.lifetime.tick(time.delta());
-        sprite.color.set_alpha(0.7 * (1.0 - trail.lifetime.fraction()));
+        sprite
+            .color
+            .set_alpha(0.7 * (1.0 - trail.lifetime.fraction()));
         if trail.lifetime.finished() {
             commands.entity(entity).despawn_recursive();
         }
@@ -468,7 +476,13 @@ pub fn shadow_trail_damage_system(
     mut death_events: EventWriter<DeathEvent>,
     trail_q: Query<(&Transform, &ShadowTrail)>,
     mut player_q: Query<
-        (Entity, &GlobalTransform, &mut Health, &DashState, Option<&GhostState>),
+        (
+            Entity,
+            &GlobalTransform,
+            &mut Health,
+            &DashState,
+            Option<&GhostState>,
+        ),
         (With<Player>, Without<Replicated>),
     >,
 ) {
@@ -518,7 +532,10 @@ pub fn boss_core_shield_update(
     mut boss_q: Query<(Entity, &mut BossCoreShield, &mut Sprite, Option<&mut Flash>)>,
 ) {
     for (boss_entity, mut shield, mut sprite, flash_opt) in &mut boss_q {
-        let alive = core_q.iter().filter(|core| core.boss_entity == boss_entity).count() as u8;
+        let alive = core_q
+            .iter()
+            .filter(|core| core.boss_entity == boss_entity)
+            .count() as u8;
         if alive < shield.cores_alive && shield.cores_alive > 0 {
             if let Some(mut flash) = flash_opt {
                 flash.trigger(0.25);
@@ -630,7 +647,9 @@ fn compute_tide_hunter_dash_target(
         Vec2::X
     };
     let lateral = Vec2::new(-dash_dir.y, dash_dir.x);
-    let dash_index = state.dashes_per_cycle.saturating_sub(state.dashes_remaining);
+    let dash_index = state
+        .dashes_per_cycle
+        .saturating_sub(state.dashes_remaining);
 
     let target = match state.dashes_per_cycle {
         1 => player_pos + dash_dir * 80.0,
@@ -715,11 +734,7 @@ fn spawn_tide_hunter_reposition_projectiles(
         return;
     }
 
-    for angle in [
-        -15.0_f32.to_radians(),
-        0.0,
-        15.0_f32.to_radians(),
-    ] {
+    for angle in [-15.0_f32.to_radians(), 0.0, 15.0_f32.to_radians()] {
         let shot_dir = Mat2::from_angle(angle).mul_vec2(dir);
         projectiles::spawn_projectile(
             commands,

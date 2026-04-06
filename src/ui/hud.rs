@@ -166,7 +166,10 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                             ..default()
                         },
                         HealthFill,
-                        BarAnimState { current: 1.0, target: 1.0 },
+                        BarAnimState {
+                            current: 1.0,
+                            target: 1.0,
+                        },
                     ));
                 });
                 col.spawn((
@@ -220,7 +223,10 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                                     ..default()
                                 },
                                 EnergyFill,
-                                BarAnimState { current: 0.0, target: 0.0 },
+                                BarAnimState {
+                                    current: 0.0,
+                                    target: 0.0,
+                                },
                             ));
                         });
                 });
@@ -450,7 +456,10 @@ pub fn update_health_bar(
         0.0
     };
     anim.target = ratio;
-    let speed = registry.as_ref().map(|r| r.effects.bar_lerp_speed).unwrap_or(8.0);
+    let speed = registry
+        .as_ref()
+        .map(|r| r.effects.bar_lerp_speed)
+        .unwrap_or(8.0);
     let dt = time.delta_seconds();
     anim.current += (anim.target - anim.current) * (1.0 - (-speed * dt).exp());
     style.width = Val::Percent(anim.current * 100.0);
@@ -584,7 +593,10 @@ pub fn update_energy_text(
         0.0
     };
     anim.target = ratio;
-    let speed = registry.as_ref().map(|r| r.effects.bar_lerp_speed).unwrap_or(8.0);
+    let speed = registry
+        .as_ref()
+        .map(|r| r.effects.bar_lerp_speed)
+        .unwrap_or(8.0);
     let dt = time.delta_seconds();
     anim.current += (anim.target - anim.current) * (1.0 - (-speed * dt).exp());
     style.width = Val::Percent(anim.current * 100.0);
@@ -1050,7 +1062,10 @@ fn rune_slot_color(slot: RuneSlot) -> Color {
     }
 }
 
-fn rune_glyph(data: Option<&GameDataRegistry>, rune_id: crate::gameplay::rune::data::RuneId) -> String {
+fn rune_glyph(
+    data: Option<&GameDataRegistry>,
+    rune_id: crate::gameplay::rune::data::RuneId,
+) -> String {
     data.and_then(|registry| {
         registry
             .runes

@@ -48,12 +48,12 @@ pub fn screen_flash_receive_system(
     }
 }
 
-pub fn clear_screen_flash(
-    mut q: Query<(&mut ScreenFlashOverlay, &mut BackgroundColor)>,
-) {
+pub fn clear_screen_flash(mut q: Query<(&mut ScreenFlashOverlay, &mut BackgroundColor)>) {
     for (mut overlay, mut bg) in &mut q {
         overlay.timer = Timer::from_seconds(0.01, TimerMode::Once);
-        overlay.timer.set_elapsed(std::time::Duration::from_secs_f32(0.01));
+        overlay
+            .timer
+            .set_elapsed(std::time::Duration::from_secs_f32(0.01));
         overlay.base_alpha = 0.0;
         bg.0 = Color::NONE;
     }

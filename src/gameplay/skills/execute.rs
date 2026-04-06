@@ -3,6 +3,7 @@ use lightyear::prelude::Replicated;
 
 use crate::core::assets::GameAssets;
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::combat::components::{
     ArcHitbox, DamageKind, Hitbox, Lifetime, Projectile, Team,
 };
@@ -12,7 +13,6 @@ use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
 use crate::gameplay::enemy::components::Enemy;
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::combat::MeleeSlashEffect;
-use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::player::components::{
     ActiveSkill, AttackPower, DashState, Energy, FacingDirection, InvincibilityTimer, Player,
     PlayerDriveInput, PlayerSkillState, SkillSlot, SkillSlots, SkillType,

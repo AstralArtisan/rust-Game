@@ -11,7 +11,11 @@ pub fn ease_out_cubic(t: f32) -> f32 {
 
 pub fn ease_out_expo(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
-    if t >= 1.0 { 1.0 } else { 1.0 - 2.0_f32.powf(-10.0 * t) }
+    if t >= 1.0 {
+        1.0
+    } else {
+        1.0 - 2.0_f32.powf(-10.0 * t)
+    }
 }
 
 pub fn ease_out_elastic(t: f32) -> f32 {

@@ -3,6 +3,7 @@ use bevy::utils::HashSet;
 
 use crate::core::events::{RewardChoiceGroup, RewardChosenEvent, RoomClearedEvent};
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::augment::data::{AugmentInventory, AugmentRarity};
 use crate::gameplay::curse::CurseState;
 use crate::gameplay::enemy::systems::{ClearGrace, EnemySpawnCount, SpawnedForRoom};
 use crate::gameplay::map::InGameEntity;
@@ -15,8 +16,6 @@ use crate::gameplay::player::components::{
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::rewards::data::RewardType;
 use crate::gameplay::rune::data::RuneLoadout;
-use crate::gameplay::augment::data::{AugmentInventory, AugmentRarity};
-use crate::ui::augment_select::{AugmentChoiceOption, AugmentChoices};
 use crate::gameplay::session_core::{
     BlessingOffer, PlayerRuleEffects, PlayerRuleSnapshot, PostRewardDecision, RewardDraft,
     RewardDraftMode, RewardOptionDraft, RewardSelection, SessionMode, SessionRuleContext,
@@ -24,6 +23,7 @@ use crate::gameplay::session_core::{
     generate_blessing_choices, on_room_cleared, on_room_enter,
 };
 use crate::states::{AppState, RoomState};
+use crate::ui::augment_select::{AugmentChoiceOption, AugmentChoices};
 use crate::utils::entity::safe_despawn_recursive;
 use crate::utils::rng::GameRng;
 
@@ -352,8 +352,7 @@ fn handle_reward_choice_input(
     if flow.mode == RewardFlowMode::Blessing {
         if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) {
             blessing_pending.0 = Some(BlessingUiAction::Select(0));
-        } else if keyboard.just_pressed(KeyCode::Digit2)
-            || keyboard.just_pressed(KeyCode::Numpad2)
+        } else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2)
         {
             blessing_pending.0 = Some(BlessingUiAction::Select(1));
         } else if keyboard.just_pressed(KeyCode::Escape) {

@@ -10,9 +10,7 @@ use crate::gameplay::combat::components::{
 };
 use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::components::Enemy;
-use crate::gameplay::player::components::{
-    DashState, Energy, Health, RewardModifiers, Player,
-};
+use crate::gameplay::player::components::{DashState, Energy, Health, Player, RewardModifiers};
 use crate::utils::collision::{Aabb2, aabb_from_transform_size};
 
 use super::data::{AugmentId, AugmentInventory};
@@ -203,7 +201,8 @@ pub fn melee_reflect_system(
             continue;
         };
 
-        let reflected_dir = projectile_reflect_direction(projectile.velocity, reflector.arc.direction);
+        let reflected_dir =
+            projectile_reflect_direction(projectile.velocity, reflector.arc.direction);
         let reflected_speed = projectile.velocity.length().max(360.0);
         let damage_mult = if reflector.augment_stacks >= 2 {
             1.50

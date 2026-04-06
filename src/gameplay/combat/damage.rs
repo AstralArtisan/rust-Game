@@ -59,8 +59,7 @@ pub fn apply_damage_events(
             dash_shield,
             mut knockback,
             tf,
-        )) =
-            q.get_mut(ev.target)
+        )) = q.get_mut(ev.target)
         else {
             continue;
         };
@@ -90,9 +89,7 @@ pub fn apply_damage_events(
         if let Ok(shield) = core_shield_q.get(entity) {
             if shield.cores_alive > 0 {
                 if !tutorial_flags.boss_cube_core_mechanic_shown {
-                    tutorial_ev.send(TutorialNotification(
-                        "护盾！先摧毁周围的子核心".to_string(),
-                    ));
+                    tutorial_ev.send(TutorialNotification("护盾！先摧毁周围的子核心".to_string()));
                     tutorial_flags.boss_cube_core_mechanic_shown = true;
                 }
                 continue;

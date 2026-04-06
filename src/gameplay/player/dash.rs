@@ -40,8 +40,19 @@ pub fn player_dash_input_system(
         .get_single()
         .map(|session| session.phase)
         .unwrap_or(CoopPhase::None);
-    for (input, tf, mut cd, mut dash, facing, mut inv, texture, sprite, inventory, ghost, dash_visual) in
-        &mut q
+    for (
+        input,
+        tf,
+        mut cd,
+        mut dash,
+        facing,
+        mut inv,
+        texture,
+        sprite,
+        inventory,
+        ghost,
+        dash_visual,
+    ) in &mut q
     {
         cd.timer.tick(time.delta());
         if dash.active
@@ -92,10 +103,15 @@ pub fn player_dash_input_system(
             1 => 0.15,
             _ => 0.0,
         };
-        let dash_duration = if blink_stacks > 0 { 0.016 } else { dash.base_duration_s };
-        inv.timer =
-            Timer::from_seconds(dash_duration + extra_invuln, TimerMode::Once);
-        sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::Dash });
+        let dash_duration = if blink_stacks > 0 {
+            0.016
+        } else {
+            dash.base_duration_s
+        };
+        inv.timer = Timer::from_seconds(dash_duration + extra_invuln, TimerMode::Once);
+        sfx_events.send(crate::core::events::SfxEvent {
+            kind: crate::core::events::SfxKind::Dash,
+        });
         particles::spawn_dash_particles(&mut commands, &assets, tf.translation().truncate());
 
         afterimage::spawn_afterimage(
@@ -129,7 +145,9 @@ pub fn update_dash_state(
         (With<Player>, Without<Replicated>),
     >,
 ) {
-    for (player_e, tf, mut dash, texture, sprite, attack_power, mods, inventory, dash_visual) in &mut q {
+    for (player_e, tf, mut dash, texture, sprite, attack_power, mods, inventory, dash_visual) in
+        &mut q
+    {
         if !dash.active {
             if let Some(mut dash_visual) = dash_visual {
                 dash_visual.active = false;

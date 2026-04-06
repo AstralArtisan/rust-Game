@@ -28,7 +28,8 @@ fn try_load_all() -> Result<GameDataRegistry> {
         curses: load_ron("assets/configs/curses.ron")?,
         rooms: load_ron("assets/configs/rooms.ron")?,
         balance: load_ron("assets/configs/game_balance.ron")?,
-        augments: load_ron("assets/configs/augments.ron").unwrap_or(AugmentsConfig { augments: vec![] }),
+        augments: load_ron("assets/configs/augments.ron")
+            .unwrap_or(AugmentsConfig { augments: vec![] }),
         audio: load_ron("assets/configs/audio.ron").unwrap_or_default(),
         effects: load_ron("assets/configs/effects.ron").unwrap_or_default(),
     })

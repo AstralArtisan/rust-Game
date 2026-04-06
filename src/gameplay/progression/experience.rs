@@ -126,12 +126,32 @@ pub fn handle_levelup_event(
     let new_level = pending.levels.remove(0);
 
     let all_stats: Vec<(LevelUpStat, &str, &str)> = vec![
-        (LevelUpStat::AttackPower(3.0), "攻击力 +3", "提升近战和远程攻击伤害"),
-        (LevelUpStat::MaxHealth(15.0), "生命上限 +15", "提升最大生命值并回复等量HP"),
-        (LevelUpStat::MoveSpeed(15.0), "移动速度 +15", "提升角色移动速度"),
+        (
+            LevelUpStat::AttackPower(3.0),
+            "攻击力 +3",
+            "提升近战和远程攻击伤害",
+        ),
+        (
+            LevelUpStat::MaxHealth(15.0),
+            "生命上限 +15",
+            "提升最大生命值并回复等量HP",
+        ),
+        (
+            LevelUpStat::MoveSpeed(15.0),
+            "移动速度 +15",
+            "提升角色移动速度",
+        ),
         (LevelUpStat::CritChance(0.05), "暴击率 +5%", "提升暴击概率"),
-        (LevelUpStat::AttackSpeed(0.05), "攻速 +0.05s", "缩短攻击冷却时间"),
-        (LevelUpStat::DashCooldown(0.1), "冲刺冷却 -0.1s", "缩短冲刺冷却时间"),
+        (
+            LevelUpStat::AttackSpeed(0.05),
+            "攻速 +0.05s",
+            "缩短攻击冷却时间",
+        ),
+        (
+            LevelUpStat::DashCooldown(0.1),
+            "冲刺冷却 -0.1s",
+            "缩短冲刺冷却时间",
+        ),
     ];
 
     let mut indices: Vec<usize> = (0..all_stats.len()).collect();

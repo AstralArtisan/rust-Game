@@ -25,8 +25,7 @@ pub fn spawn_hit_particles_count(
 ) {
     let mut rng = rand::thread_rng();
     for i in 0..count {
-        let angle = i as f32 / count as f32 * std::f32::consts::TAU
-            + rng.gen_range(-0.3..0.3);
+        let angle = i as f32 / count as f32 * std::f32::consts::TAU + rng.gen_range(-0.3..0.3);
         let speed = rng.gen_range(120.0..200.0);
         let size = rng.gen_range(4.0..8.0);
         let vel = Vec2::new(angle.cos(), angle.sin()) * speed;

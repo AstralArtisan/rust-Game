@@ -136,7 +136,9 @@ pub fn player_attack_input_system(
 
         cd.apply_speed_bonus(melee_speed_bonus);
         cd.timer.reset();
-        sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::MeleeAttack });
+        sfx_events.send(crate::core::events::SfxEvent {
+            kind: crate::core::events::SfxKind::MeleeAttack,
+        });
         let swing = melee_swing_profile(*mods);
 
         let greed_mult = greed_damage_mult(inventory, gold.0);
@@ -239,7 +241,9 @@ pub fn player_ranged_input_system(
             .unwrap_or(cd.base_duration_s);
         cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
         cd.timer.reset();
-        sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::RangedAttack });
+        sfx_events.send(crate::core::events::SfxEvent {
+            kind: crate::core::events::SfxKind::RangedAttack,
+        });
 
         let dir = facing.0;
         let speed_boost_mult = match inventory
@@ -250,9 +254,8 @@ pub fn player_ranged_input_system(
             1 => 1.30,
             _ => 1.0,
         };
-        let speed = BASE_RANGED_PROJECTILE_SPEED
-            * mods.ranged_projectile_speed_mult()
-            * speed_boost_mult;
+        let speed =
+            BASE_RANGED_PROJECTILE_SPEED * mods.ranged_projectile_speed_mult() * speed_boost_mult;
         let greed_mult = greed_damage_mult(inventory, gold.0);
         let damage = power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult;
         spawn_player_ranged_volley(
@@ -434,10 +437,9 @@ pub fn spawn_player_melee_hitbox_with_mods(
         );
         // Upgraded: infinite pierce
         if sword_wave_stacks >= 2 {
-            commands.entity(sw_entity).insert((
-                PierceCount { remaining: 255 },
-                HitTargets::default(),
-            ));
+            commands
+                .entity(sw_entity)
+                .insert((PierceCount { remaining: 255 }, HitTargets::default()));
         }
     }
 }
@@ -948,50 +950,52 @@ fn spawn_player_sword_wave(
     let direction = dir.try_normalize().unwrap_or(Vec2::X);
     let size = Vec2::new(82.0, 36.0);
     let velocity = direction * SWORD_WAVE_SPEED;
-    commands.spawn((
-        SpriteBundle {
-            texture: assets.textures.slash.clone(),
-            transform: Transform {
-                translation: pos.extend(59.0),
-                rotation: Quat::from_rotation_z(direction.y.atan2(direction.x)),
-                scale: Vec3::new(1.08, 0.72, 1.0),
-            },
-            sprite: Sprite {
-                color: Color::srgba(0.64, 0.96, 1.0, 0.72),
-                custom_size: Some(size),
+    commands
+        .spawn((
+            SpriteBundle {
+                texture: assets.textures.slash.clone(),
+                transform: Transform {
+                    translation: pos.extend(59.0),
+                    rotation: Quat::from_rotation_z(direction.y.atan2(direction.x)),
+                    scale: Vec3::new(1.08, 0.72, 1.0),
+                },
+                sprite: Sprite {
+                    color: Color::srgba(0.64, 0.96, 1.0, 0.72),
+                    custom_size: Some(size),
+                    ..default()
+                },
                 ..default()
             },
-            ..default()
-        },
-        TextureAtlas {
-            layout: assets.textures.slash_layout.clone(),
-            index: 0,
-        },
-        Projectile {
-            team: Team::Player,
-            velocity,
-        },
-        Hitbox {
-            owner: Some(owner),
-            team: Team::Player,
-            damage_kind: DamageKind::PlayerMelee,
-            size: Vec2::new(56.0, 22.0),
-            damage,
-            knockback: 180.0,
-            can_crit: false,
-            crit_chance: 0.0,
-            crit_multiplier: 1.0,
-        },
-        Lifetime(Timer::from_seconds(SWORD_WAVE_LIFETIME_S, TimerMode::Once)),
-        MeleeSlashEffect {
-            timer: Timer::from_seconds(SWORD_WAVE_LIFETIME_S, TimerMode::Once),
-            base_alpha: 0.72,
-            base_scale: Vec3::new(1.08, 0.72, 1.0),
-            frame_count: SLASH_FRAME_COUNT,
-        },
-        InGameEntity,
-        Name::new("SwordWave"),
-    )).id()
+            TextureAtlas {
+                layout: assets.textures.slash_layout.clone(),
+                index: 0,
+            },
+            Projectile {
+                team: Team::Player,
+                velocity,
+            },
+            Hitbox {
+                owner: Some(owner),
+                team: Team::Player,
+                damage_kind: DamageKind::PlayerMelee,
+                size: Vec2::new(56.0, 22.0),
+                damage,
+                knockback: 180.0,
+                can_crit: false,
+                crit_chance: 0.0,
+                crit_multiplier: 1.0,
+            },
+            Lifetime(Timer::from_seconds(SWORD_WAVE_LIFETIME_S, TimerMode::Once)),
+            MeleeSlashEffect {
+                timer: Timer::from_seconds(SWORD_WAVE_LIFETIME_S, TimerMode::Once),
+                base_alpha: 0.72,
+                base_scale: Vec3::new(1.08, 0.72, 1.0),
+                frame_count: SLASH_FRAME_COUNT,
+            },
+            InGameEntity,
+            Name::new("SwordWave"),
+        ))
+        .id()
 }
 
 fn greed_damage_mult(inventory: Option<&AugmentInventory>, gold: u32) -> f32 {

@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use bevy_kira_audio::prelude::*;
 use bevy_kira_audio::prelude::StaticSoundData;
+use bevy_kira_audio::prelude::*;
 use rand::Rng;
 
 use crate::core::assets::GameAssets;
@@ -111,7 +111,11 @@ fn gen_hit() -> Vec<f32> {
         // Layer 1: low thump 110 Hz
         let low = osc(&mut ph1, 110.0) * 0.5;
         // Layer 2: noise transient first 5ms
-        let noise_env = if i < onset_len { (1.0 - i as f32 / onset_len as f32).powi(2) } else { 0.0 };
+        let noise_env = if i < onset_len {
+            (1.0 - i as f32 / onset_len as f32).powi(2)
+        } else {
+            0.0
+        };
         let noise = rng.gen_range(-1.0..1.0_f32) * 0.4 * noise_env;
         // Layer 3: mid-freq body 350 Hz
         let mid = osc(&mut ph2, 350.0) * 0.2 * (-12.0 * t).exp();
@@ -134,7 +138,11 @@ fn gen_crit() -> Vec<f32> {
         let env = (-6.0 * t).exp();
         // Layers 1-3: same as hit but louder
         let low = osc(&mut ph1, 110.0) * 0.55;
-        let noise_env = if i < onset_len { (1.0 - i as f32 / onset_len as f32).powi(2) } else { 0.0 };
+        let noise_env = if i < onset_len {
+            (1.0 - i as f32 / onset_len as f32).powi(2)
+        } else {
+            0.0
+        };
         let noise = rng.gen_range(-1.0..1.0_f32) * 0.45 * noise_env;
         let mid = osc(&mut ph2, 350.0) * 0.25 * (-10.0 * t).exp();
         // Layer 4: metallic high sweep 2000→1600 Hz
@@ -143,7 +151,9 @@ fn gen_crit() -> Vec<f32> {
         // Layer 5: sub-bass pulse 55 Hz, first 15ms
         let sub_env = if i < (SAMPLE_RATE as f32 * 0.015) as usize {
             1.0 - i as f32 / (SAMPLE_RATE as f32 * 0.015)
-        } else { 0.0 };
+        } else {
+            0.0
+        };
         let sub = osc(&mut ph4, 55.0) * 0.3 * sub_env;
         buf.push((low + noise + mid + hi + sub) * env);
     }
@@ -170,7 +180,11 @@ fn gen_death() -> Vec<f32> {
         let noise_amt = lerp(0.15, 0.35, t);
         let noise = rng.gen_range(-1.0..1.0_f32) * noise_amt;
         // Layer 3: high overtone 440 Hz, fast decay first 30ms
-        let hi_env = if i < onset_len { (1.0 - i as f32 / onset_len as f32).powi(2) } else { 0.0 };
+        let hi_env = if i < onset_len {
+            (1.0 - i as f32 / onset_len as f32).powi(2)
+        } else {
+            0.0
+        };
         let hi = (i as f32 * DT * 440.0 * TAU).sin() * 0.2 * hi_env;
         buf.push((l1 + noise + hi) * env);
     }
@@ -203,7 +217,13 @@ fn gen_skill_activate() -> Vec<f32> {
         let t = i as f32 / len as f32;
         let env = (1.0 - t).powf(0.8);
         // Arpeggio: C5→E5→G5 with smooth phase accumulation
-        let note = if i < third { 523.0 } else if i < third * 2 { 659.0 } else { 784.0 };
+        let note = if i < third {
+            523.0
+        } else if i < third * 2 {
+            659.0
+        } else {
+            784.0
+        };
         let main = osc(&mut ph1, note) * 0.35;
         // Octave overtone
         let oct = osc(&mut ph2, note * 2.0) * 0.1;
@@ -322,7 +342,11 @@ fn gen_boss_death() -> Vec<f32> {
     for i in 0..len {
         let t = i as f32 / len as f32;
         // Envelope: burst then long tail
-        let env = if t < 0.1 { 1.0 } else { (-3.0 * (t - 0.1)).exp() };
+        let env = if t < 0.1 {
+            1.0
+        } else {
+            (-3.0 * (t - 0.1)).exp()
+        };
         // Layer 1: deep downsweep 180→25 Hz
         let freq = lerp(180.0, 25.0, t);
         let sweep = osc(&mut ph1, freq) * 0.45;
@@ -331,7 +355,11 @@ fn gen_boss_death() -> Vec<f32> {
         // Layer 3: low rumble 30 Hz throughout
         let rumble = osc(&mut ph2, 30.0) * 0.25;
         // Layer 4: high shatter 1200 Hz, fast decay first 50ms
-        let hi_env = if i < onset_len { (1.0 - i as f32 / onset_len as f32).powi(2) } else { 0.0 };
+        let hi_env = if i < onset_len {
+            (1.0 - i as f32 / onset_len as f32).powi(2)
+        } else {
+            0.0
+        };
         let shatter = (i as f32 * DT * 1200.0 * TAU).sin() * 0.2 * hi_env;
         buf.push((sweep + noise + rumble + shatter) * env);
     }
@@ -410,7 +438,13 @@ fn add_wav(
     samples: Vec<f32>,
 ) -> Handle<bevy_kira_audio::AudioSource> {
     let wav_bytes = pcm_to_wav(&samples, SAMPLE_RATE);
-    audio_assets.add(bevy_kira_audio::AudioSource { sound: StaticSoundData::from_cursor(std::io::Cursor::new(wav_bytes), StaticSoundSettings::default()).unwrap() })
+    audio_assets.add(bevy_kira_audio::AudioSource {
+        sound: StaticSoundData::from_cursor(
+            std::io::Cursor::new(wav_bytes),
+            StaticSoundSettings::default(),
+        )
+        .unwrap(),
+    })
 }
 
 pub fn generate_sfx_assets(
@@ -480,22 +514,32 @@ pub fn sfx_bridge_system(
     let cfg = registry.as_ref().map(|r| &r.effects);
     for ev in damage_events.read() {
         if ev.is_crit {
-            sfx_writer.send(SfxEvent { kind: SfxKind::CritHit });
+            sfx_writer.send(SfxEvent {
+                kind: SfxKind::CritHit,
+            });
             if let Some(cfg) = cfg {
-                hitstop_writer.send(crate::core::events::HitStopRequest { duration_s: cfg.hitstop_crit_s });
+                hitstop_writer.send(crate::core::events::HitStopRequest {
+                    duration_s: cfg.hitstop_crit_s,
+                });
             }
         } else {
             sfx_writer.send(SfxEvent { kind: SfxKind::Hit });
             if let Some(cfg) = cfg {
-                hitstop_writer.send(crate::core::events::HitStopRequest { duration_s: cfg.hitstop_duration_s });
+                hitstop_writer.send(crate::core::events::HitStopRequest {
+                    duration_s: cfg.hitstop_duration_s,
+                });
             }
         }
     }
     for _ev in room_events.read() {
-        sfx_writer.send(SfxEvent { kind: SfxKind::RoomClear });
+        sfx_writer.send(SfxEvent {
+            kind: SfxKind::RoomClear,
+        });
     }
     for _ev in boss_events.read() {
-        sfx_writer.send(SfxEvent { kind: SfxKind::BossPhaseChange });
+        sfx_writer.send(SfxEvent {
+            kind: SfxKind::BossPhaseChange,
+        });
         // Boss phase change: screen flash + shake
         flash_writer.send(crate::core::events::ScreenFlashRequest {
             color: Color::srgba(0.9, 0.2, 0.1, 0.5),
@@ -577,6 +621,13 @@ impl Plugin for AudioPlugin {
         app.add_plugins(bevy_kira_audio::AudioPlugin)
             .init_resource::<BgmState>()
             .add_systems(Startup, generate_sfx_assets)
-            .add_systems(Update, (sfx_playback_system, sfx_bridge_system, bgm_state_sync_system));
+            .add_systems(
+                Update,
+                (
+                    sfx_playback_system,
+                    sfx_bridge_system,
+                    bgm_state_sync_system,
+                ),
+            );
     }
 }

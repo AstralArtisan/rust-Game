@@ -31,7 +31,8 @@ impl Plugin for AugmentPlugin {
                 effects::phoenix_system
                     .after(crate::gameplay::combat::damage::apply_damage_events)
                     .before(crate::gameplay::player::systems::player_death_system),
-            ).run_if(
+            )
+                .run_if(
                     in_state(AppState::InGame).or_else(
                         in_state(AppState::CoopGame)
                             .and_then(is_coop_authority)

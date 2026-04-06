@@ -76,29 +76,33 @@ pub fn setup_reward_ui(
                                 ..default()
                             })
                             .with_children(|row| {
-                                for (index, offer) in blessing_flow.offers.iter().take(2).enumerate()
+                                for (index, offer) in
+                                    blessing_flow.offers.iter().take(2).enumerate()
                                 {
                                     spawn_blessing_card(row, &assets, index, offer);
                                 }
                             });
-                        panel.spawn((
-                            ButtonBundle {
-                                style: Style {
-                                    width: Val::Px(280.0),
-                                    height: Val::Px(48.0),
-                                    justify_content: JustifyContent::Center,
-                                    align_items: AlignItems::Center,
-                                    margin: UiRect::top(Val::Px(6.0)),
+                        panel
+                            .spawn((
+                                ButtonBundle {
+                                    style: Style {
+                                        width: Val::Px(280.0),
+                                        height: Val::Px(48.0),
+                                        justify_content: JustifyContent::Center,
+                                        align_items: AlignItems::Center,
+                                        margin: UiRect::top(Val::Px(6.0)),
+                                        ..default()
+                                    },
+                                    background_color: BackgroundColor(Color::srgb(
+                                        0.38, 0.18, 0.18,
+                                    )),
                                     ..default()
                                 },
-                                background_color: BackgroundColor(Color::srgb(0.38, 0.18, 0.18)),
-                                ..default()
-                            },
-                            BlessingLeaveButton,
-                        ))
-                        .with_children(|button| {
-                            button.spawn(widgets::title_text(&assets, "[Esc] 离开", 18.0));
-                        });
+                                BlessingLeaveButton,
+                            ))
+                            .with_children(|button| {
+                                button.spawn(widgets::title_text(&assets, "[Esc] 离开", 18.0));
+                            });
                     }
                     RewardFlowMode::SingleBuff => {
                         panel.spawn(widgets::title_text(&assets, "选择一项强化", 30.0));
@@ -290,7 +294,8 @@ pub fn reward_ui_input_system(
     mut chosen: EventWriter<RewardChosenEvent>,
     mut blessing_pending: ResMut<BlessingPendingAction>,
 ) {
-    for (interaction, reward_button, blessing_button, leave_button, mut color) in &mut interaction_q {
+    for (interaction, reward_button, blessing_button, leave_button, mut color) in &mut interaction_q
+    {
         if flow.mode == RewardFlowMode::Blessing {
             if let Some(button) = blessing_button {
                 match *interaction {

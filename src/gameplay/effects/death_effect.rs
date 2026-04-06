@@ -80,15 +80,21 @@ pub fn death_effect_system(
 
         // SFX
         if is_boss {
-            sfx_writer.send(SfxEvent { kind: SfxKind::BossDeath });
+            sfx_writer.send(SfxEvent {
+                kind: SfxKind::BossDeath,
+            });
             hitstop_writer.send(HitStopRequest { duration_s: 0.12 });
             flash_writer.send(ScreenFlashRequest {
                 color: Color::srgba(1.0, 1.0, 1.0, 0.6),
                 duration_s: 0.3,
             });
         } else {
-            sfx_writer.send(SfxEvent { kind: SfxKind::EnemyDeath });
-            hitstop_writer.send(HitStopRequest { duration_s: cfg.hitstop_kill_s });
+            sfx_writer.send(SfxEvent {
+                kind: SfxKind::EnemyDeath,
+            });
+            hitstop_writer.send(HitStopRequest {
+                duration_s: cfg.hitstop_kill_s,
+            });
         }
     }
 }

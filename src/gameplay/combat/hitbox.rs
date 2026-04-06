@@ -197,8 +197,7 @@ pub fn detect_hitbox_hurtbox_overlap(
                     if exec_stacks > 0 {
                         let threshold = if exec_stacks >= 2 { 0.25 } else { 0.15 };
                         if let Ok(target_hp) = target_health_q.get(target) {
-                            if target_hp.max > 0.0
-                                && target_hp.current / target_hp.max < threshold
+                            if target_hp.max > 0.0 && target_hp.current / target_hp.max < threshold
                             {
                                 final_amount = target_hp.current + 1.0;
                             }

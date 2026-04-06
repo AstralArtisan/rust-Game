@@ -54,7 +54,11 @@ pub fn setup_augment_select_ui(
     choices: Res<AugmentChoices>,
 ) {
     commands
-        .spawn((widgets::root_node(), AugmentSelectUi, Name::new("AugmentSelectRoot")))
+        .spawn((
+            widgets::root_node(),
+            AugmentSelectUi,
+            Name::new("AugmentSelectRoot"),
+        ))
         .with_children(|root| {
             root.spawn(widgets::panel_node(Color::srgba(0.02, 0.02, 0.06, 0.94)))
                 .with_children(|panel| {
@@ -176,7 +180,9 @@ pub fn augment_select_input(
     }
 
     let Some(index) = picked else { return };
-    let Some(opt) = choices.options.get(index) else { return };
+    let Some(opt) = choices.options.get(index) else {
+        return;
+    };
 
     // Apply augment to player
     if let Ok(mut inventory) = player_q.get_single_mut() {
@@ -187,10 +193,7 @@ pub fn augment_select_input(
     next_state.set(return_to);
 }
 
-pub fn cleanup_augment_select_ui(
-    mut commands: Commands,
-    q: Query<Entity, With<AugmentSelectUi>>,
-) {
+pub fn cleanup_augment_select_ui(mut commands: Commands, q: Query<Entity, With<AugmentSelectUi>>) {
     for entity in &q {
         commands.entity(entity).despawn_recursive();
     }
