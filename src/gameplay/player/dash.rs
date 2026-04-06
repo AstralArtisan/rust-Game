@@ -5,6 +5,7 @@ use crate::coop::components::{
     CoopDashVisualState, CoopPhase, CoopSessionEntity, CoopSessionState, GhostState,
 };
 use crate::core::assets::GameAssets;
+use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::combat::components::{DamageKind, Hitbox, Lifetime, Team};
 use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
 use crate::gameplay::effects::{afterimage, particles};
@@ -28,6 +29,7 @@ pub fn player_dash_input_system(
             &mut InvincibilityTimer,
             &Handle<Image>,
             &Sprite,
+            Option<&AugmentInventory>,
             Option<&GhostState>,
             Option<&mut CoopDashVisualState>,
         ),
@@ -38,7 +40,7 @@ pub fn player_dash_input_system(
         .get_single()
         .map(|session| session.phase)
         .unwrap_or(CoopPhase::None);
-    for (input, tf, mut cd, mut dash, facing, mut inv, texture, sprite, ghost, dash_visual) in
+    for (input, tf, mut cd, mut dash, facing, mut inv, texture, sprite, inventory, ghost, dash_visual) in
         &mut q
     {
         cd.timer.tick(time.delta());
@@ -66,7 +68,16 @@ pub fn player_dash_input_system(
             dash_visual.dir = dash.dir;
         }
 
-        inv.timer.reset();
+        let extra_invuln = match inventory
+            .map(|value| value.stacks(AugmentId::ExtendedInvuln))
+            .unwrap_or(0)
+        {
+            2 => 0.25,
+            1 => 0.15,
+            _ => 0.0,
+        };
+        inv.timer =
+            Timer::from_seconds(dash.base_duration_s + extra_invuln, TimerMode::Once);
         sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::Dash });
         particles::spawn_dash_particles(&mut commands, &assets, tf.translation().truncate());
 
@@ -95,12 +106,13 @@ pub fn update_dash_state(
             &Sprite,
             &AttackPower,
             &RewardModifiers,
+            Option<&AugmentInventory>,
             Option<&mut CoopDashVisualState>,
         ),
         (With<Player>, Without<Replicated>),
     >,
 ) {
-    for (player_e, tf, mut dash, texture, sprite, attack_power, mods, dash_visual) in &mut q {
+    for (player_e, tf, mut dash, texture, sprite, attack_power, mods, inventory, dash_visual) in &mut q {
         if !dash.active {
             if let Some(mut dash_visual) = dash_visual {
                 dash_visual.active = false;
@@ -150,14 +162,25 @@ pub fn update_dash_state(
                     dash.impact_damage.max(attack_power.0 * 4.0),
                 );
             }
-        } else if mods.dash_damage_trail && dash.trail_timer.just_finished() {
-            spawn_dash_trail_hitbox(
-                &mut commands,
-                &assets,
-                player_e,
-                tf.translation().truncate() - dash.dir * 10.0,
-                attack_power.0 * 0.45,
-            );
+        } else if dash.trail_timer.just_finished() {
+            let trail_damage = match inventory
+                .map(|value| value.stacks(AugmentId::DashTrail))
+                .unwrap_or(0)
+            {
+                2 => Some(attack_power.0 * 0.70),
+                1 => Some(attack_power.0 * 0.40),
+                _ if mods.dash_damage_trail => Some(attack_power.0 * 0.45),
+                _ => None,
+            };
+            if let Some(trail_damage) = trail_damage {
+                spawn_dash_trail_hitbox(
+                    &mut commands,
+                    &assets,
+                    player_e,
+                    tf.translation().truncate() - dash.dir * 10.0,
+                    trail_damage,
+                );
+            }
         }
 
         afterimage::spawn_afterimage(

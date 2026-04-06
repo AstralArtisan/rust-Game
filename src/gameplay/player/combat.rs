@@ -6,10 +6,11 @@ use crate::coop::components::{
 };
 use crate::core::assets::GameAssets;
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::combat::components::{
     ArcHitbox, DamageKind, Hitbox, Lifetime, Projectile, Team,
 };
-use crate::gameplay::combat::projectiles;
+use crate::gameplay::combat::projectiles::{self, HitTargets, PierceCount};
 use crate::gameplay::effects::particles;
 use crate::gameplay::map::InGameEntity;
 use crate::utils::entity::safe_despawn_recursive;
@@ -20,6 +21,8 @@ const BASE_RANGED_PROJECTILE_SPEED: f32 = 720.0;
 const TRIPLE_SPREAD_ANGLE: f32 = 0.24;
 const NOVA_PROJECTILE_COUNT: usize = 8;
 const RANGED_BURST_DELAY_S: f32 = 0.06;
+const EXTRA_PROJECTILE_SPREAD_ANGLE: f32 = 0.15;
+const EXTRA_PROJECTILE_DAMAGE_MULT: f32 = 0.60;
 const MELEE_HITBOX_LIFETIME_S: f32 = 0.09;
 const MELEE_SLASH_EFFECT_LIFETIME_S: f32 = 0.18;
 const SLASH_FRAME_COUNT: usize = 9;
@@ -52,6 +55,7 @@ pub struct DelayedRangedShot {
     pub projectile_speed: f32,
     pub damage: f32,
     pub crit_chance: f32,
+    pub pierce_remaining: u8,
 }
 
 pub fn player_attack_input_system(
@@ -69,7 +73,9 @@ pub fn player_attack_input_system(
             &mut AttackCooldown,
             &CritChance,
             &RewardModifiers,
+            &Combo,
             &DashState,
+            Option<&AugmentInventory>,
             Option<&PlayerSkillState>,
             Option<&GhostState>,
             Option<&mut CoopMeleeFlashState>,
@@ -90,7 +96,9 @@ pub fn player_attack_input_system(
         mut cd,
         crit,
         mods,
+        combo,
         dash,
+        inventory,
         skill_state,
         ghost,
         melee_flash,
@@ -106,7 +114,22 @@ pub fn player_attack_input_system(
             continue;
         }
 
-        cd.apply_speed_bonus(mods.total_melee_speed_bonus());
+        let mut melee_speed_bonus = mods.total_melee_speed_bonus();
+        let combo_accelerate_stacks = inventory
+            .map(|value| value.stacks(AugmentId::ComboAccelerate))
+            .unwrap_or(0);
+        if combo_accelerate_stacks > 0 {
+            let (combo_threshold, combo_bonus) = if combo_accelerate_stacks >= 2 {
+                (3, 0.40)
+            } else {
+                (5, 0.25)
+            };
+            if combo.count >= combo_threshold {
+                melee_speed_bonus += combo_bonus;
+            }
+        }
+
+        cd.apply_speed_bonus(melee_speed_bonus);
         cd.timer.reset();
         sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::MeleeAttack });
         let swing = melee_swing_profile(*mods);
@@ -120,6 +143,7 @@ pub fn player_attack_input_system(
             power.0 * mods.melee_damage_mult(),
             crit.0,
             *mods,
+            inventory,
         );
 
         particles::spawn_hit_particles(
@@ -154,6 +178,7 @@ pub fn player_ranged_input_system(
             &mut RangedRapidFire,
             &RewardModifiers,
             &DashState,
+            Option<&AugmentInventory>,
             Option<&PlayerSkillState>,
             Option<&GhostState>,
         ),
@@ -175,6 +200,7 @@ pub fn player_ranged_input_system(
         mut rapid,
         mods,
         dash,
+        inventory,
         skill_state,
         ghost,
     ) in &mut q
@@ -208,7 +234,17 @@ pub fn player_ranged_input_system(
         sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::RangedAttack });
 
         let dir = facing.0;
-        let speed = BASE_RANGED_PROJECTILE_SPEED * mods.ranged_projectile_speed_mult();
+        let speed_boost_mult = match inventory
+            .map(|value| value.stacks(AugmentId::SpeedBoost))
+            .unwrap_or(0)
+        {
+            2 => 1.50,
+            1 => 1.30,
+            _ => 1.0,
+        };
+        let speed = BASE_RANGED_PROJECTILE_SPEED
+            * mods.ranged_projectile_speed_mult()
+            * speed_boost_mult;
         let damage = power.0 * 0.65 * mods.ranged_damage_mult();
         spawn_player_ranged_volley(
             &mut commands,
@@ -220,6 +256,7 @@ pub fn player_ranged_input_system(
             damage,
             crit.0,
             *mods,
+            inventory,
         );
         particles::spawn_hit_particles(
             &mut commands,
@@ -248,6 +285,7 @@ pub fn spawn_player_melee_hitbox(
         damage,
         crit_chance,
         RewardModifiers::default(),
+        None,
     );
 }
 
@@ -260,12 +298,21 @@ pub fn spawn_player_melee_hitbox_with_mods(
     damage: f32,
     crit_chance: f32,
     mods: RewardModifiers,
+    inventory: Option<&AugmentInventory>,
 ) {
     let owner_pos = owner_tf.translation().truncate();
     let direction = dir.try_normalize().unwrap_or(Vec2::X);
     let swing = melee_swing_profile(mods);
     let half_angle = mods.melee_arc_half_angle_rad();
     let pos = owner_pos + direction * swing.center_offset;
+    let heavy_strike_stacks = inventory
+        .map(|value| value.stacks(AugmentId::HeavyStrike))
+        .unwrap_or(0);
+    let (heavy_damage_mult, heavy_knockback_mult) = match heavy_strike_stacks {
+        2 => (1.25, 2.20),
+        1 => (1.15, 1.80),
+        _ => (1.0, 1.0),
+    };
 
     let slash_rotation = Quat::from_rotation_z(direction.y.atan2(direction.x));
     let primary_color = if mods.melee_mastery_stacks >= 2 {
@@ -315,8 +362,8 @@ pub fn spawn_player_melee_hitbox_with_mods(
             team: Team::Player,
             damage_kind: DamageKind::PlayerMelee,
             size: swing.hitbox_size,
-            damage,
-            knockback: 360.0 + mods.melee_mastery_stacks as f32 * 12.0,
+            damage: damage * heavy_damage_mult,
+            knockback: (360.0 + mods.melee_mastery_stacks as f32 * 12.0) * heavy_knockback_mult,
             can_crit: true,
             crit_chance,
             crit_multiplier: 1.75,
@@ -357,6 +404,7 @@ pub fn spawn_player_ranged_volley(
     damage: f32,
     crit_chance: f32,
     mods: RewardModifiers,
+    inventory: Option<&AugmentInventory>,
 ) {
     let burst_count = if mods.ranged_mastery_stacks >= 2 {
         2
@@ -376,6 +424,7 @@ pub fn spawn_player_ranged_volley(
             crit_chance,
             mods.ranged_volley_pattern(),
             delay_s,
+            inventory,
         );
     }
 }
@@ -391,7 +440,25 @@ fn spawn_ranged_burst(
     crit_chance: f32,
     pattern: RangedVolleyPattern,
     delay_s: f32,
+    inventory: Option<&AugmentInventory>,
 ) {
+    let extra_projectiles = match inventory
+        .map(|value| value.stacks(AugmentId::ExtraProjectile))
+        .unwrap_or(0)
+    {
+        2 => 2,
+        1 => 1,
+        _ => 0,
+    };
+    let pierce_remaining = match inventory
+        .map(|value| value.stacks(AugmentId::Piercing))
+        .unwrap_or(0)
+    {
+        2 => 2,
+        1 => 1,
+        _ => 0,
+    };
+
     match pattern {
         RangedVolleyPattern::Single | RangedVolleyPattern::Double => {
             queue_or_spawn_ranged_projectile(
@@ -409,6 +476,20 @@ fn spawn_ranged_burst(
                     },
                 crit_chance,
                 delay_s,
+                pierce_remaining,
+            );
+            spawn_extra_projectiles_for_burst(
+                commands,
+                assets,
+                owner,
+                pos,
+                dir,
+                projectile_speed,
+                damage,
+                crit_chance,
+                delay_s,
+                extra_projectiles,
+                pierce_remaining,
             );
         }
         RangedVolleyPattern::Triple => {
@@ -429,8 +510,22 @@ fn spawn_ranged_burst(
                     shot_damage,
                     crit_chance,
                     delay_s,
+                    pierce_remaining,
                 );
             }
+            spawn_extra_projectiles_for_burst(
+                commands,
+                assets,
+                owner,
+                pos,
+                dir,
+                projectile_speed,
+                damage,
+                crit_chance,
+                delay_s,
+                extra_projectiles,
+                pierce_remaining,
+            );
         }
         RangedVolleyPattern::Nova => {
             queue_or_spawn_ranged_projectile(
@@ -443,6 +538,7 @@ fn spawn_ranged_burst(
                 damage * 0.48,
                 crit_chance,
                 delay_s,
+                pierce_remaining,
             );
 
             let base_angle = dir.y.atan2(dir.x);
@@ -460,9 +556,58 @@ fn spawn_ranged_burst(
                     damage * 0.20,
                     crit_chance,
                     delay_s,
+                    pierce_remaining,
                 );
             }
+            spawn_extra_projectiles_for_burst(
+                commands,
+                assets,
+                owner,
+                pos,
+                dir,
+                projectile_speed,
+                damage,
+                crit_chance,
+                delay_s,
+                extra_projectiles,
+                pierce_remaining,
+            );
         }
+    }
+}
+
+fn spawn_extra_projectiles_for_burst(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    owner: Entity,
+    pos: Vec2,
+    dir: Vec2,
+    projectile_speed: f32,
+    damage: f32,
+    crit_chance: f32,
+    delay_s: f32,
+    extra_projectiles: u8,
+    pierce_remaining: u8,
+) {
+    for extra_index in 0..extra_projectiles {
+        let angle = if extra_projectiles == 1 || extra_index > 0 {
+            EXTRA_PROJECTILE_SPREAD_ANGLE
+        } else {
+            -EXTRA_PROJECTILE_SPREAD_ANGLE
+        };
+        let shot_dir = Mat2::from_angle(angle).mul_vec2(dir);
+        queue_or_spawn_ranged_projectile(
+            commands,
+            assets,
+            owner,
+            pos,
+            shot_dir,
+            projectile_speed,
+            damage * EXTRA_PROJECTILE_DAMAGE_MULT,
+            crit_chance,
+            delay_s,
+            pierce_remaining,
+        );
     }
 }
 
@@ -476,6 +621,7 @@ fn queue_or_spawn_ranged_projectile(
     damage: f32,
     crit_chance: f32,
     delay_s: f32,
+    pierce_remaining: u8,
 ) {
     if delay_s <= 0.0 {
         spawn_ranged_projectile(
@@ -487,6 +633,7 @@ fn queue_or_spawn_ranged_projectile(
             projectile_speed,
             damage,
             crit_chance,
+            pierce_remaining,
         );
         return;
     }
@@ -500,6 +647,7 @@ fn queue_or_spawn_ranged_projectile(
             projectile_speed,
             damage,
             crit_chance,
+            pierce_remaining,
         },
         InGameEntity,
         Name::new("DelayedRangedShot"),
@@ -515,8 +663,9 @@ fn spawn_ranged_projectile(
     projectile_speed: f32,
     damage: f32,
     crit_chance: f32,
+    pierce_remaining: u8,
 ) {
-    projectiles::spawn_player_projectile(
+    let projectile = projectiles::spawn_player_projectile(
         commands,
         assets,
         owner,
@@ -525,6 +674,14 @@ fn spawn_ranged_projectile(
         damage,
         crit_chance,
     );
+    if pierce_remaining > 0 {
+        commands.entity(projectile).insert((
+            PierceCount {
+                remaining: pierce_remaining,
+            },
+            HitTargets::default(),
+        ));
+    }
 }
 
 pub fn update_attack_cooldowns(
@@ -587,6 +744,7 @@ pub fn update_delayed_ranged_shots(
             shot.projectile_speed,
             shot.damage,
             shot.crit_chance,
+            shot.pierce_remaining,
         );
         safe_despawn_recursive(&mut commands, entity);
     }

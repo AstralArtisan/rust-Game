@@ -3,9 +3,11 @@ use lightyear::prelude::Replicated;
 
 use crate::core::assets::GameAssets;
 use crate::core::events::DamageEvent;
+use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::combat::components::{
     ArcHitbox, DamageKind, Hitbox, Hurtbox, Projectile, RuptureDot, Team,
 };
+use crate::gameplay::combat::projectiles::{HitTargets, PierceCount};
 use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::components::BossArchetype;
 use crate::gameplay::player::components::RewardModifiers;
@@ -135,16 +137,33 @@ pub fn detect_hitbox_hurtbox_overlap(
     mut damage_ev: EventWriter<DamageEvent>,
     mut rng: ResMut<GameRng>,
     owner_mods: Query<&RewardModifiers>,
+    owner_augments: Query<&AugmentInventory>,
     mut owner_health_q: Query<&mut Health, (With<Player>, Without<Replicated>)>,
     boss_q: Query<(), (With<BossArchetype>, Without<Replicated>)>,
     existing_ruptures: Query<&RuptureDot, Without<Replicated>>,
-    hitboxes: Query<(Entity, &Hitbox, &GlobalTransform, Option<&ArcHitbox>), Without<Replicated>>,
+    mut hitboxes: Query<
+        (
+            Entity,
+            &Hitbox,
+            &GlobalTransform,
+            Option<&ArcHitbox>,
+            Option<&mut PierceCount>,
+            Option<&mut HitTargets>,
+        ),
+        Without<Replicated>,
+    >,
     hurtboxes: Query<(Entity, &Hurtbox, &GlobalTransform), Without<Replicated>>,
 ) {
-    for (hb_entity, hb, hb_tf, arc) in &hitboxes {
+    for (hb_entity, hb, hb_tf, arc, mut pierce_count, mut hit_targets) in &mut hitboxes {
         let hb_aabb = aabb_from_transform_size(hb_tf, hb.size);
         for (target, hurtbox, target_tf) in &hurtboxes {
             if hurtbox.team == hb.team {
+                continue;
+            }
+            if hit_targets
+                .as_ref()
+                .is_some_and(|targets| targets.set.contains(&target))
+            {
                 continue;
             }
             if !hitbox_intersects_target(hb_aabb, arc.copied(), hurtbox, target_tf) {
@@ -177,25 +196,44 @@ pub fn detect_hitbox_hurtbox_overlap(
 
             if is_melee_arc {
                 if let Some(owner) = hb.owner {
-                    if let Ok(mods) = owner_mods.get(owner) {
+                    let mods = owner_mods.get(owner).ok().copied();
+                    let lifesteal_slash_stacks = owner_augments
+                        .get(owner)
+                        .map(|inventory| inventory.stacks(AugmentId::LifestealSlash))
+                        .unwrap_or(0);
+
+                    let mut total_heal = 0.0;
+                    if let Some(mods) = mods {
                         let heal_fraction = mods.melee_on_hit_heal_fraction(target_is_boss);
                         if heal_fraction > 0.0 {
-                            if let Ok(mut owner_health) = owner_health_q.get_mut(owner) {
-                                let before = owner_health.current;
-                                owner_health.current = (owner_health.current
-                                    + (amount * heal_fraction).min(2.0))
-                                .min(owner_health.max);
-                                if owner_health.current > before + f32::EPSILON {
-                                    particles::spawn_hit_particles(
-                                        &mut commands,
-                                        &assets,
-                                        target_tf.translation().truncate(),
-                                        Color::srgba(0.52, 1.0, 0.60, 0.76),
-                                    );
-                                }
+                            total_heal += (amount * heal_fraction).min(2.0);
+                        }
+                    }
+                    if lifesteal_slash_stacks > 0 {
+                        let heal_fraction = if lifesteal_slash_stacks >= 2 {
+                            0.05
+                        } else {
+                            0.03
+                        };
+                        total_heal += (amount * heal_fraction).min(5.0);
+                    }
+                    if total_heal > 0.0 {
+                        if let Ok(mut owner_health) = owner_health_q.get_mut(owner) {
+                            let before = owner_health.current;
+                            owner_health.current =
+                                (owner_health.current + total_heal).min(owner_health.max);
+                            if owner_health.current > before + f32::EPSILON {
+                                particles::spawn_hit_particles(
+                                    &mut commands,
+                                    &assets,
+                                    target_tf.translation().truncate(),
+                                    Color::srgba(0.52, 1.0, 0.60, 0.76),
+                                );
                             }
                         }
+                    }
 
+                    if let Some(mods) = mods {
                         let rupture_fraction = mods.melee_rupture_total_fraction();
                         if rupture_fraction > 0.0 {
                             let per_tick = (amount * rupture_fraction / 3.0).max(0.1);
@@ -223,7 +261,16 @@ pub fn detect_hitbox_hurtbox_overlap(
                 }
             }
 
-            // Single-hit hitboxes for MVP.
+            if let Some(hit_targets) = hit_targets.as_mut() {
+                hit_targets.set.insert(target);
+            }
+            if let Some(pierce_count) = pierce_count.as_mut() {
+                if pierce_count.remaining > 0 {
+                    pierce_count.remaining -= 1;
+                    continue;
+                }
+            }
+
             safe_despawn_recursive(&mut commands, hb_entity);
             break;
         }

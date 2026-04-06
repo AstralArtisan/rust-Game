@@ -140,9 +140,186 @@
 
 ## 实施阶段
 
-### 阶段 1：强化数据模型 + XP/升级系统（基础骨架）
+### 阶段 1：强化数据模型 + XP/升级系统（基础骨架）✅ 已完成
 
 **目标**：替换旧铭文数据模型为强化系统，加入 XP/升级，游戏可编译可运行。
+
+## Current Task
+
+### 阶段 3a：普通(Common)强化战斗效果实现（12 个）
+
+**目标**：实现全部 12 个 Common 稀有度强化的战斗效果。
+
+**实现策略**：
+- 在现有战斗系统函数中添加 `AugmentInventory` 查询
+- 用 `inventory.has(AugmentId::X)` 和 `inventory.stacks(AugmentId::X)` 检查效果
+- stacks==1 为基础效果，stacks==2 为升级效果
+- 新增 `src/gameplay/augment/effects.rs` 存放新系统
+
+---
+
+#### 1. LifestealSlash — 近战吸血
+- **效果**：近战命中回复 3% 伤害为 HP（升级: 5%）
+- **文件**：`src/gameplay/combat/hitbox.rs` → `detect_hitbox_hurtbox_overlap`
+- **实现**：在现有 melee lifesteal 逻辑附近（约 Line 178-224），增加 AugmentInventory 检查：
+  ```
+  // 在 DamageKind::PlayerMelee 命中后，查找 hitbox.owner 对应的 player
+  // if player has AugmentId::LifestealSlash:
+  //   fraction = if stacks >= 2 { 0.05 } else { 0.03 }
+  //   heal = (amount * fraction).min(5.0)  // cap per hit
+  //   health.current = (health.current + heal).min(health.max)
+  ```
+- **注意**：与现有 `lifesteal_on_kill`（击杀时回血）不冲突，这是命中时回血
+
+#### 2. HeavyStrike — 重击
+- **效果**：近战击退 +80%（升级: +120%），伤害 +15%（升级: +25%）
+- **文件**：`src/gameplay/player/combat.rs` → `spawn_player_melee_hitbox_with_mods`
+- **实现**：在构建 Hitbox 组件前，读取 AugmentInventory：
+  ```
+  // 添加 AugmentInventory 参数（通过 player_attack_input_system 传入）
+  // if has HeavyStrike:
+  //   knockback *= if stacks >= 2 { 2.20 } else { 1.80 }
+  //   damage *= if stacks >= 2 { 1.25 } else { 1.15 }
+  ```
+
+#### 3. ComboAccelerate — 连击加速
+- **效果**：连击 5+ 时攻速 +25%（升级: 连击 3+ 时 +40%）
+- **文件**：`src/gameplay/player/combat.rs` → `player_attack_input_system`
+- **实现**：在 `cd.apply_speed_bonus()` 调用处，额外叠加连击加速：
+  ```
+  // 需要在 query 中添加 &Combo 和 &AugmentInventory
+  // let combo_threshold = if stacks >= 2 { 3 } else { 5 };
+  // let combo_bonus = if stacks >= 2 { 0.40 } else { 0.25 };
+  // if combo.count >= combo_threshold:
+  //   cd.apply_speed_bonus(mods.total_melee_speed_bonus() + combo_bonus)
+  // else:
+  //   cd.apply_speed_bonus(mods.total_melee_speed_bonus())
+  ```
+
+#### 4. SpeedBoost — 弹速提升
+- **效果**：弹丸速度 +30%（升级: +50%）
+- **文件**：`src/gameplay/player/combat.rs` → `spawn_ranged_projectile` 或 `player_ranged_input_system`
+- **实现**：在计算 projectile_speed 时：
+  ```
+  // base projectile_speed = 720.0 * mods.ranged_projectile_speed_mult()
+  // if has SpeedBoost:
+  //   projectile_speed *= if stacks >= 2 { 1.50 } else { 1.30 }
+  ```
+
+#### 5. ExtraProjectile — 额外弹丸
+- **效果**：每次射击 +1 弹（升级: +2）
+- **文件**：`src/gameplay/player/combat.rs` → `spawn_player_ranged_volley` 或 `spawn_ranged_burst`
+- **实现**：在弹幕生成时，添加额外弹丸（小角度偏移）：
+  ```
+  // 在 spawn_ranged_burst 中，读取 augment inventory
+  // extra = if stacks >= 2 { 2 } else { 1 }
+  // 为每个 extra 弹丸：以 ±0.15 弧度偏移生成，伤害 = 原伤害 * 0.6
+  ```
+
+#### 6. Piercing — 穿透
+- **效果**：弹丸穿透 1 个敌人（升级: 2 个）
+- **文件**：`src/gameplay/combat/hitbox.rs` → `detect_hitbox_hurtbox_overlap`
+- **新增组件**：`PierceCount { remaining: u8 }` 在 `src/gameplay/combat/projectiles.rs`
+- **实现**：
+  ```
+  // 1. 在 spawn_player_projectile 中：如果玩家有 Piercing 强化，挂载 PierceCount 组件
+  //    remaining = if stacks >= 2 { 2 } else { 1 }
+  // 2. 在 detect_hitbox_hurtbox_overlap 中：如果 hitbox entity 有 PierceCount 且 remaining > 0，
+  //    不 despawn hitbox，而是 remaining -= 1，并将当前 target 加入 hit_set 避免重复命中
+  // 3. 需要新增 HitTargets { set: HashSet<Entity> } 组件跟踪已命中目标
+  ```
+
+#### 7. DashTrail — 冲刺轨迹伤害
+- **效果**：冲刺留下伤害轨迹（ATK×40%，升级: 70%）
+- **文件**：`src/gameplay/player/dash.rs` → `update_dash_state`
+- **实现**：在 trail spawning 逻辑处，将现有 `mods.dash_damage_trail` 条件扩展：
+  ```
+  // let has_trail = mods.dash_damage_trail || inventory.has(AugmentId::DashTrail);
+  // if has_trail:
+  //   let trail_mult = if inventory.stacks(DashTrail) >= 2 { 0.70 }
+  //                    else if inventory.has(DashTrail) { 0.40 }
+  //                    else { 0.45 };  // 原始 RewardModifiers 的值
+  //   spawn_dash_trail_hitbox with damage = attack_power * trail_mult
+  ```
+
+#### 8. DashEnergy — 冲刺穿敌回能
+- **效果**：冲刺穿过敌人回复 10 能量（升级: 15）
+- **文件**：`src/gameplay/augment/effects.rs`（新建系统）
+- **实现**：新增系统 `dash_energy_system`
+  ```
+  // 在 Update 中运行，run_if(in_state(InGame))
+  // 检测玩家正在冲刺（DashState.active）且有 DashEnergy 强化
+  // 用 spatial query 检测冲刺路径上的敌人碰撞
+  // 简化实现：如果冲刺中 frame 与任意敌人 AABB 重叠，回复能量（每个敌人每次冲刺只触发一次）
+  // 需要临时 Resource 或 Component 记录本次冲刺已触发的敌人
+  ```
+  - 简化方案：在 `update_dash_state` 中，当 trail hitbox 命中敌人时回复能量
+  - 更简化：每次冲刺结束时，如果冲刺期间有 trail hitbox 命中，回复一次能量
+
+#### 9. ExtendedInvuln — 延长无敌
+- **效果**：冲刺无敌时间 +0.15s（升级: +0.25s）
+- **文件**：`src/gameplay/player/dash.rs` → `player_dash_input_system`
+- **实现**：在设置 invincibility timer 时：
+  ```
+  // let extra_invuln = match inventory.stacks(ExtendedInvuln) {
+  //     2 => 0.25,
+  //     1 => 0.15,
+  //     _ => 0.0,
+  // };
+  // inv.timer = Timer::from_seconds(dash.base_duration_s + extra_invuln, TimerMode::Once);
+  ```
+
+#### 10. GoldBonus — 金币加成
+- **效果**：金币掉落 +25%（升级: +50%）
+- **文件**：`src/gameplay/enemy/systems.rs` → `enemy_death_system`（约 Line 918-953）
+- **实现**：在计算 reward_gold 后，应用加成：
+  ```
+  // 在 player_q 循环内，检查 AugmentInventory
+  // let gold_mult = match inventory.stacks(GoldBonus) {
+  //     2 => 1.50,
+  //     1 => 1.25,
+  //     _ => 1.0,
+  // };
+  // let final_gold = (reward_gold as f32 * gold_mult) as u32;
+  // gold.0 = gold.0.saturating_add(final_gold);
+  ```
+
+#### 11. XpBonus — 经验加成
+- **效果**：经验获取 +25%（升级: +50%）
+- **文件**：`src/gameplay/progression/experience.rs` → `process_xp_gains`
+- **实现**：在应用 XP 前，查询 AugmentInventory 并乘以加成：
+  ```
+  // let xp_mult = match inventory.stacks(XpBonus) {
+  //     2 => 1.50,
+  //     1 => 1.25,
+  //     _ => 1.0,
+  // };
+  // let adjusted_xp = (total_xp as f32 * xp_mult) as u32;
+  // let levels_gained = level.add_xp(adjusted_xp);
+  ```
+
+#### 12. PickupRange — 拾取范围
+- **效果**：拾取范围 +60%（升级: +100%）
+- **实现**：当前游戏没有独立的拾取物系统（金币直接加到玩家身上）
+- **简化处理**：暂时标记为 "被动效果 - 等阶段 4 实现掉落物系统后生效"
+- 或者：在 enemy_death_system 中，增加拾取范围内的敌人也给金币/XP（类似磁铁效果）
+- **决定**：暂时只实现数据模型，效果在阶段 4 掉落物系统中实现
+
+---
+
+**影响文件**：
+| 文件 | 操作 |
+|------|------|
+| `src/gameplay/augment/effects.rs` | 新建 — DashEnergy 系统 |
+| `src/gameplay/augment/mod.rs` | 修改 — 注册 effects 模块和系统 |
+| `src/gameplay/player/combat.rs` | 修改 — HeavyStrike, ComboAccelerate, SpeedBoost, ExtraProjectile |
+| `src/gameplay/player/dash.rs` | 修改 — DashTrail, ExtendedInvuln |
+| `src/gameplay/combat/hitbox.rs` | 修改 — LifestealSlash, Piercing |
+| `src/gameplay/combat/projectiles.rs` | 修改 — PierceCount 组件, spawn 时挂载 |
+| `src/gameplay/enemy/systems.rs` | 修改 — GoldBonus |
+| `src/gameplay/progression/experience.rs` | 修改 — XpBonus |
+
+**验证**：`cargo check --quiet` + `cargo test --quiet`
 
 **新建文件**：
 - `src/gameplay/augment/mod.rs` — AugmentPlugin

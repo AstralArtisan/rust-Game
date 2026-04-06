@@ -80,6 +80,27 @@ $env:LOCAL_NET_DEBUG="1"; $env:LOCAL_NET_DEBUG_MODE="pvp"; $env:LOCAL_NET_DEBUG_
 | `scripts/codex-from-plan.sh`  | Bash 启动脚本                                |
 | `scripts/codex-from-plan.ps1` | PowerShell 启动脚本                          |
 
+### Codex 调用方式
+
+在 Claude Code 中调用 Codex 写代码，使用 `codex-companion.mjs` 的 `task --write` 模式：
+
+```bash
+node "C:/Users/OMEN/.claude/plugins/marketplaces/openai-codex/plugins/codex/scripts/codex-companion.mjs" task --fresh --write "任务描述"
+```
+
+**关键参数：**
+- `--write`：必须加，否则 Codex 只能读不能写文件
+- `--fresh`：开新线程（默认）
+- `--resume`：继续上一个线程
+- `--model <model>`：指定模型
+- `--effort <level>`：推理力度（none/minimal/low/medium/high/xhigh）
+
+**注意事项：**
+- 不要直接在 Bash 中运行 `codex` CLI（需要 TTY，会失败）
+- `/codex:rescue` skill 默认不带 `--write`，需要写代码时应直接调用上述命令
+- Codex 遵循 `AGENTS.md` 执行契约，任务描述应明确指定要修改的文件和验证命令
+- 写完 PLANS.md 后可直接启动 Codex，不需要询问用户
+
 ### 默认行为
 
 Claude 在此仓库中默认为规划者和审查者。除非用户明确要求"直接实现"或"自己动手"，否则 Claude 应：

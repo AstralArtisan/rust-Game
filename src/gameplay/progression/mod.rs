@@ -20,6 +20,7 @@ impl Plugin for ProgressionPlugin {
                     floor::complete_floor,
                     stats::update_run_stats,
                     experience::process_xp_gains,
+                    experience::handle_levelup_event.after(experience::process_xp_gains),
                 )
                     .run_if(in_state(AppState::InGame)),
             );

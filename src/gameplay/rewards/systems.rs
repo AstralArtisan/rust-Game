@@ -274,10 +274,8 @@ fn enter_reward_selection(
             .unwrap_or(false),
         room_type: room.room_type,
     });
-    let Some(mode) = decision.reward_mode else {
-        return;
-    };
 
+    // Apply healing if any (Boss rooms heal 80%)
     if decision.heal_alive_fraction > 0.0 {
         if let Ok((_, mut health, _)) = player_q.get_single_mut() {
             let heal = health.max * decision.heal_alive_fraction;
@@ -285,6 +283,30 @@ fn enter_reward_selection(
         }
     }
 
+    let is_boss = room.room_type == RoomType::Boss;
+
+    // Normal rooms: no RewardSelect, only 40% chance AugmentSelect
+    if !is_boss {
+        let should_offer_augment = rng.gen_bool(0.40);
+        if should_offer_augment {
+            if let Some(registry) = data.as_deref() {
+                let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
+                let generated = generate_augment_choices(registry, &mut rng, false, inventory);
+                if !generated.is_empty() {
+                    augment_choices.options = generated;
+                    augment_choices.return_state = Some(AppState::InGame);
+                    next_state.set(AppState::AugmentSelect);
+                }
+            }
+        }
+        // No RewardSelect for normal rooms — XP/gold already given on kill
+        return;
+    }
+
+    // Boss rooms: AugmentSelect (100%) → then RewardSelect (for floor transition)
+    let Some(mode) = decision.reward_mode else {
+        return;
+    };
     flow.mode = reward_flow_mode_from_draft(mode);
     flow.reward_scale = reward_scale_for_draft(mode);
     set_post_reward_flags(&mut flow, decision.post_reward);
@@ -305,20 +327,15 @@ fn enter_reward_selection(
     );
     apply_solo_reward_draft(&draft, &mut choices);
 
-    // Augment drop logic: 40% normal rooms, 100% boss rooms
-    let is_boss = room.room_type == RoomType::Boss;
-    let should_offer_augment = is_boss || rng.gen_bool(0.40);
-
-    if should_offer_augment {
-        if let Some(registry) = data.as_deref() {
-            let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
-            let generated = generate_augment_choices(&registry, &mut rng, is_boss, inventory);
-            if !generated.is_empty() {
-                augment_choices.options = generated;
-                augment_choices.return_state = Some(AppState::RewardSelect);
-                next_state.set(AppState::AugmentSelect);
-                return;
-            }
+    // Boss always offers augment first, then goes to RewardSelect
+    if let Some(registry) = data.as_deref() {
+        let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
+        let generated = generate_augment_choices(registry, &mut rng, true, inventory);
+        if !generated.is_empty() {
+            augment_choices.options = generated;
+            augment_choices.return_state = Some(AppState::RewardSelect);
+            next_state.set(AppState::AugmentSelect);
+            return;
         }
     }
 

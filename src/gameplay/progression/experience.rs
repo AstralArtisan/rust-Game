@@ -1,6 +1,12 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
+use crate::gameplay::player::components::Player;
+use crate::states::AppState;
+use crate::ui::levelup_select::{LevelUpChoices, LevelUpOption, LevelUpStat};
+use crate::utils::rng::GameRng;
+
 /// Tracks player level and XP within a run.
 #[derive(Component, Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerLevel {
@@ -53,18 +59,74 @@ pub struct LevelUpEvent {
 pub fn process_xp_gains(
     mut xp_events: EventReader<XpGainEvent>,
     mut levelup_events: EventWriter<LevelUpEvent>,
-    mut player_q: Query<&mut PlayerLevel, With<crate::gameplay::player::components::Player>>,
+    mut player_q: Query<(&mut PlayerLevel, Option<&AugmentInventory>), With<Player>>,
 ) {
     let total_xp: u32 = xp_events.read().map(|e| e.amount).sum();
     if total_xp == 0 {
         return;
     }
-    for mut level in &mut player_q {
-        let levels_gained = level.add_xp(total_xp);
+    for (mut level, inventory) in &mut player_q {
+        let xp_mult = match inventory
+            .map(|value| value.stacks(AugmentId::XpBonus))
+            .unwrap_or(0)
+        {
+            2 => 1.50,
+            1 => 1.25,
+            _ => 1.0,
+        };
+        let adjusted_xp = (total_xp as f32 * xp_mult) as u32;
+        let levels_gained = level.add_xp(adjusted_xp);
         for i in 0..levels_gained {
             levelup_events.send(LevelUpEvent {
                 new_level: level.level - levels_gained + i + 1,
             });
         }
     }
+}
+
+/// System: when a LevelUpEvent fires, generate 3 random stat options and enter LevelUpSelect.
+pub fn handle_levelup_event(
+    mut levelup_events: EventReader<LevelUpEvent>,
+    mut choices: ResMut<LevelUpChoices>,
+    mut next_state: ResMut<NextState<AppState>>,
+    mut rng: ResMut<GameRng>,
+    current_state: Res<State<AppState>>,
+) {
+    let Some(ev) = levelup_events.read().last() else {
+        return;
+    };
+
+    let return_state = match current_state.get() {
+        AppState::CoopGame => AppState::CoopGame,
+        _ => AppState::InGame,
+    };
+
+    let all_stats: Vec<(LevelUpStat, &str, &str)> = vec![
+        (LevelUpStat::AttackPower(3.0), "攻击力 +3", "提升近战和远程攻击伤害"),
+        (LevelUpStat::MaxHealth(15.0), "生命上限 +15", "提升最大生命值并回复等量HP"),
+        (LevelUpStat::MoveSpeed(15.0), "移动速度 +15", "提升角色移动速度"),
+        (LevelUpStat::CritChance(0.05), "暴击率 +5%", "提升暴击概率"),
+        (LevelUpStat::AttackSpeed(0.05), "攻速 +0.05s", "缩短攻击冷却时间"),
+        (LevelUpStat::DashCooldown(0.1), "冲刺冷却 -0.1s", "缩短冲刺冷却时间"),
+    ];
+
+    let mut indices: Vec<usize> = (0..all_stats.len()).collect();
+    rng.shuffle(&mut indices);
+    indices.truncate(3);
+
+    choices.options = indices
+        .iter()
+        .map(|&i| {
+            let (stat, label, desc) = &all_stats[i];
+            LevelUpOption {
+                label: label.to_string(),
+                description: desc.to_string(),
+                apply: *stat,
+            }
+        })
+        .collect();
+    choices.return_state = Some(return_state);
+    choices.new_level = ev.new_level;
+
+    next_state.set(AppState::LevelUpSelect);
 }

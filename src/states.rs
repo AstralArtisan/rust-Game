@@ -17,6 +17,8 @@ pub enum AppState {
     PvpResult,
     Paused,
     RewardSelect,
+    AugmentSelect,
+    LevelUpSelect,
     Shop,
     GameOver,
     Victory,

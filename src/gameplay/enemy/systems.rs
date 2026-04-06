@@ -8,6 +8,7 @@ use crate::coop::runtime::is_coop_simulation_active;
 use crate::core::events::{DamageEvent, DeathEvent, RoomClearedEvent};
 use crate::data::definitions::EnemyStatsConfig;
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::combat::components::{
     DamageKind, Hitbox, Hurtbox, Knockback, Lifetime, Projectile, Team,
 };
@@ -27,6 +28,7 @@ use crate::gameplay::puzzle::{
     ActivePuzzle, PuzzleEntity, reset_active_puzzle, spawn_puzzle_for_room,
 };
 use crate::gameplay::shop::ShopKiosk;
+use crate::gameplay::progression::experience::XpGainEvent;
 use crate::gameplay::skills::ChargeGainEvent;
 use crate::states::{AppState, RoomState};
 use crate::utils::collision::aabb_from_transform_size;
@@ -869,6 +871,7 @@ pub fn enemy_death_system(
     mut commands: Commands,
     mut death_events: EventReader<DeathEvent>,
     mut charge_events: EventWriter<ChargeGainEvent>,
+    mut xp_events: EventWriter<XpGainEvent>,
     mut room_cleared: EventWriter<RoomClearedEvent>,
     time: Res<Time>,
     assets: Res<crate::core::assets::GameAssets>,
@@ -881,6 +884,7 @@ pub fn enemy_death_system(
                 &mut PlayerHealth,
                 &mut Gold,
                 &GlobalTransform,
+                Option<&AugmentInventory>,
                 Option<&GhostState>,
             ),
             (With<Player>, Without<Replicated>),
@@ -939,8 +943,25 @@ pub fn enemy_death_system(
             data.player.kill_charge_gain
         };
 
-        for (player_e, mods, mut hp, mut gold, player_tf, ghost) in &mut player_q.p0() {
-            gold.0 = gold.0.saturating_add(reward_gold);
+        // Send XP gain: normal 8-15, elite 25-40, boss 100-200
+        let xp_amount = match kind {
+            Some(EnemyType::Boss) => 100 + (floor_number.saturating_sub(1) * 30).min(100),
+            _ if is_elite => 25 + (floor_number.saturating_sub(1) * 5).min(15),
+            _ => 8 + (floor_number.saturating_sub(1) * 2).min(7),
+        };
+        xp_events.send(XpGainEvent { amount: xp_amount });
+
+        for (player_e, mods, mut hp, mut gold, player_tf, inventory, ghost) in &mut player_q.p0() {
+            let gold_mult = match inventory
+                .map(|value| value.stacks(AugmentId::GoldBonus))
+                .unwrap_or(0)
+            {
+                2 => 1.50,
+                1 => 1.25,
+                _ => 1.0,
+            };
+            let final_gold = (reward_gold as f32 * gold_mult) as u32;
+            gold.0 = gold.0.saturating_add(final_gold);
             if matches!(ghost, Some(GhostState::Ghost)) {
                 continue;
             }

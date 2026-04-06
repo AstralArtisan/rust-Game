@@ -1,6 +1,8 @@
+pub mod augment_select;
 pub mod cursor;
 pub mod game_over;
 pub mod hud;
+pub mod levelup_select;
 pub mod menu;
 pub mod notifications;
 pub mod pause;
@@ -86,6 +88,17 @@ impl Plugin for UiPlugin {
                 shop::update_shop_ui.run_if(in_state(AppState::Shop)),
             )
             .add_systems(OnExit(AppState::Shop), shop::cleanup_shop_ui)
+            // Augment select
+            .init_resource::<augment_select::AugmentChoices>()
+            .add_systems(OnEnter(AppState::AugmentSelect), augment_select::setup_augment_select_ui)
+            .add_systems(Update, augment_select::augment_select_input.run_if(in_state(AppState::AugmentSelect)))
+            .add_systems(OnExit(AppState::AugmentSelect), augment_select::cleanup_augment_select_ui)
+            // Level-up select
+            .init_resource::<levelup_select::LevelUpChoices>()
+            .add_systems(OnEnter(AppState::LevelUpSelect), levelup_select::setup_levelup_ui)
+            .add_systems(Update, levelup_select::levelup_input.run_if(in_state(AppState::LevelUpSelect)))
+            .add_systems(OnExit(AppState::LevelUpSelect), levelup_select::cleanup_levelup_ui)
+            //
             .add_systems(
                 OnEnter(AppState::GameOver),
                 game_over::setup_game_over_screen,

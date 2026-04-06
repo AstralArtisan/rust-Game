@@ -1,0 +1,11 @@
+(
+    movement_hint_shown: true,
+    charge_ready_hint_shown: true,
+    shop_hint_shown: true,
+    elite_hint_shown: true,
+    unlock_hints_shown: (false, true, true, false),
+    boss_guardian_mechanic_shown: true,
+    boss_mirror_warden_mechanic_shown: true,
+    boss_tide_hunter_mechanic_shown: true,
+    boss_cube_core_mechanic_shown: true,
+)

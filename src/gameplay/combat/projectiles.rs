@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
+use std::collections::HashSet;
 
 #[cfg(test)]
 use std::time::Duration;
@@ -10,6 +11,16 @@ use crate::core::assets::GameAssets;
 use crate::gameplay::combat::components::{DamageKind, Hitbox, Lifetime, Projectile, Team};
 use crate::gameplay::map::InGameEntity;
 use crate::utils::entity::safe_despawn_recursive;
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PierceCount {
+    pub remaining: u8,
+}
+
+#[derive(Component, Debug, Default)]
+pub struct HitTargets {
+    pub set: HashSet<Entity>,
+}
 
 pub fn spawn_projectile(
     commands: &mut Commands,
