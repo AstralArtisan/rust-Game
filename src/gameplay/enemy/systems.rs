@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 use std::time::Duration;
 
+use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::coop::components::{CoopNetPosition, CoopNetRotation, CoopNetVelocity};
 use crate::coop::components::{CoopParticipant, GhostState};
 use crate::coop::net::{CoopNetConfig, NetMode, is_coop_authority};
@@ -36,7 +37,7 @@ use crate::gameplay::skills::ChargeGainEvent;
 use crate::states::{AppState, RoomState};
 use crate::utils::collision::aabb_from_transform_size;
 use crate::utils::entity::safe_despawn_recursive;
-use crate::utils::math::direction_to;
+use crate::utils::math::{clamp_in_room, direction_to};
 use crate::utils::rng::GameRng;
 
 use super::components::*;
@@ -81,6 +82,24 @@ impl Plugin for EnemySystemsPlugin {
                             .and_then(is_coop_simulation_active),
                     ),
                 ),
+            )
+            .add_systems(
+                Update,
+                (
+                    bomber_fuse_system.after(ai::update_enemy_ai),
+                    shielder_facing_system.after(ai::update_enemy_ai),
+                    shielder_block_system
+                        .before(crate::gameplay::combat::hitbox::detect_hitbox_hurtbox_overlap),
+                    summoner_summon_system.after(ai::update_enemy_ai),
+                    summoner_death_cleanup.before(enemy_death_system),
+                )
+                    .run_if(
+                        in_state(AppState::InGame).or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        ),
+                    ),
             )
             .add_systems(
                 Update,
@@ -412,6 +431,9 @@ pub fn spawn_enemy(
         EnemyType::Flanker => &data.enemies.flanker,
         EnemyType::Sniper => &data.enemies.sniper,
         EnemyType::SupportCaster => &data.enemies.support_caster,
+        EnemyType::Bomber => &data.enemies.bomber,
+        EnemyType::Shielder => &data.enemies.shielder,
+        EnemyType::Summoner => &data.enemies.summoner,
         EnemyType::Boss => &data.enemies.melee_chaser,
     };
     let mut stats = scaled_enemy_stats(stats_cfg, enemy_type, floor_number, floor_multiplier);
@@ -430,7 +452,10 @@ pub fn spawn_enemy(
         match enemy_type {
             EnemyType::Charger => 30.0,
             EnemyType::SupportCaster => 30.0,
+            EnemyType::Shielder => 32.0,
             EnemyType::Sniper => 27.0,
+            EnemyType::Bomber => 26.0,
+            EnemyType::Summoner => 25.0,
             EnemyType::Flanker => 24.0,
             _ => 28.0,
         }
@@ -443,7 +468,10 @@ pub fn spawn_enemy(
         match enemy_type {
             EnemyType::Charger => 28.0,
             EnemyType::SupportCaster => 28.0,
+            EnemyType::Shielder => 30.0,
             EnemyType::Sniper => 24.0,
+            EnemyType::Bomber => 24.0,
+            EnemyType::Summoner => 23.0,
             EnemyType::Flanker => 22.0,
             _ => 26.0,
         }
@@ -512,6 +540,26 @@ pub fn spawn_enemy(
             phase: SniperPhase::Idle,
             timer: Timer::from_seconds(0.1, TimerMode::Once),
             aim_dir: Vec2::X,
+        });
+    }
+    if enemy_type == EnemyType::Bomber {
+        entity.insert(BomberState {
+            phase: BomberPhase::Approach,
+            timer: Timer::from_seconds(1.0, TimerMode::Once),
+            explosion_radius: 65.0,
+            explosion_damage: stats.attack_damage,
+        });
+    }
+    if enemy_type == EnemyType::Shielder {
+        entity.insert(ShielderState {
+            facing: Vec2::X,
+            shield_half_angle: std::f32::consts::FRAC_PI_3,
+        });
+    }
+    if enemy_type == EnemyType::Summoner {
+        entity.insert(SummonerState {
+            summon_timer: Timer::from_seconds(stats.attack_cooldown_s, TimerMode::Once),
+            max_active_summons: 3,
         });
     }
 
@@ -632,6 +680,269 @@ pub fn spawn_boss(
     id
 }
 
+fn bomber_fuse_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    assets: Res<crate::core::assets::GameAssets>,
+    player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
+    mut bombers: Query<
+        (
+            Entity,
+            &EnemyStats,
+            &Transform,
+            &mut BomberState,
+            &mut Sprite,
+            Option<&Elite>,
+        ),
+        (With<Enemy>, Without<Replicated>),
+    >,
+) {
+    let player_positions = player_q
+        .iter()
+        .filter_map(|(tf, ghost)| {
+            (!matches!(ghost, Some(GhostState::Ghost))).then_some(tf.translation().truncate())
+        })
+        .collect::<Vec<_>>();
+
+    for (entity, stats, tf, mut state, mut sprite, elite) in &mut bombers {
+        let pos = tf.translation.truncate();
+        match state.phase {
+            BomberPhase::Approach => {
+                sprite.color = enemy_color(EnemyType::Bomber, elite.is_some());
+                let Some(dist) = player_positions
+                    .iter()
+                    .map(|player_pos| pos.distance(*player_pos))
+                    .min_by(|a, b| a.total_cmp(b))
+                else {
+                    continue;
+                };
+                if dist <= stats.attack_range {
+                    state.phase = BomberPhase::Fuse;
+                    state.timer = Timer::from_seconds(1.0, TimerMode::Once);
+                    state.timer.reset();
+                }
+            }
+            BomberPhase::Fuse => {
+                state.timer.tick(time.delta());
+                let pulse = ((state.timer.elapsed_secs() * 20.0).sin().abs()) > 0.45;
+                sprite.color = if pulse {
+                    Color::WHITE
+                } else {
+                    Color::srgb(1.0, 0.28, 0.22)
+                };
+                if state.timer.finished() {
+                    spawn_enemy_explosion_hitbox(
+                        &mut commands,
+                        &assets,
+                        entity,
+                        pos,
+                        state.explosion_radius,
+                        state.explosion_damage,
+                    );
+                    state.phase = BomberPhase::Exploded;
+                    safe_despawn_recursive(&mut commands, entity);
+                }
+            }
+            BomberPhase::Exploded => {
+                safe_despawn_recursive(&mut commands, entity);
+            }
+        }
+    }
+}
+
+fn shielder_facing_system(
+    time: Res<Time>,
+    player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
+    mut shielders: Query<(&mut Transform, &mut ShielderState), (With<Enemy>, Without<Replicated>)>,
+) {
+    let player_positions = player_q
+        .iter()
+        .filter_map(|(tf, ghost)| {
+            (!matches!(ghost, Some(GhostState::Ghost))).then_some(tf.translation().truncate())
+        })
+        .collect::<Vec<_>>();
+    if player_positions.is_empty() {
+        return;
+    }
+
+    for (mut tf, mut state) in &mut shielders {
+        let pos = tf.translation.truncate();
+        let Some(player_pos) = player_positions
+            .iter()
+            .copied()
+            .min_by(|a, b| pos.distance(*a).total_cmp(&pos.distance(*b)))
+        else {
+            continue;
+        };
+        let target_dir = direction_to(pos, player_pos);
+        if target_dir.length_squared() <= f32::EPSILON {
+            continue;
+        }
+        let current_facing = if state.facing.length_squared() <= f32::EPSILON {
+            target_dir
+        } else {
+            state.facing
+        };
+        state.facing = current_facing
+            .lerp(target_dir, (time.delta_seconds() * 5.0).clamp(0.0, 1.0))
+            .normalize_or_zero();
+        if state.facing.length_squared() > f32::EPSILON {
+            tf.rotation = Quat::from_rotation_z(state.facing.y.atan2(state.facing.x));
+        }
+    }
+}
+
+fn shielder_block_system(
+    mut commands: Commands,
+    assets: Res<crate::core::assets::GameAssets>,
+    shielders: Query<
+        (&GlobalTransform, &Hurtbox, &ShielderState),
+        (With<Enemy>, Without<Replicated>),
+    >,
+    hitboxes: Query<(Entity, &Hitbox, &GlobalTransform), Without<Replicated>>,
+) {
+    let mut blocked_hitboxes = Vec::new();
+
+    for (shielder_tf, hurtbox, state) in &shielders {
+        let shielder_aabb = aabb_from_transform_size(shielder_tf, hurtbox.size);
+        let shielder_pos = shielder_tf.translation().truncate();
+        let facing = state.facing.normalize_or_zero();
+        let facing_cos = state.shield_half_angle.cos();
+
+        for (hitbox_entity, hitbox, hitbox_tf) in &hitboxes {
+            if blocked_hitboxes.contains(&hitbox_entity) {
+                continue;
+            }
+            if hitbox.team != Team::Player || hitbox.damage_kind != DamageKind::PlayerRanged {
+                continue;
+            }
+
+            let hitbox_aabb = aabb_from_transform_size(hitbox_tf, hitbox.size);
+            if !shielder_aabb.intersects(hitbox_aabb) {
+                continue;
+            }
+
+            let to_hitbox = hitbox_tf.translation().truncate() - shielder_pos;
+            if to_hitbox.length_squared() > f32::EPSILON
+                && facing.length_squared() > f32::EPSILON
+                && facing.dot(to_hitbox.normalize()) < facing_cos
+            {
+                continue;
+            }
+
+            blocked_hitboxes.push(hitbox_entity);
+            particles::spawn_hit_particles(
+                &mut commands,
+                &assets,
+                hitbox_tf.translation().truncate(),
+                Color::srgb(0.45, 0.62, 0.88),
+            );
+            safe_despawn_recursive(&mut commands, hitbox_entity);
+        }
+    }
+}
+
+fn summoner_summon_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    assets: Res<crate::core::assets::GameAssets>,
+    data: Res<GameDataRegistry>,
+    mut rng: ResMut<GameRng>,
+    coop_config: Option<Res<CoopNetConfig>>,
+    coop_players: Query<(), With<CoopParticipant>>,
+    floor: Option<Res<FloorNumber>>,
+    mut summoners: Query<
+        (Entity, &Transform, &mut SummonerState),
+        (With<Enemy>, Without<Replicated>),
+    >,
+    summons: Query<&SummonedBy, Without<Replicated>>,
+) {
+    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+    let floor_multiplier = get_floor_difficulty_multiplier(&data, floor_number);
+    let coop_hp_mult = if coop_config
+        .as_deref()
+        .map(|value| value.mode == NetMode::Host && !coop_players.is_empty())
+        .unwrap_or(false)
+    {
+        2.0
+    } else {
+        1.0
+    };
+
+    for (entity, tf, mut state) in &mut summoners {
+        state.summon_timer.tick(time.delta());
+        if !state.summon_timer.finished() {
+            continue;
+        }
+
+        let active_summons = summons
+            .iter()
+            .filter(|summoned_by| summoned_by.0 == entity)
+            .count() as u8;
+        if active_summons >= state.max_active_summons {
+            continue;
+        }
+
+        let remaining_slots = state.max_active_summons.saturating_sub(active_summons);
+        let desired_summons: usize =
+            if remaining_slots <= 1 || rng.gen_range_f32(0.0, 1.0) < 0.5 {
+            1
+        } else {
+            2
+        };
+        let summon_count = desired_summons.min(remaining_slots as usize);
+        let base_pos = tf.translation.truncate();
+        let base_angle = rng.gen_range_f32(0.0, std::f32::consts::TAU);
+
+        for index in 0..summon_count {
+            let angle = base_angle + (index as f32 - (summon_count as f32 - 1.0) * 0.5) * 0.9;
+            let offset = Vec2::new(angle.cos(), angle.sin()) * 48.0;
+            let summon_pos = clamp_in_room(
+                base_pos + offset,
+                Vec2::new(ROOM_HALF_WIDTH, ROOM_HALF_HEIGHT),
+                28.0,
+            );
+            let summoned = spawn_enemy(
+                &mut commands,
+                &assets,
+                &data,
+                EnemyType::MeleeChaser,
+                summon_pos,
+                floor_number,
+                floor_multiplier,
+                coop_hp_mult,
+                false,
+            );
+            commands.entity(summoned).insert(SummonedBy(entity));
+        }
+
+        state.summon_timer.reset();
+    }
+}
+
+fn summoner_death_cleanup(
+    mut commands: Commands,
+    mut death_events: EventReader<DeathEvent>,
+    enemy_kinds: Query<&EnemyKind>,
+    summons: Query<(Entity, &SummonedBy)>,
+) {
+    for death in death_events.read() {
+        if enemy_kinds
+            .get(death.entity)
+            .map(|kind| kind.0 != EnemyType::Summoner)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+
+        for (summoned, summoned_by) in &summons {
+            if summoned_by.0 == death.entity {
+                safe_despawn_recursive(&mut commands, summoned);
+            }
+        }
+    }
+}
+
 pub fn enemy_attack_system(
     mut commands: Commands,
     time: Res<Time>,
@@ -649,6 +960,7 @@ pub fn enemy_attack_system(
                 &mut EnemyAttackCooldown,
                 Option<&EnemyBuffState>,
                 Option<&mut SniperState>,
+                Option<&ShielderState>,
                 Option<&mut Sprite>,
             ),
             (With<Enemy>, Without<Replicated>),
@@ -670,7 +982,8 @@ pub fn enemy_attack_system(
         .map(|(entity, kind, tf)| (entity, kind.0, tf.translation().truncate()))
         .collect::<Vec<_>>();
 
-    for (entity, kind, elite, stats, tf, mut cd, buff, sniper_state, sprite) in &mut enemy_sets.p1()
+    for (entity, kind, elite, stats, tf, mut cd, buff, sniper_state, shielder_state, sprite) in
+        &mut enemy_sets.p1()
     {
         let effective_cooldown = effective_enemy_attack_cooldown(stats.attack_cooldown_s, buff);
         cd.timer.tick(time.delta());
@@ -726,16 +1039,24 @@ pub fn enemy_attack_system(
         }
 
         match kind.0 {
-            EnemyType::MeleeChaser | EnemyType::Charger | EnemyType::Flanker => {
+            EnemyType::MeleeChaser | EnemyType::Charger | EnemyType::Flanker | EnemyType::Shielder => {
                 if dist <= stats.attack_range {
                     cd.timer = Timer::from_seconds(effective_cooldown, TimerMode::Once);
                     cd.timer.reset();
+                    let melee_dir = if kind.0 == EnemyType::Shielder {
+                        shielder_state
+                            .map(|state| state.facing.normalize_or_zero())
+                            .filter(|facing| facing.length_squared() > f32::EPSILON)
+                            .unwrap_or(dir)
+                    } else {
+                        dir
+                    };
                     spawn_enemy_melee_hitbox(
                         &mut commands,
                         &assets,
                         entity,
                         pos,
-                        dir,
+                        melee_dir,
                         if kind.0 == EnemyType::Flanker {
                             stats.attack_damage * 0.92
                         } else {
@@ -821,6 +1142,7 @@ pub fn enemy_attack_system(
                 );
                 cd.timer.reset();
             }
+            EnemyType::Bomber | EnemyType::Summoner => {}
             EnemyType::Boss => {}
         }
     }
@@ -859,6 +1181,42 @@ fn spawn_enemy_melee_hitbox(
         Lifetime(Timer::from_seconds(0.10, TimerMode::Once)),
         InGameEntity,
         Name::new("EnemyHitbox"),
+    ));
+}
+
+fn spawn_enemy_explosion_hitbox(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    owner: Entity,
+    pos: Vec2,
+    radius: f32,
+    damage: f32,
+) {
+    commands.spawn((
+        SpriteBundle {
+            texture: assets.textures.white.clone(),
+            transform: Transform::from_translation(pos.extend(55.0)),
+            sprite: Sprite {
+                color: Color::srgba(1.0, 0.42, 0.18, 0.30),
+                custom_size: Some(Vec2::splat(radius * 2.0)),
+                ..default()
+            },
+            ..default()
+        },
+        Hitbox {
+            owner: Some(owner),
+            team: Team::Enemy,
+            damage_kind: DamageKind::Enemy,
+            size: Vec2::splat(radius * 2.0),
+            damage,
+            knockback: 420.0,
+            can_crit: false,
+            crit_chance: 0.0,
+            crit_multiplier: 1.0,
+        },
+        Lifetime(Timer::from_seconds(0.10, TimerMode::Once)),
+        InGameEntity,
+        Name::new("BomberExplosion"),
     ));
 }
 
@@ -1158,6 +1516,9 @@ fn enemy_type_curve(enemy_type: EnemyType, floor_number: u32) -> (f32, f32, f32,
                 (1.0, 1.0, 1.0, 1.0, 0.0)
             }
         }
+        EnemyType::Bomber => (1.0, 1.0, 1.0, 1.0, 0.0),
+        EnemyType::Shielder => (1.0, 1.0, 1.0, 1.0, 0.0),
+        EnemyType::Summoner => (1.0, 1.0, 1.0, 1.0, 0.0),
         EnemyType::Boss => (1.0, 1.0, 1.0, 1.0, 0.0),
     }
 }
@@ -1179,6 +1540,9 @@ fn enemy_color(enemy_type: EnemyType, is_elite: bool) -> Color {
         EnemyType::Flanker => Color::srgb(0.96, 0.56, 0.78),
         EnemyType::Sniper => Color::srgb(0.70, 0.82, 1.0),
         EnemyType::SupportCaster => Color::srgb(0.55, 0.95, 0.80),
+        EnemyType::Bomber => Color::srgb(0.98, 0.38, 0.22),
+        EnemyType::Shielder => Color::srgb(0.36, 0.56, 0.78),
+        EnemyType::Summoner => Color::srgb(0.64, 0.38, 0.90),
         EnemyType::Boss => Color::srgb(0.85, 0.25, 0.95),
     };
     if !is_elite || matches!(enemy_type, EnemyType::Boss | EnemyType::SupportCaster) {
@@ -1190,6 +1554,9 @@ fn enemy_color(enemy_type: EnemyType, is_elite: bool) -> Color {
         EnemyType::Charger => Color::srgb(1.0, 0.88, 0.45),
         EnemyType::Flanker => Color::srgb(1.0, 0.68, 0.86),
         EnemyType::Sniper => Color::srgb(0.84, 0.90, 1.0),
+        EnemyType::Bomber => Color::srgb(1.0, 0.58, 0.38),
+        EnemyType::Shielder => Color::srgb(0.58, 0.74, 0.96),
+        EnemyType::Summoner => Color::srgb(0.82, 0.64, 1.0),
         EnemyType::SupportCaster | EnemyType::Boss => base,
     }
 }

@@ -26,12 +26,15 @@ pub fn choose_enemy_types(data: &GameDataRegistry, floor: u32) -> Vec<EnemyType>
     ];
     if floor >= 2 {
         pool.push(EnemyType::Flanker);
+        pool.push(EnemyType::Bomber);
     }
     if floor >= 3 {
         pool.push(EnemyType::Sniper);
+        pool.push(EnemyType::Shielder);
     }
     if floor >= 4 {
         pool.push(EnemyType::SupportCaster);
+        pool.push(EnemyType::Summoner);
     }
     pool
 }
@@ -43,7 +46,11 @@ pub fn frontline_enemy_types(pool: &[EnemyType]) -> Vec<EnemyType> {
         .filter(|enemy_type| {
             matches!(
                 enemy_type,
-                EnemyType::MeleeChaser | EnemyType::Charger | EnemyType::Flanker
+                EnemyType::MeleeChaser
+                    | EnemyType::Charger
+                    | EnemyType::Flanker
+                    | EnemyType::Bomber
+                    | EnemyType::Shielder
             )
         })
         .collect::<Vec<_>>();
@@ -61,7 +68,10 @@ pub fn backline_enemy_types(pool: &[EnemyType]) -> Vec<EnemyType> {
         .filter(|enemy_type| {
             matches!(
                 enemy_type,
-                EnemyType::RangedShooter | EnemyType::Sniper | EnemyType::SupportCaster
+                EnemyType::RangedShooter
+                    | EnemyType::Sniper
+                    | EnemyType::SupportCaster
+                    | EnemyType::Summoner
             )
         })
         .collect::<Vec<_>>();

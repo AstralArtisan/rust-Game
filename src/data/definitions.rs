@@ -52,6 +52,9 @@ pub struct EnemiesConfig {
     pub flanker: EnemyStatsConfig,
     pub sniper: EnemyStatsConfig,
     pub support_caster: EnemyStatsConfig,
+    pub bomber: EnemyStatsConfig,
+    pub shielder: EnemyStatsConfig,
+    pub summoner: EnemyStatsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

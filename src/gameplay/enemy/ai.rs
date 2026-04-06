@@ -5,8 +5,9 @@ use lightyear::prelude::Replicated;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::coop::components::GhostState;
 use crate::gameplay::enemy::components::{
-    BossArchetype, ChargerPhase, ChargerState, EnemyBuffState, EnemyKind, EnemyStats, EnemyType,
-    FlankerPhase, FlankerState, SniperPhase, SniperState, TideHunterPhase, TideHunterState,
+    BomberPhase, BomberState, BossArchetype, ChargerPhase, ChargerState, EnemyBuffState,
+    EnemyKind, EnemyStats, EnemyType, FlankerPhase, FlankerState, ShielderState, SniperPhase,
+    SniperState, SummonerState, TideHunterPhase, TideHunterState,
 };
 use crate::gameplay::player::components::Player;
 use crate::utils::math::{clamp_in_room, clamp_length, direction_to};
@@ -37,6 +38,9 @@ pub fn update_enemy_ai(
                 Option<&mut ChargerState>,
                 Option<&mut FlankerState>,
                 Option<&SniperState>,
+                Option<&BomberState>,
+                Option<&ShielderState>,
+                Option<&SummonerState>,
                 Option<&EnemyBuffState>,
             ),
             Without<Replicated>,
@@ -63,8 +67,20 @@ pub fn update_enemy_ai(
         })
         .collect::<Vec<_>>();
 
-    for (entity, kind, stats, mut tf, mut vel, charger_state, flanker_state, sniper_state, buff) in
-        &mut enemies.p1()
+    for (
+        entity,
+        kind,
+        stats,
+        mut tf,
+        mut vel,
+        charger_state,
+        flanker_state,
+        sniper_state,
+        bomber_state,
+        _shielder_state,
+        _summoner_state,
+        buff,
+    ) in &mut enemies.p1()
     {
         let pos = tf.translation.truncate();
         let (player_pos, dist) = player_positions
@@ -264,6 +280,48 @@ pub fn update_enemy_ai(
                     far_pursuit_velocity(dir, separation, move_speed, 0.42, 1.15)
                 };
             }
+            EnemyType::Bomber => {
+                let fuse_locked = bomber_state
+                    .map(|state| matches!(state.phase, BomberPhase::Fuse | BomberPhase::Exploded))
+                    .unwrap_or(false);
+                vel.0 = if fuse_locked || dist <= stats.attack_range {
+                    Vec2::ZERO
+                } else if dist < stats.aggro_range {
+                    desired_velocity(dir + separation * 1.05, move_speed * 1.05)
+                } else {
+                    far_pursuit_velocity(dir, separation, move_speed, 0.74, 1.0)
+                };
+            }
+            EnemyType::Shielder => {
+                vel.0 = if dist < stats.aggro_range {
+                    if dist <= stats.attack_range * 0.92 {
+                        Vec2::ZERO
+                    } else {
+                        desired_velocity(dir * 0.95 + separation * 0.80, move_speed)
+                    }
+                } else {
+                    far_pursuit_velocity(dir, separation, move_speed, 0.55, 0.95)
+                };
+            }
+            EnemyType::Summoner => {
+                vel.0 = if dist < stats.aggro_range {
+                    let radial = if dist < 350.0 {
+                        -dir * 1.18
+                    } else if dist > 500.0 {
+                        dir * 0.88
+                    } else {
+                        Vec2::ZERO
+                    };
+                    let orbit = if (350.0..=500.0).contains(&dist) {
+                        perpendicular(dir) * orbit_sign * 0.42
+                    } else {
+                        Vec2::ZERO
+                    };
+                    desired_velocity(radial + orbit + separation * 1.25, move_speed * 0.92)
+                } else {
+                    far_pursuit_velocity(dir, separation, move_speed, 0.48, 1.15)
+                };
+            }
             EnemyType::Boss => {
                 vel.0 = if dist < stats.aggro_range {
                     desired_velocity(dir + separation * 0.45, move_speed)
@@ -368,10 +426,13 @@ fn separation_force(
 ) -> Vec2 {
     let personal_space = match kind {
         EnemyType::Boss => 72.0,
+        EnemyType::Shielder => 45.0,
         EnemyType::Charger => 44.0,
+        EnemyType::Summoner => 40.0,
         EnemyType::SupportCaster => 42.0,
         EnemyType::Sniper => 40.0,
         EnemyType::RangedShooter => 40.0,
+        EnemyType::Bomber => 35.0,
         EnemyType::Flanker => 30.0,
         EnemyType::MeleeChaser => 36.0,
     };

@@ -14,6 +14,9 @@ pub enum EnemyType {
     Flanker,
     Sniper,
     SupportCaster,
+    Bomber,
+    Shielder,
+    Summoner,
     Boss,
 }
 
@@ -167,6 +170,29 @@ pub struct SniperState {
     pub aim_dir: Vec2,
 }
 
+#[derive(Component, Debug, Clone)]
+pub struct BomberState {
+    pub phase: BomberPhase,
+    pub timer: Timer,
+    pub explosion_radius: f32,
+    pub explosion_damage: f32,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct ShielderState {
+    pub facing: Vec2,
+    pub shield_half_angle: f32,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct SummonerState {
+    pub summon_timer: Timer,
+    pub max_active_summons: u8,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct SummonedBy(pub Entity);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChargerPhase {
     Idle,
@@ -188,4 +214,11 @@ pub enum SniperPhase {
     Idle,
     Aiming,
     Recover,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BomberPhase {
+    Approach,
+    Fuse,
+    Exploded,
 }

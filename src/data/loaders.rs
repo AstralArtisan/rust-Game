@@ -124,6 +124,33 @@ fn default_registry() -> GameDataRegistry {
                 attack_range: 260.0,
                 projectile_speed: 0.0,
             },
+            bomber: EnemyStatsConfig {
+                max_hp: 30.0,
+                move_speed: 185.0,
+                attack_damage: 28.0,
+                attack_cooldown_s: 1.0,
+                aggro_range: 560.0,
+                attack_range: 55.0,
+                projectile_speed: 0.0,
+            },
+            shielder: EnemyStatsConfig {
+                max_hp: 72.0,
+                move_speed: 80.0,
+                attack_damage: 12.0,
+                attack_cooldown_s: 1.2,
+                aggro_range: 540.0,
+                attack_range: 40.0,
+                projectile_speed: 0.0,
+            },
+            summoner: EnemyStatsConfig {
+                max_hp: 28.0,
+                move_speed: 95.0,
+                attack_damage: 8.0,
+                attack_cooldown_s: 4.0,
+                aggro_range: 760.0,
+                attack_range: 500.0,
+                projectile_speed: 320.0,
+            },
         },
         bosses: BossesConfig {
             floor_1: BossFloorConfig {
