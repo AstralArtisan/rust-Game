@@ -880,7 +880,7 @@ pub fn enemy_death_system(
     mut commands: Commands,
     mut death_events: EventReader<DeathEvent>,
     mut charge_events: EventWriter<ChargeGainEvent>,
-    mut xp_events: EventWriter<XpGainEvent>,
+    mut _xp_events: EventWriter<XpGainEvent>,
     mut room_cleared: EventWriter<RoomClearedEvent>,
     time: Res<Time>,
     assets: Res<crate::core::assets::GameAssets>,
@@ -925,55 +925,17 @@ pub fn enemy_death_system(
             .map(|(k, e)| (Some(k.0), e.is_some()))
             .unwrap_or((None, false));
         let is_sub_core = enemy_queries.1.get(ev.entity).is_ok();
-        let reward_kind = if is_sub_core { None } else { kind };
-        let floor_number = floor.as_deref().map(|f| f.0).unwrap_or(1);
-        let base_gold = match reward_kind {
-            Some(EnemyType::Boss) => match floor_number {
-                1 => 30,
-                2 => 45,
-                3 => 58,
-                _ => 70,
-            },
-            _ => match floor_number {
-                1 => 8,
-                2 => 10,
-                3 => 13,
-                _ => 16,
-            },
-        };
-        let reward_gold = base_gold
-            + if is_elite {
-                data.balance.elite_gold_bonus
-            } else {
-                0
-            };
         let charge_gain = if is_elite {
             data.player.elite_kill_charge_gain
         } else {
             data.player.kill_charge_gain
         };
 
-        // Send XP gain: normal 8-15, elite 25-40, boss 100-200
-        let xp_amount = match kind {
-            Some(EnemyType::Boss) => 100 + (floor_number.saturating_sub(1) * 30).min(100),
-            _ if is_elite => 25 + (floor_number.saturating_sub(1) * 5).min(15),
-            _ => 8 + (floor_number.saturating_sub(1) * 2).min(7),
-        };
-        xp_events.send(XpGainEvent { amount: xp_amount });
+        // Gold and XP now handled by drops system (src/gameplay/drops/mod.rs)
 
-        for (player_e, mods, mut hp, mut dash_cd, mut gold, player_tf, inventory, ghost) in
+        for (player_e, mods, mut hp, mut dash_cd, _gold, player_tf, inventory, ghost) in
             &mut player_q.p0()
         {
-            let gold_mult = match inventory
-                .map(|value| value.stacks(AugmentId::GoldBonus))
-                .unwrap_or(0)
-            {
-                2 => 1.50,
-                1 => 1.25,
-                _ => 1.0,
-            };
-            let final_gold = (reward_gold as f32 * gold_mult) as u32;
-            gold.0 = gold.0.saturating_add(final_gold);
             if matches!(ghost, Some(GhostState::Ghost)) {
                 continue;
             }

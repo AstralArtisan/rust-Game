@@ -1,6 +1,7 @@
 pub mod augment;
 pub mod combat;
 pub mod curse;
+pub mod drops;
 pub mod effects;
 pub mod enemy;
 pub mod map;
@@ -32,6 +33,7 @@ impl Plugin for GameplayPlugin {
             effects::EffectsPlugin,
             puzzle::PuzzlePlugin,
             shop::ShopPlugin,
+            drops::DropPlugin,
         ))
         .add_systems(OnEnter(AppState::MainMenu), map::cleanup_ingame_world)
         .add_systems(OnEnter(AppState::GameOver), map::cleanup_ingame_world)
