@@ -4,7 +4,7 @@ use lightyear::prelude::Replicated;
 use crate::coop::components::GhostState;
 use crate::core::events::{DamageAppliedEvent, DamageEvent, DeathEvent};
 use crate::data::registry::GameDataRegistry;
-use crate::gameplay::augment::effects::ArmorBroken;
+use crate::gameplay::augment::effects::{ArmorBroken, DashShieldBuff};
 use crate::gameplay::combat::components::{Hurtbox, Knockback, Team};
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::enemy::components::{
@@ -15,6 +15,7 @@ use crate::gameplay::skills::ChargeGainEvent;
 use crate::ui::tutorial::{TutorialFlags, TutorialNotification};
 
 pub fn apply_damage_events(
+    mut commands: Commands,
     data: Option<Res<GameDataRegistry>>,
     mut damage_events: EventReader<DamageEvent>,
     mut applied_events: EventWriter<DamageAppliedEvent>,
@@ -35,6 +36,7 @@ pub fn apply_damage_events(
             Option<&GhostState>,
             Option<&mut Flash>,
             Option<&ArmorBroken>,
+            Option<&DashShieldBuff>,
             &mut Knockback,
             &GlobalTransform,
         ),
@@ -54,6 +56,7 @@ pub fn apply_damage_events(
             ghost,
             flash_opt,
             armor_broken,
+            dash_shield,
             mut knockback,
             tf,
         )) =
@@ -94,6 +97,12 @@ pub fn apply_damage_events(
                 }
                 continue;
             }
+        }
+
+        // DashShield: absorb one hit for player
+        if dash_shield.is_some() && hurtbox.is_some_and(|h| h.team == Team::Player) {
+            commands.entity(entity).remove::<DashShieldBuff>();
+            continue;
         }
 
         let mut amount = ev.amount;

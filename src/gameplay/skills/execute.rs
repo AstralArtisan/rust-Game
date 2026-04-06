@@ -12,6 +12,7 @@ use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
 use crate::gameplay::enemy::components::Enemy;
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::combat::MeleeSlashEffect;
+use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::player::components::{
     ActiveSkill, AttackPower, DashState, Energy, FacingDirection, InvincibilityTimer, Player,
     PlayerDriveInput, PlayerSkillState, SkillSlot, SkillSlots, SkillType,
@@ -56,6 +57,7 @@ pub fn activate_skill_inputs(
             &mut PlayerSkillState,
             &mut DashState,
             &mut InvincibilityTimer,
+            Option<&AugmentInventory>,
         ),
         (With<Player>, Without<Replicated>),
     >,
@@ -71,6 +73,7 @@ pub fn activate_skill_inputs(
         mut skill_state,
         mut dash,
         mut invincibility,
+        inventory,
     )) = player_q.get_single_mut()
     else {
         return;
@@ -179,6 +182,34 @@ pub fn activate_skill_inputs(
             energy.current = (energy.current - finisher_cost).max(0.0);
         }
         SkillType::Relic => {}
+    }
+
+    // BulletStorm: spawn a ring of projectiles on any finisher activation
+    let storm_stacks = inventory
+        .map(|inv| inv.stacks(AugmentId::BulletStorm))
+        .unwrap_or(0);
+    if storm_stacks > 0 {
+        let count = if storm_stacks >= 2 { 16 } else { 10 };
+        let bullet_damage = attack_power.0 * 1.5;
+        let bullet_speed = 400.0;
+        for i in 0..count {
+            let angle = std::f32::consts::TAU * i as f32 / count as f32;
+            let dir = Vec2::new(angle.cos(), angle.sin());
+            projectiles::spawn_player_projectile_with_kind(
+                &mut commands,
+                &assets,
+                player_e,
+                player_pos + dir * 16.0,
+                dir * bullet_speed,
+                bullet_damage,
+                0.0,
+                DamageKind::PlayerSkill,
+            );
+        }
+        shake_events.send(ScreenShakeRequest {
+            strength: 4.0,
+            duration: 0.12,
+        });
     }
 }
 

@@ -23,8 +23,14 @@ impl Plugin for AugmentPlugin {
                 effects::chain_lightning_system
                     .after(crate::gameplay::combat::damage::apply_damage_events),
                 effects::thorns_system.after(crate::gameplay::combat::damage::apply_damage_events),
+                effects::freeze_system.after(crate::gameplay::combat::damage::apply_damage_events),
+                effects::tick_frozen_system,
+                effects::tick_dash_shield_system,
                 effects::armor_broken_tick_system,
                 effects::dash_reset_speed_buff_tick_system,
+                effects::phoenix_system
+                    .after(crate::gameplay::combat::damage::apply_damage_events)
+                    .before(crate::gameplay::player::systems::player_death_system),
             ).run_if(
                     in_state(AppState::InGame).or_else(
                         in_state(AppState::CoopGame)

@@ -68,6 +68,22 @@ pub fn player_dash_input_system(
             dash_visual.dir = dash.dir;
         }
 
+        // Blink: instant teleport instead of velocity-based dash
+        let blink_stacks = inventory
+            .map(|value| value.stacks(AugmentId::Blink))
+            .unwrap_or(0);
+        if blink_stacks > 0 {
+            let base_distance = dash.speed * dash.base_duration_s;
+            let distance = if blink_stacks >= 2 {
+                base_distance * 1.5
+            } else {
+                base_distance
+            };
+            // Use very high speed + tiny duration to teleport in one frame
+            dash.speed = distance / 0.016;
+            dash.timer = Timer::from_seconds(0.016, TimerMode::Once);
+        }
+
         let extra_invuln = match inventory
             .map(|value| value.stacks(AugmentId::ExtendedInvuln))
             .unwrap_or(0)
@@ -76,8 +92,9 @@ pub fn player_dash_input_system(
             1 => 0.15,
             _ => 0.0,
         };
+        let dash_duration = if blink_stacks > 0 { 0.016 } else { dash.base_duration_s };
         inv.timer =
-            Timer::from_seconds(dash.base_duration_s + extra_invuln, TimerMode::Once);
+            Timer::from_seconds(dash_duration + extra_invuln, TimerMode::Once);
         sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::Dash });
         particles::spawn_dash_particles(&mut commands, &assets, tf.translation().truncate());
 
@@ -138,6 +155,18 @@ pub fn update_dash_state(
                     strength: 8.0,
                     duration: 0.18,
                 });
+            }
+            // DashShield: grant shield on dash end
+            if let Some(inv) = inventory.as_ref() {
+                let shield_stacks = inv.stacks(AugmentId::DashShield);
+                if shield_stacks > 0 {
+                    let duration = if shield_stacks >= 2 { 5.0 } else { 3.0 };
+                    commands.entity(player_e).insert(
+                        crate::gameplay::augment::effects::DashShieldBuff {
+                            timer: Timer::from_seconds(duration, TimerMode::Once),
+                        },
+                    );
+                }
             }
             dash.reset_to_base();
             if let Some(mut dash_visual) = dash_visual {

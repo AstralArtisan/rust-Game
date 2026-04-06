@@ -78,6 +78,7 @@ pub fn player_attack_input_system(
             &RewardModifiers,
             &Combo,
             &DashState,
+            &Gold,
             Option<&AugmentInventory>,
             Option<&PlayerSkillState>,
             Option<&GhostState>,
@@ -101,6 +102,7 @@ pub fn player_attack_input_system(
         mods,
         combo,
         dash,
+        gold,
         inventory,
         skill_state,
         ghost,
@@ -137,13 +139,14 @@ pub fn player_attack_input_system(
         sfx_events.send(crate::core::events::SfxEvent { kind: crate::core::events::SfxKind::MeleeAttack });
         let swing = melee_swing_profile(*mods);
 
+        let greed_mult = greed_damage_mult(inventory, gold.0);
         spawn_player_melee_hitbox_with_mods(
             &mut commands,
             &assets,
             player_e,
             player_tf,
             facing.0,
-            power.0 * mods.melee_damage_mult(),
+            power.0 * mods.melee_damage_mult() * greed_mult,
             crit.0,
             *mods,
             inventory,
@@ -181,6 +184,7 @@ pub fn player_ranged_input_system(
             &mut RangedRapidFire,
             &RewardModifiers,
             &DashState,
+            &Gold,
             Option<&AugmentInventory>,
             Option<&PlayerSkillState>,
             Option<&GhostState>,
@@ -203,6 +207,7 @@ pub fn player_ranged_input_system(
         mut rapid,
         mods,
         dash,
+        gold,
         inventory,
         skill_state,
         ghost,
@@ -248,7 +253,8 @@ pub fn player_ranged_input_system(
         let speed = BASE_RANGED_PROJECTILE_SPEED
             * mods.ranged_projectile_speed_mult()
             * speed_boost_mult;
-        let damage = power.0 * 0.65 * mods.ranged_damage_mult();
+        let greed_mult = greed_damage_mult(inventory, gold.0);
+        let damage = power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult;
         spawn_player_ranged_volley(
             &mut commands,
             &assets,
@@ -410,6 +416,29 @@ pub fn spawn_player_melee_hitbox_with_mods(
             direction,
             damage * mods.melee_sword_wave_damage_fraction(),
         );
+    }
+
+    // SwordWave augment: spawn a ranged sword wave projectile
+    let sword_wave_stacks = inventory
+        .map(|value| value.stacks(AugmentId::SwordWave))
+        .unwrap_or(0);
+    if sword_wave_stacks > 0 && !mods.melee_sword_wave_unlocked() {
+        let sw_damage_mult = if sword_wave_stacks >= 2 { 0.50 } else { 0.35 };
+        let sw_entity = spawn_player_sword_wave(
+            commands,
+            assets,
+            owner,
+            owner_pos + direction * (swing.reach + 12.0),
+            direction,
+            damage * sw_damage_mult,
+        );
+        // Upgraded: infinite pierce
+        if sword_wave_stacks >= 2 {
+            commands.entity(sw_entity).insert((
+                PierceCount { remaining: 255 },
+                HitTargets::default(),
+            ));
+        }
     }
 }
 
@@ -915,7 +944,7 @@ fn spawn_player_sword_wave(
     pos: Vec2,
     dir: Vec2,
     damage: f32,
-) {
+) -> Entity {
     let direction = dir.try_normalize().unwrap_or(Vec2::X);
     let size = Vec2::new(82.0, 36.0);
     let velocity = direction * SWORD_WAVE_SPEED;
@@ -962,5 +991,16 @@ fn spawn_player_sword_wave(
         },
         InGameEntity,
         Name::new("SwordWave"),
-    ));
+    )).id()
+}
+
+fn greed_damage_mult(inventory: Option<&AugmentInventory>, gold: u32) -> f32 {
+    let stacks = inventory
+        .map(|inv| inv.stacks(AugmentId::Greed))
+        .unwrap_or(0);
+    if stacks == 0 {
+        return 1.0;
+    }
+    let threshold = if stacks >= 2 { 80 } else { 100 };
+    1.0 + (gold / threshold) as f32 * 0.05
 }

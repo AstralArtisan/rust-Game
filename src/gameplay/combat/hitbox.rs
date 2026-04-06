@@ -140,6 +140,7 @@ pub fn detect_hitbox_hurtbox_overlap(
     owner_mods: Query<&RewardModifiers>,
     owner_augments: Query<&AugmentInventory>,
     mut owner_health_q: Query<&mut Health, (With<Player>, Without<Replicated>)>,
+    target_health_q: Query<&Health, (Without<Player>, Without<Replicated>)>,
     boss_q: Query<(), (With<BossArchetype>, Without<Replicated>)>,
     existing_ruptures: Query<&RuptureDot, Without<Replicated>>,
     mut hitboxes: Query<
@@ -185,10 +186,31 @@ pub fn detect_hitbox_hurtbox_overlap(
             let is_melee_arc = arc.is_some() && hb.team == Team::Player;
             let target_is_boss = boss_q.get(target).is_ok();
 
+            // Executioner: melee instant-kill on low HP enemies (not bosses)
+            let mut final_amount = amount;
+            if is_melee_arc && !target_is_boss {
+                if let Some(owner) = hb.owner {
+                    let exec_stacks = owner_augments
+                        .get(owner)
+                        .map(|inv| inv.stacks(AugmentId::Executioner))
+                        .unwrap_or(0);
+                    if exec_stacks > 0 {
+                        let threshold = if exec_stacks >= 2 { 0.25 } else { 0.15 };
+                        if let Ok(target_hp) = target_health_q.get(target) {
+                            if target_hp.max > 0.0
+                                && target_hp.current / target_hp.max < threshold
+                            {
+                                final_amount = target_hp.current + 1.0;
+                            }
+                        }
+                    }
+                }
+            }
+
             damage_ev.send(DamageEvent {
                 target,
                 source: hb.owner,
-                amount,
+                amount: final_amount,
                 knockback: dir * hb.knockback,
                 team: hb.team,
                 kind: hb.damage_kind,

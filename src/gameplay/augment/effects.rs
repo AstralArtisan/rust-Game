@@ -438,6 +438,127 @@ fn arc_hitbox_intersects_target(
     angle <= arc.half_angle_rad + angular_padding
 }
 
+// --- Legendary augment components ---
+
+/// Frozen: enemy cannot move for duration.
+/// We store the original speed multiplier so we can restore it.
+#[derive(Component, Debug, Clone)]
+pub struct Frozen {
+    pub timer: Timer,
+}
+
+/// DashShield: absorbs one hit, expires after duration.
+#[derive(Component, Debug, Clone)]
+pub struct DashShieldBuff {
+    pub timer: Timer,
+}
+
+/// Phoenix: marks that the once-per-run revive has been used.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct PhoenixUsed;
+
+// --- Legendary augment systems ---
+
+/// Freeze: on PlayerRanged hit, chance to freeze enemy.
+pub fn freeze_system(
+    mut commands: Commands,
+    mut damage_events: EventReader<DamageAppliedEvent>,
+    player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
+    mut rng: ResMut<crate::utils::rng::GameRng>,
+    existing_frozen: Query<(), (With<Frozen>, Without<Replicated>)>,
+) {
+    for event in damage_events.read() {
+        if event.kind != DamageKind::PlayerRanged || event.target_team != Some(Team::Enemy) {
+            continue;
+        }
+        let Some(player) = event.source else {
+            continue;
+        };
+        let Ok(inventory) = player_augments.get(player) else {
+            continue;
+        };
+        let stacks = inventory.stacks(AugmentId::Freeze);
+        if stacks == 0 {
+            continue;
+        }
+        // Already frozen, skip
+        if existing_frozen.get(event.target).is_ok() {
+            continue;
+        }
+        let (chance, duration) = if stacks >= 2 {
+            (0.25, 2.0)
+        } else {
+            (0.15, 1.5)
+        };
+        if rng.gen_range_f32(0.0, 1.0) < chance {
+            commands.entity(event.target).insert(Frozen {
+                timer: Timer::from_seconds(duration, TimerMode::Once),
+            });
+        }
+    }
+}
+
+/// Tick frozen timers, tint sprite blue while frozen, remove when expired.
+pub fn tick_frozen_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut Frozen, Option<&mut Sprite>), Without<Replicated>>,
+) {
+    for (entity, mut frozen, sprite) in &mut q {
+        frozen.timer.tick(time.delta());
+        // Tint blue while frozen
+        if let Some(mut sprite) = sprite {
+            sprite.color = Color::srgba(0.5, 0.7, 1.0, 1.0);
+        }
+        if frozen.timer.finished() {
+            commands.entity(entity).remove::<Frozen>();
+            // Restore color (approximate — the enemy color system will fix it next frame)
+        }
+    }
+}
+
+/// DashShield: tick timer, remove when expired.
+pub fn tick_dash_shield_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut DashShieldBuff), (With<Player>, Without<Replicated>)>,
+) {
+    for (entity, mut shield) in &mut q {
+        shield.timer.tick(time.delta());
+        if shield.timer.finished() {
+            commands.entity(entity).remove::<DashShieldBuff>();
+        }
+    }
+}
+
+/// Phoenix: intercept player death by checking health <= 0 before DeathEvent is processed.
+/// Runs after apply_damage_events but we read health directly.
+pub fn phoenix_system(
+    mut commands: Commands,
+    mut flash_events: EventWriter<crate::core::events::ScreenFlashRequest>,
+    mut q: Query<
+        (Entity, &mut Health, &AugmentInventory),
+        (With<Player>, Without<Replicated>, Without<PhoenixUsed>),
+    >,
+) {
+    for (entity, mut health, inventory) in &mut q {
+        if health.current > 0.0 {
+            continue;
+        }
+        let stacks = inventory.stacks(AugmentId::Phoenix);
+        if stacks == 0 {
+            continue;
+        }
+        let revive_fraction = if stacks >= 2 { 0.80 } else { 0.50 };
+        health.current = health.max * revive_fraction;
+        commands.entity(entity).insert(PhoenixUsed);
+        flash_events.send(crate::core::events::ScreenFlashRequest {
+            color: Color::srgba(1.0, 0.85, 0.3, 0.9),
+            duration_s: 0.4,
+        });
+    }
+}
+
 fn projectile_reflect_direction(projectile_velocity: Vec2, slash_direction: Vec2) -> Vec2 {
     let slash = slash_direction.normalize_or_zero();
     let away = (-projectile_velocity).normalize_or_zero();
