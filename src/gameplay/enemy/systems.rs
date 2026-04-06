@@ -148,6 +148,7 @@ impl Plugin for EnemySystemsPlugin {
                     boss::boss_guardian_facing_system,
                     boss::boss_decoy_system,
                     boss::tide_hunter_state_machine,
+                    boss::tide_hunter_contact_damage_system.after(boss::tide_hunter_state_machine),
                     boss::tide_hunter_parry_check.after(boss::tide_hunter_state_machine),
                     boss::shadow_trail_fade_system.after(boss::tide_hunter_state_machine),
                     boss::shadow_trail_damage_system.after(boss::shadow_trail_fade_system),
@@ -697,6 +698,7 @@ pub fn spawn_boss(
                 shadow_duration_s: 2.5,
                 stalk_duration_s: 1.8,
                 reposition_duration_s: 0.9,
+                contact_hit_cooldown: Timer::from_seconds(0.0, TimerMode::Once),
                 parry_window_active: false,
             });
         }
@@ -920,8 +922,7 @@ fn summoner_summon_system(
         }
 
         let remaining_slots = state.max_active_summons.saturating_sub(active_summons);
-        let desired_summons: usize =
-            if remaining_slots <= 1 || rng.gen_range_f32(0.0, 1.0) < 0.5 {
+        let desired_summons: usize = if remaining_slots <= 1 || rng.gen_range_f32(0.0, 1.0) < 0.5 {
             1
         } else {
             2
@@ -1067,7 +1068,10 @@ fn elite_splitting_system(
                 });
             } else if kind.0 == EnemyType::Summoner {
                 commands.entity(split).insert(SummonerState {
-                    summon_timer: Timer::from_seconds(split_stats.attack_cooldown_s, TimerMode::Once),
+                    summon_timer: Timer::from_seconds(
+                        split_stats.attack_cooldown_s,
+                        TimerMode::Once,
+                    ),
                     max_active_summons: 3,
                 });
             }
@@ -1124,7 +1128,10 @@ fn elite_teleport_system(
     time: Res<Time>,
     mut rng: ResMut<GameRng>,
     player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
-    mut elites: Query<(&mut Transform, &mut TeleportAffixTimer), (With<Enemy>, Without<Replicated>)>,
+    mut elites: Query<
+        (&mut Transform, &mut TeleportAffixTimer),
+        (With<Enemy>, Without<Replicated>),
+    >,
 ) {
     let player_positions = player_q
         .iter()
@@ -1272,7 +1279,10 @@ pub fn enemy_attack_system(
         }
 
         match kind.0 {
-            EnemyType::MeleeChaser | EnemyType::Charger | EnemyType::Flanker | EnemyType::Shielder => {
+            EnemyType::MeleeChaser
+            | EnemyType::Charger
+            | EnemyType::Flanker
+            | EnemyType::Shielder => {
                 if dist <= stats.attack_range {
                     cd.timer = Timer::from_seconds(effective_cooldown, TimerMode::Once);
                     cd.timer.reset();
@@ -1774,8 +1784,7 @@ fn pick_elite_affix(rng: &mut GameRng) -> EliteAffix {
         EliteAffix::Berserk,
         EliteAffix::Teleporting,
     ];
-    let index =
-        (rng.gen_range_f32(0.0, AFFIXES.len() as f32) as usize).min(AFFIXES.len() - 1);
+    let index = (rng.gen_range_f32(0.0, AFFIXES.len() as f32) as usize).min(AFFIXES.len() - 1);
     AFFIXES[index]
 }
 

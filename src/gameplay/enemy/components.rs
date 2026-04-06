@@ -144,6 +144,7 @@ pub struct TideHunterState {
     pub shadow_duration_s: f32,
     pub stalk_duration_s: f32,
     pub reposition_duration_s: f32,
+    pub contact_hit_cooldown: Timer,
     pub parry_window_active: bool,
 }
 

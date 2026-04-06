@@ -5,7 +5,7 @@ use lightyear::prelude::Replicated;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::coop::components::{CoopParticipant, GhostState};
 use crate::coop::net::{CoopNetConfig, NetMode};
-use crate::core::events::{BossPhaseChangeEvent, DeathEvent};
+use crate::core::events::{BossPhaseChangeEvent, DamageAppliedEvent, DeathEvent};
 use crate::data::definitions::BossFloorConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{DamageKind, Hitbox, Hurtbox, Knockback, Lifetime, Team};
@@ -18,7 +18,7 @@ use crate::gameplay::enemy::components::{
     GuardianShieldIndicator, ShadowTrail, TeamMarker, TideHunterPhase, TideHunterState,
 };
 use crate::gameplay::map::InGameEntity;
-use crate::gameplay::player::components::{DashState, Health, Player};
+use crate::gameplay::player::components::{DashState, Health, Player, Velocity};
 use crate::ui::tutorial::{TutorialFlags, TutorialNotification};
 use crate::utils::math::direction_to;
 
@@ -278,7 +278,10 @@ pub fn tide_hunter_state_machine(
     mut commands: Commands,
     time: Res<Time>,
     assets: Res<crate::core::assets::GameAssets>,
-    player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
+    player_q: Query<
+        (&GlobalTransform, Option<&GhostState>, Option<&Velocity>),
+        (With<Player>, Without<Replicated>),
+    >,
     mut q: Query<
         (
             &mut Transform,
@@ -290,13 +293,14 @@ pub fn tide_hunter_state_machine(
         With<TideHunterState>,
     >,
 ) {
-    let player_positions: Vec<Vec2> = player_q
+    let player_data: Vec<(Vec2, Option<Vec2>)> = player_q
         .iter()
-        .filter_map(|(tf, ghost)| {
-            (!matches!(ghost, Some(GhostState::Ghost))).then_some(tf.translation().truncate())
+        .filter_map(|(tf, ghost, vel)| {
+            (!matches!(ghost, Some(GhostState::Ghost)))
+                .then_some((tf.translation().truncate(), vel.map(|value| value.0)))
         })
         .collect();
-    if player_positions.is_empty() {
+    if player_data.is_empty() {
         return;
     }
 
@@ -304,10 +308,10 @@ pub fn tide_hunter_state_machine(
         apply_tide_hunter_phase_params(*boss_phase, &mut state);
 
         let pos = tf.translation.truncate();
-        let player_pos = player_positions
+        let (player_pos, player_vel) = player_data
             .iter()
             .copied()
-            .min_by(|a, b| pos.distance(*a).total_cmp(&pos.distance(*b)))
+            .min_by(|(a, _), (b, _)| pos.distance(*a).total_cmp(&pos.distance(*b)))
             .unwrap();
         state.timer.tick(time.delta());
 
@@ -326,8 +330,13 @@ pub fn tide_hunter_state_machine(
             TideHunterPhase::Telegraph => {
                 tf.translation.x = state.dash_start.x;
                 tf.translation.y = state.dash_start.y;
+                let predicted_pos = if boss_phase.0 >= 2 {
+                    player_vel.map_or(player_pos, |vel| player_pos + vel * 0.3)
+                } else {
+                    player_pos
+                };
                 state.dash_target =
-                    compute_tide_hunter_dash_target(state.dash_start, player_pos, &state);
+                    compute_tide_hunter_dash_target(state.dash_start, predicted_pos, &state);
 
                 if state.timer.finished() {
                     state.phase = TideHunterPhase::ShadowDash;
@@ -339,7 +348,7 @@ pub fn tide_hunter_state_machine(
                         state.dash_start,
                         state.dash_target,
                         state.shadow_duration_s,
-                        stats.attack_damage * 0.6,
+                        stats.attack_damage * 1.0,
                     );
                     tf.translation.x = state.dash_target.x;
                     tf.translation.y = state.dash_target.y;
@@ -410,6 +419,61 @@ pub fn tide_hunter_state_machine(
             TideHunterPhase::Stunned => Color::srgb(0.82, 0.82, 0.82),
             TideHunterPhase::Stalk => boss_color(BossArchetype::TideHunter),
         };
+    }
+}
+
+pub fn tide_hunter_contact_damage_system(
+    time: Res<Time>,
+    mut tide_q: Query<(Entity, &GlobalTransform, &EnemyStats, &mut TideHunterState)>,
+    mut player_q: Query<
+        (Entity, &GlobalTransform, &mut Health),
+        (With<Player>, Without<Replicated>),
+    >,
+    mut damage_events: EventWriter<DamageAppliedEvent>,
+    mut death_events: EventWriter<DeathEvent>,
+) {
+    for (boss_entity, boss_tf, stats, mut state) in &mut tide_q {
+        state.contact_hit_cooldown.tick(time.delta());
+        if state.phase != TideHunterPhase::ShadowDash {
+            continue;
+        }
+
+        if !state.contact_hit_cooldown.finished() {
+            continue;
+        }
+
+        let boss_pos = boss_tf.translation().truncate();
+        let contact_damage = stats.attack_damage * 0.5;
+        for (player_entity, player_tf, mut health) in &mut player_q {
+            let player_pos = player_tf.translation().truncate();
+            if boss_pos.distance(player_pos) >= 30.0 {
+                continue;
+            }
+
+            let previous = health.current;
+            health.current = (health.current - contact_damage).max(0.0);
+            state.contact_hit_cooldown = Timer::from_seconds(0.3, TimerMode::Once);
+
+            damage_events.send(DamageAppliedEvent {
+                target: player_entity,
+                source: Some(boss_entity),
+                amount: contact_damage,
+                attacker_team: Team::Enemy,
+                kind: DamageKind::Enemy,
+                target_team: Some(Team::Player),
+                is_crit: false,
+                pos: player_pos,
+            });
+
+            if previous > 0.0 && health.current <= 0.0 {
+                death_events.send(DeathEvent {
+                    entity: player_entity,
+                    source: Some(boss_entity),
+                    team: Team::Player,
+                });
+            }
+            break;
+        }
     }
 }
 
@@ -617,19 +681,19 @@ fn apply_tide_hunter_phase_params(boss_phase: BossPhase, state: &mut TideHunterS
         1 => {
             state.dashes_per_cycle = 1;
             state.shadow_duration_s = 2.5;
-            state.stalk_duration_s = 1.8;
+            state.stalk_duration_s = 1.2;
             state.reposition_duration_s = 0.9;
         }
         2 => {
             state.dashes_per_cycle = 2;
             state.shadow_duration_s = 3.5;
-            state.stalk_duration_s = 1.4;
+            state.stalk_duration_s = 0.8;
             state.reposition_duration_s = 0.7;
         }
         _ => {
             state.dashes_per_cycle = 3;
-            state.shadow_duration_s = 4.5;
-            state.stalk_duration_s = 1.0;
+            state.shadow_duration_s = 6.0;
+            state.stalk_duration_s = 0.5;
             state.reposition_duration_s = 0.6;
         }
     }
