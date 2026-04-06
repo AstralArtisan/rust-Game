@@ -526,3 +526,26 @@ Boss 死亡同时触发 hitstop（`Time<Virtual>` 降到 0.05x）和 ScreenFlash
 - Phase 4b：商店扩展（强化购买、消耗品、诅咒移除）
 - Phase 4c：事件房（合并 Puzzle → Event，11 种事件类型）
 - `cargo check` 通过，`cargo test` 44 项全部通过
+
+---
+
+## 2026-04-06 Phase 4b：商店扩展
+
+### 改动内容
+- **修改 `src/gameplay/session_core/mod.rs`**：`SharedShopItem` 新增 `Augment(AugmentId)`/`HealingPotion`/`RemoveCurse` 三个变体；`ShopDraft` 扩展为三区（`offers`/`augment_offers`/`utility_offers`）；新增 `build_augment_offers()`（从 registry 随机选 2-3 个强化，按稀有度定价 Common=40/Elite=70/Legendary=120）和 `build_utility_offers()`（回血药水 30g + 诅咒移除 80g）；`apply_shop_item()` 新增 HealingPotion 分支（回复 25% max HP）
+- **修改 `src/gameplay/shop/mod.rs`**：`ShopItem`/`ShopOffers`/`CachedShopState` 同步扩展三区；`handle_shop_purchase_input()` 按键映射改为 1/2/3 属性 | 4/5/6 强化 | 7/8 工具；强化购买直接调用 `AugmentInventory::add()`，诅咒移除调用 `CurseState::active.remove(0)`；新增 `AugmentInventory` 和 `CurseState` 到 player query
+- **修改 `src/ui/shop.rs`**：UI 分三区渲染，每区有标题（属性/强化/工具）；抽取 `spawn_shop_section()` 复用渲染逻辑；说明文字更新为 "1/2/3 属性 | 4/5/6 强化 | 7/8 工具 | R 刷新 | Esc 关闭"
+
+### 目的与动机
+原商店只卖 8 种属性（治疗/强健/锋刃等），缺乏构建多样性。扩展为三区后，玩家可以在商店购买强化（与战斗掉落互补）、使用消耗品（回血药水）、移除诅咒（80g），增加商店的战略价值和访问动机。
+
+### 关键决策
+- 强化区价格按稀有度硬编码（Common=40/Elite=70/Legendary=120），未使用 augments.ron 的 shop_cost 字段（简化实现）
+- 诅咒移除只在有诅咒时出现在工具区，避免浪费展示位
+- 三区共享同一个刷新机制（R 键刷新所有区域）
+- 由 Codex（`codex exec --dangerously-bypass-approvals-and-sandbox`）实现，Claude 审查
+
+### 已知问题 / 后续工作
+- Phase 4c：事件房（合并 Puzzle → Event，11 种事件类型）
+- 商店 cache 按房间级别存储，诅咒状态变化后需刷新才能更新工具区
+- `cargo check` 通过，`cargo test` 44 项全部通过
