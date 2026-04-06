@@ -414,5 +414,42 @@
 ### 已知问题 / 后续工作
 - BGM 框架已就绪但无实际音频播放（需外部 .ogg 或程序化环境音）
 - 连击计数器 UI 未实现（当前无 ComboCounter 系统）
-- UI 按钮点击音效待集成
 - `cargo test` 33 项全部通过
+
+---
+
+## 2026-04-06 强化系统阶段2——XP/升级 + 强化选择 + 奖励流程简化
+
+### 改动内容
+
+**阶段1（数据骨架，前次提交已完成）：**
+- 新增 `AugmentId`（30个强化）、`AugmentInventory` 组件、`PlayerLevel` 组件
+- `assets/configs/augments.ron` 定义全部30个强化的稀有度、类别、描述
+- `GameDataRegistry` 新增 `augments` 字段
+
+**阶段2（本次提交）：**
+- 敌人死亡发送 `XpGainEvent`（普通怪 8-15 XP，精英 25-40，Boss 100+）
+- `process_xp_gains` 系统处理 XP 累积和升级，支持 `XpBonus` 强化加成
+- `handle_levelup_event` 系统：升级时生成3个随机属性选项，进入 `LevelUpSelect` 状态
+- 新增 `AugmentSelect` / `LevelUpSelect` 两个 `AppState`，完整 UI 生命周期
+- 奖励流程简化：普通房通关不再弹 `RewardSelect`，仅40%概率弹 `AugmentSelect`
+- Boss房：治疗80% → 必定 `AugmentSelect` → `RewardSelect`（楼层转换）
+- `GoldBonus` / `XpBonus` 强化效果已接入战斗系统
+- 部分 Common 强化效果已实现（SpeedBoost、HeavyStrike、DashTrail、ExtendedInvuln 等）
+- `DashEnergy` 系统：冲刺穿敌回复能量
+
+### 目的与动机
+试玩反馈：奖励房太少、成长管道单一、每房三选一打断节奏。将成长拆为两层独立系统（属性升级 + 强化收集），大幅增加获取频率和构建多样性。普通房通关改为即时反馈（金币+XP已在击杀时获得），选择界面只在概率触发或Boss时出现。
+
+### 关键决策
+- 普通房不再弹 RewardSelect：减少选择疲劳，XP/金币已在击杀时即时获得
+- 强化掉落概率40%/100%：保证每局能收集到足够强化，但不是每房都打断
+- `AugmentSelect` 返回状态可配置：普通房返回 `InGame`，Boss房返回 `RewardSelect`
+- Codex 调用方式确认：`codex-companion.mjs task --write` 可从 Claude 内部写代码
+
+### 已知问题 / 后续工作
+- 阶段3：30个强化的战斗效果实现（大部分尚未接入）
+- 阶段4：事件房、商店扩展、掉落物系统
+- 阶段5：新怪物（Bomber/Shielder/Summoner）+ 精英词缀
+- 阶段6：HUD 更新 + 数值平衡 + 清理旧铭文代码
+- `cargo check` 通过，`cargo test` 33 项全部通过
