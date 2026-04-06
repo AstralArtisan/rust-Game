@@ -470,3 +470,31 @@ Boss 死亡同时触发 hitstop（`Time<Virtual>` 降到 0.05x）和 ScreenFlash
 ### 关键决策
 - 闪光用真实时间而非虚拟时间：闪光是视觉效果，不应受游戏逻辑时间缩放影响
 - 升级延迟队列：奖励流程优先级高于升级选择，避免状态竞争
+
+---
+
+## 2026-04-06 强化系统阶段3：8个传说级战斗效果实现
+
+### 改动内容
+- **Freeze**（`effects.rs`）：远程命中敌人有概率冻结，冻结期间减速+蓝色染色，计时器到期自动解除
+- **DashShield**（`effects.rs` + `dash.rs` + `damage.rs`）：冲刺结束后获得护盾，吸收下一次伤害；`damage.rs` 新增 `Commands` 参数以移除护盾组件
+- **Phoenix**（`effects.rs`）：生命归零时自动复活（每局一次），恢复 50%/80% HP，触发金色屏幕闪光
+- **Executioner**（`hitbox.rs`）：近战攻击对低血量非Boss敌人直接斩杀（15%/25% HP 阈值）
+- **SwordWave**（`combat.rs`）：近战攻击额外发射剑气波，强化版带穿透（PierceCount）
+- **Greed**（`combat.rs`）：根据持有金币提升伤害（每100/80金+5%），同时影响近战和远程
+- **Blink**（`dash.rs`）：冲刺变为瞬移，通过极高速度+极短持续时间实现；强化版1.5倍距离
+- **BulletStorm**（`execute.rs`）：任意终结技释放时额外发射环形弹幕（10/16发）
+
+### 目的与动机
+阶段3目标是为30个强化（Common/Elite/Legendary）实现战斗效果。本次完成8个传说级，是阶段3中最复杂的部分。传说级强化需要新增组件、系统和跨模块交互，影响范围涵盖伤害管线、冲刺系统、技能系统。
+
+### 关键决策
+- **Blink 用速度模拟瞬移**：避免在已有10个字段的 dash query 中再加 `&mut Transform`，通过设置极高 speed（distance/0.016）和极短 timer（0.016s）让移动系统在一帧内完成位移
+- **BulletStorm 挂在终结技通用逻辑后**：不区分具体技能类型，任何终结技都触发弹幕，简化实现
+- **Phoenix 用 `PhoenixUsed` 标记**：每局只能触发一次，通过 `Without<PhoenixUsed>` 过滤避免重复复活
+- **DashShield 在 damage.rs 中拦截**：在伤害应用前检查并消耗护盾，需要给 `apply_damage_events` 新增 `Commands` 参数
+
+### 已知问题 / 后续工作
+- 阶段3的12个普通级和10个精英级效果已在之前由 Codex 实现，本次补完传说级
+- 阶段4：事件房、商店扩展、掉落物系统
+- `cargo check` 通过，`cargo test` 44 项全部通过
