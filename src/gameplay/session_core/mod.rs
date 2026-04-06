@@ -222,8 +222,8 @@ pub fn on_room_cleared(ctx: SessionRuleContext) -> RoomClearDecision {
                 post_reward,
             }
         }
-        RoomType::Puzzle if ctx.mode == SessionMode::Solo => RoomClearDecision {
-            reward_mode: Some(RewardDraftMode::HealOrBuff),
+        RoomType::Event => RoomClearDecision {
+            reward_mode: None,
             heal_alive_fraction: 0.0,
             post_reward: PostRewardDecision::ResumeRun,
         },
@@ -413,7 +413,7 @@ fn room_clear_requires_reward(mode: SessionMode, room_type: RoomType) -> bool {
     match mode {
         SessionMode::Solo => matches!(
             room_type,
-            RoomType::Normal | RoomType::Boss | RoomType::Puzzle
+            RoomType::Normal | RoomType::Boss
         ),
         SessionMode::Coop => matches!(room_type, RoomType::Normal | RoomType::Boss),
     }

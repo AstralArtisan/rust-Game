@@ -20,6 +20,7 @@ pub enum AppState {
     AugmentSelect,
     LevelUpSelect,
     Shop,
+    EventRoom,
     GameOver,
     Victory,
 }

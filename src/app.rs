@@ -11,6 +11,7 @@ use crate::data::DataPlugin;
 use crate::gameplay::GameplayPlugin;
 use crate::pvp::PvpPlugin;
 use crate::states::AppState;
+use crate::ui;
 use crate::ui::UiPlugin;
 
 pub struct GamePlugin;
@@ -39,6 +40,14 @@ impl Plugin for GamePlugin {
                 PvpPlugin,
                 UiPlugin,
             ))
+            .add_systems(
+                OnEnter(AppState::EventRoom),
+                ui::event_room::setup_event_room_ui,
+            )
+            .add_systems(
+                OnExit(AppState::EventRoom),
+                ui::event_room::cleanup_event_room_ui,
+            )
             .add_plugins((
                 crate::gameplay::augment::AugmentPlugin,
                 crate::gameplay::rune::RunePlugin,

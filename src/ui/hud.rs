@@ -816,7 +816,7 @@ pub fn update_room_text(
         RoomType::Normal => "战斗",
         RoomType::Shop => "商店",
         RoomType::Reward => "奖励",
-        RoomType::Puzzle => "机关",
+        RoomType::Event => "事件",
         RoomType::Boss => "首领",
     };
     let state_label = match *room_state {
@@ -1084,7 +1084,7 @@ fn room_color(room_type: RoomType) -> (Color, f32) {
         RoomType::Normal => (Color::srgb(0.85, 0.35, 0.25), 12.0),
         RoomType::Shop => (Color::srgb(0.25, 0.85, 0.35), 12.0),
         RoomType::Reward => (Color::srgb(0.85, 0.85, 0.20), 12.0),
-        RoomType::Puzzle => (Color::srgb(0.25, 0.85, 0.85), 12.0),
+        RoomType::Event => (Color::srgb(0.25, 0.85, 0.85), 12.0),
         RoomType::Boss => (Color::srgb(0.85, 0.25, 0.95), 14.0),
     }
 }
@@ -1170,7 +1170,7 @@ fn coop_room_type_label(room_type: RoomType) -> &'static str {
         RoomType::Normal => "战斗",
         RoomType::Shop => "商店",
         RoomType::Reward => "奖励",
-        RoomType::Puzzle => "事件",
+        RoomType::Event => "事件",
         RoomType::Boss => "首领",
     }
 }

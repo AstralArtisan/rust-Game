@@ -11,7 +11,7 @@ pub enum RoomType {
     Normal,
     Shop,
     Reward,
-    Puzzle,
+    Event,
     Boss,
 }
 

@@ -18,6 +18,7 @@ use crate::gameplay::combat::projectiles;
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::{ai, boss, spawner};
+use crate::gameplay::event_room::{ActiveEvent, EventType, reset_active_event};
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};
 use crate::gameplay::player::components::{
@@ -29,9 +30,7 @@ use crate::gameplay::progression::difficulty::{
 };
 use crate::gameplay::progression::experience::XpGainEvent;
 use crate::gameplay::progression::floor::FloorNumber;
-use crate::gameplay::puzzle::{
-    ActivePuzzle, PuzzleEntity, reset_active_puzzle, spawn_puzzle_for_room,
-};
+use crate::gameplay::puzzle::{ActivePuzzle, PuzzleEntity, reset_active_puzzle};
 use crate::gameplay::shop::ShopKiosk;
 use crate::gameplay::skills::ChargeGainEvent;
 use crate::states::{AppState, RoomState};
@@ -224,7 +223,7 @@ pub fn room_entry_spawner(
     )>,
     mut spawn_count: ResMut<EnemySpawnCount>,
     mut active_puzzle: ResMut<ActivePuzzle>,
-    mut rng: ResMut<GameRng>,
+    mut active_event: ResMut<ActiveEvent>,
     floor: Option<Res<FloorNumber>>,
 ) {
     if spawned.0 == Some(current_room.0.0) {
@@ -248,6 +247,7 @@ pub fn room_entry_spawner(
         safe_despawn_recursive(&mut commands, entity);
     }
     reset_active_puzzle(&mut active_puzzle);
+    reset_active_event(&mut active_event);
 
     let room = layout.room(current_room.0).unwrap();
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
@@ -258,14 +258,14 @@ pub fn room_entry_spawner(
         .map(|value| value.mode == NetMode::Host && !coop_players.is_empty())
         .unwrap_or(false);
     let coop_hp_mult = if coop_host_active { 2.0 } else { 1.0 };
-    let room_type = if coop_host_active && room.room_type == RoomType::Puzzle {
+    let room_type = if coop_host_active && room.room_type == RoomType::Event {
         RoomType::Normal
     } else {
         room.room_type
     };
 
     match room_type {
-        RoomType::Start | RoomType::Reward | RoomType::Shop => {
+        RoomType::Start | RoomType::Reward | RoomType::Shop | RoomType::Event => {
             *room_state = RoomState::Idle;
         }
         RoomType::Normal => {
@@ -301,16 +301,6 @@ pub fn room_entry_spawner(
                 floor_number,
                 floor_multiplier,
                 coop_hp_mult,
-            );
-        }
-        RoomType::Puzzle => {
-            *room_state = RoomState::Locked;
-            spawn_puzzle_for_room(
-                &mut commands,
-                &assets,
-                &mut rng,
-                &mut active_puzzle,
-                current_room.0,
             );
         }
     }
@@ -905,6 +895,7 @@ pub fn enemy_death_system(
     mut grace: ResMut<ClearGrace>,
     mut spawn_count: ResMut<EnemySpawnCount>,
     data: Res<GameDataRegistry>,
+    active_event: Res<ActiveEvent>,
     coop_config: Option<Res<CoopNetConfig>>,
     floor: Option<Res<FloorNumber>>,
 ) {
@@ -1001,12 +992,15 @@ pub fn enemy_death_system(
             .as_deref()
             .map(|value| value.mode == NetMode::Host)
             .unwrap_or(false);
-        let room_type = if coop_host_active && room.room_type == RoomType::Puzzle {
+        let room_type = if coop_host_active && room.room_type == RoomType::Event {
             RoomType::Normal
         } else {
             room.room_type
         };
-        if room_type == RoomType::Puzzle {
+        let is_puzzle_event = room_type == RoomType::Event
+            && active_event.room == Some(current_room.0)
+            && active_event.event_type.is_some_and(EventType::is_puzzle);
+        if is_puzzle_event {
             return;
         }
         if grace.last_room != Some(current_room.0.0) {

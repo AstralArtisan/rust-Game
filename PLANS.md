@@ -1,153 +1,246 @@
-# Phase 4b: 商店扩展
+# Phase 4c: 事件房（合并 Puzzle → Event）
 
 ## Context
 
-Phase 4a（掉落物系统）已完成。Phase 4b 扩展商店：新增强化购买区、消耗品区（回血药水、诅咒移除）。
-
-当前商店只卖 8 种属性（治疗/强健/锋刃/迅捷/轻盈/充能/锐眼/连击），按 1/2/3 购买 3 个随机属性。需要扩展为三个区域。
+Phase 4a（掉落物）和 4b（商店扩展）已完成。Phase 4c 将 `RoomType::Puzzle` 重命名为 `RoomType::Event`，保留原有 3 种谜题作为事件子类型，新增 8 种事件，共 11 种。新增 `AppState::EventRoom` 用于非战斗事件的 UI 交互。
 
 ## Current Task
 
 ### 目标
 
-商店从单一属性区扩展为三区：属性区（保留）+ 强化区（新增）+ 工具区（新增）。
+1. `RoomType::Puzzle` → `RoomType::Event`（全局替换）
+2. 新增 `EventType` 枚举（11 种事件）
+3. 新增 `AppState::EventRoom` 状态
+4. 新建 `src/gameplay/event_room/mod.rs`（事件房逻辑）
+5. 新建 `src/ui/event_room.rs`（事件房 UI）
+6. 修改所有引用 `RoomType::Puzzle` 的文件
 
 ### Affected files
 
-- `src/gameplay/shop/mod.rs` (修改)
-- `src/gameplay/session_core/mod.rs` (修改)
-- `src/ui/shop.rs` (修改)
+**新建：**
+- `src/gameplay/event_room/mod.rs`
+- `src/ui/event_room.rs`
+
+**修改：**
+- `src/gameplay/map/room.rs`
+- `src/states.rs`
+- `src/gameplay/mod.rs`
+- `src/app.rs`
+- `src/gameplay/puzzle/mod.rs`
+- `src/gameplay/session_core/mod.rs`
+- `src/gameplay/enemy/systems.rs`
+- `src/gameplay/map/generator.rs`
+- `src/gameplay/map/tiles.rs`
+- `src/gameplay/map/doors.rs`
+- `src/ui/hud.rs`
+- `src/ui/mod.rs`
+- `src/coop/runtime.rs`
+- `src/coop/ui.rs`
+- `src/core/achievements.rs`
 
 ### 详细改动
 
-#### 1. 修改 `src/gameplay/session_core/mod.rs`
+#### 1. `src/gameplay/map/room.rs` — 重命名枚举变体
 
-**扩展 `SharedShopItem` 枚举**（~L131）：
+```rust
+pub enum RoomType {
+    Start,
+    Normal,
+    Shop,
+    Reward,
+    Event,   // 原 Puzzle
+    Boss,
+}
+```
+
+#### 2. `src/states.rs` — 新增 AppState
+
+在 `AppState` 枚举中添加 `EventRoom`（放在 `Shop` 后面）：
+```rust
+    Shop,
+    EventRoom,
+    GameOver,
+```
+
+#### 3. 全局替换 `RoomType::Puzzle` → `RoomType::Event`
+
+以下文件中所有 `RoomType::Puzzle` 替换为 `RoomType::Event`，`Puzzle` 相关的显示文本保持为"事件"（大部分已经是）：
+
+| 文件 | 改动 |
+|------|------|
+| `src/gameplay/map/generator.rs:316` | `RoomType::Puzzle => 2` → `RoomType::Event => 2`（权重保持 2） |
+| `src/gameplay/map/generator.rs:261-265` | Coop 中 `RoomType::Puzzle` → `RoomType::Event`（仍转为 Normal） |
+| `src/gameplay/map/tiles.rs:160` | `RoomType::Puzzle` → `RoomType::Event`，标签改为 `"事件房"` |
+| `src/gameplay/map/doors.rs:196` | `RoomType::Puzzle` → `RoomType::Event`，标签保持 `"事件"` |
+| `src/gameplay/enemy/systems.rs:261,306` | `RoomType::Puzzle` → `RoomType::Event` |
+| `src/gameplay/session_core/mod.rs` | `RoomType::Puzzle` → `RoomType::Event` |
+| `src/ui/hud.rs:819,1087,1173` | `RoomType::Puzzle` → `RoomType::Event`，标签保持 `"事件"` |
+| `src/coop/runtime.rs:60-72` | `RoomType::Puzzle` → `RoomType::Event`（normalize 函数） |
+| `src/coop/runtime.rs:2826-2855` | 测试中 `Puzzle` → `Event` |
+| `src/coop/ui.rs:2528` | `RoomType::Puzzle` → `RoomType::Event` |
+| `src/core/achievements.rs:159` | `RoomType::Puzzle` → `RoomType::Event`，成就 ID 保持 `PuzzleSolver` |
+
+#### 4. 新建 `src/gameplay/event_room/mod.rs`（~300 行）
+
+```rust
+use bevy::prelude::*;
+use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
+use crate::gameplay::curse::{CurseId, CurseState};
+use crate::gameplay::map::room::{CurrentRoom, RoomId};
+use crate::gameplay::map::InGameEntity;
+use crate::gameplay::player::components::{Gold, Health, Player};
+use crate::gameplay::puzzle;
+use crate::core::events::RoomClearedEvent;
+use crate::states::AppState;
+use crate::utils::rng::GameRng;
+
+pub struct EventRoomPlugin;
+
+impl Plugin for EventRoomPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<ActiveEvent>()
+            .add_systems(
+                Update,
+                select_and_spawn_event
+                    .run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                event_room_input
+                    .run_if(in_state(AppState::EventRoom)),
+            );
+    }
+}
+```
+
+**EventType 枚举：**
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SharedShopItem {
-    // 现有 8 个属性项不变
-    Heal,
-    IncreaseMaxHealth,
-    IncreaseAttackPower,
-    ReduceDashCooldown,
-    IncreaseMoveSpeed,
-    IncreaseEnergyMax,
-    IncreaseCritChance,
-    IncreaseAttackSpeed,
-    // 新增
-    Augment(AugmentId),
-    HealingPotion,    // 回复 25% max HP, 30g
-    RemoveCurse,      // 移除最旧诅咒, 80g
+pub enum EventType {
+    // 旧谜题
+    PressurePlate,
+    SwitchOrder,
+    TrapSurvival,
+    // 新事件
+    Gambler,          // 50g → 随机强化
+    CurseAltar,       // 接受诅咒 → 精英强化
+    BloodPact,        // -30% HP → 2选1强化
+    Treasure,         // 免费 Common 强化 + 30g
+    HealingSpring,    // 回复 40% max HP
+    Merchant,         // 2 个半价强化
+    TimedChallenge,   // 30s 击杀 → 精英强化（战斗事件）
+    EliteEncounter,   // 单挑精英 → 精英强化（战斗事件）
 }
 ```
 
-注意：`SharedShopItem` 当前 derive 了 `Copy`。`AugmentId` 也是 Copy，所以 `Augment(AugmentId)` 仍然是 Copy。
-
-**扩展 `ShopDraft`**（~L148）：
+**ActiveEvent 资源：**
 ```rust
-pub struct ShopDraft {
-    pub refresh_count: u32,
-    pub offers: Vec<ShopOfferDraft>,        // 属性区（保留）
-    pub augment_offers: Vec<ShopOfferDraft>, // 强化区（新增）
-    pub utility_offers: Vec<ShopOfferDraft>, // 工具区（新增）
-}
-```
-
-**修改 `build_shop_offers()`**（~L485）：保持现有属性区逻辑不变。
-
-**新增 `build_augment_offers()` 函数**：
-- 参数：`registry: &GameDataRegistry, rng: &mut GameRng, floor_number: u32`
-- 从 `registry.augments.augments` 中随机选 2-3 个（floor 1-2 选 2 个，floor 3+ 选 3 个）
-- 价格用 augment 定义的 `shop_cost` 字段（如果有），否则按稀有度：Common=40, Elite=70, Legendary=120
-- 返回 `Vec<ShopOfferDraft>`，item 为 `SharedShopItem::Augment(augment_id)`
-
-**新增 `build_utility_offers()` 函数**：
-- 始终包含 `HealingPotion`（cost=30）
-- 如果玩家有诅咒（需要传入 `has_curse: bool` 参数），包含 `RemoveCurse`（cost=80）
-- 返回 `Vec<ShopOfferDraft>`
-
-**修改 `build_shop_draft()`**：调用三个 build 函数填充三个区域。新增参数 `registry: Option<&GameDataRegistry>` 和 `has_curse: bool`。
-
-**修改 `refresh_shop_draft()`**：同样刷新三个区域。新增同样参数。
-
-**扩展 `apply_shop_item()`**（~L516）：新增 match 分支：
-```rust
-SharedShopItem::Augment(_) => false, // 强化购买不在这里处理，返回 false
-SharedShopItem::HealingPotion => {
-    effects.health.current = (effects.health.current + effects.health.max * 0.25).min(effects.health.max);
-    true
-}
-SharedShopItem::RemoveCurse => false, // 诅咒移除不在这里处理，返回 false
-```
-
-#### 2. 修改 `src/gameplay/shop/mod.rs`
-
-**扩展 `ShopItem` 枚举**（~L106）：
-```rust
-#[derive(Debug, Clone, Copy)]
-pub enum ShopItem {
-    // 现有 8 个不变
-    Heal, IncreaseMaxHealth, IncreaseAttackPower, ReduceDashCooldown,
-    IncreaseMoveSpeed, IncreaseEnergyMax, IncreaseCritChance, IncreaseAttackSpeed,
-    // 新增
-    Augment(AugmentId),
-    HealingPotion,
-    RemoveCurse,
-}
-```
-
-**扩展 `ShopOffers`**（~L53）：
-```rust
-pub struct ShopOffers {
+#[derive(Resource, Default)]
+pub struct ActiveEvent {
+    pub event_type: Option<EventType>,
+    pub resolved: bool,
     pub room: Option<RoomId>,
-    pub lines: Vec<ShopLine>,              // 属性区
-    pub augment_lines: Vec<ShopLine>,      // 强化区
-    pub utility_lines: Vec<ShopLine>,      // 工具区
-    pub refresh_count: u32,
+    pub choices: Vec<EventChoice>,  // 用于需要选择的事件
+}
+
+pub struct EventChoice {
+    pub label: String,
+    pub description: String,
 }
 ```
 
-**扩展 `CachedShopState`**（~L70）：同样新增 `augment_lines` 和 `utility_lines`。
+**系统：**
 
-**修改 `generate_shop_offers()`**：从 draft 的三个区域分别构建 lines。需要新增参数传入 `GameDataRegistry` 和 `has_curse`。
+1. `select_and_spawn_event` — 当进入 Event 房且 `ActiveEvent` 未设置时触发：
+   - 谜题类型（PressurePlate/SwitchOrder/TrapSurvival）：调用现有 `puzzle::spawn_puzzle_for_room()`，不转状态
+   - 战斗类型（TimedChallenge/EliteEncounter）：设 `RoomState::Locked`，生成敌人，不转状态
+   - 非战斗事件（其余 6 种）：设置 `ActiveEvent` 的 choices，转到 `AppState::EventRoom`
 
-**修改 `refresh_shop_offers()`**：同上。
+2. `event_room_input` — 在 `AppState::EventRoom` 中处理玩家选择：
+   - 按 1/2 选择选项，按 Esc 离开（放弃事件）
+   - 选择后应用效果：
+     - Gambler：扣 50g，随机 `AugmentInventory::add(random_augment)`
+     - CurseAltar：`CurseState::add_curse(random_curse)`，然后给精英强化
+     - BloodPact：`hp.current *= 0.7`，给 2 选 1 强化
+     - Treasure：直接给 Common 强化 + 30g
+     - HealingSpring：`hp.current = (hp.current + hp.max * 0.4).min(hp.max)`
+     - Merchant：展示 2 个半价强化可购买（用 Gold）
+   - 完成后发 `RoomClearedEvent`，回到 `AppState::InGame`
 
-**修改 `build_shop_lines_from_draft()`**：拆分为三个函数或一个函数处理三个区域。对 `Augment(id)` 类型，从 registry 获取名称和描述。
+**事件选择随机权重：**
+- 谜题类型（3种）：各权重 1（总 3）
+- 非战斗事件（6种）：各权重 2（总 12）
+- 战斗事件（2种）：各权重 1（总 2）
+- 总权重 17，谜题约 18%，非战斗约 70%，战斗约 12%
 
-**扩展 `shop_item_from_shared()` 和 `shared_shop_item_from_shop_item()`**：新增三个变体的映射。
+#### 5. 修改 `src/gameplay/enemy/systems.rs`
 
-**扩展 `describe_item()` 和 `describe_item_local()`**：
+在 Event 房的 spawn 逻辑中（原 ~L306）：
 ```rust
-ShopItem::Augment(_) => ("强化", "获得一个强化", base_cost),
-ShopItem::HealingPotion => ("回血药水", "回复 25% 最大生命", 30),
-ShopItem::RemoveCurse => ("净化", "移除一个诅咒", 80),
+RoomType::Event => {
+    // 事件房的 spawn 由 event_room 模块处理
+    // 谜题类型和战斗类型会在 select_and_spawn_event 中设置 RoomState::Locked
+    // 非战斗类型不锁门
+}
 ```
 
-**修改 `handle_shop_purchase_input()`**（~L365）：
-- 按键映射：1/2/3 = 属性区，4/5/6 = 强化区，7/8 = 工具区
-- 新增 `AugmentInventory` 和 `CurseState` 到 player query（用 `Option<>`）
-- Augment 购买：`inventory.add(augment_id)`，不走 `apply_shop_purchase`
-- RemoveCurse 购买：`curse_state.active.remove(0)`（移除最旧的），不走 `apply_shop_purchase`
-- HealingPotion：走 `apply_shop_purchase` 即可
-- 购买后更新对应区域的 `purchased` 标记和 cache
+不再直接调用 `spawn_puzzle_for_room`，改由 `event_room` 模块统一调度。
 
-**修改 `maybe_enter_shop_state()` 和 `open_shop_hotkey()`**：传入新参数（registry, has_curse）给 `generate_shop_offers`。`has_curse` 从 player 的 `CurseState` 查询。
+#### 6. 修改 `src/gameplay/puzzle/mod.rs`
 
-#### 3. 修改 `src/ui/shop.rs`
+- `PuzzlePlugin` 保留，系统保留
+- `spawn_puzzle_for_room()` 改为 `pub` 供 `event_room` 调用
+- 不再由 `enemy/systems.rs` 直接调用
 
-**修改 `setup_shop_ui()`**：更新说明文字为 "1/2/3 属性 | 4/5/6 强化 | 7/8 工具 | R 刷新 | Esc 关闭"
+#### 7. 新建 `src/ui/event_room.rs`（~100 行）
 
-**修改 `update_shop_ui()`**：分三区渲染，每区有标题（"属性"/"强化"/"工具"）。遍历 `offers.lines`、`offers.augment_lines`、`offers.utility_lines`，按键编号分别从 1/4/7 开始。
+```rust
+use bevy::prelude::*;
+use crate::core::assets::GameAssets;
+use crate::gameplay::event_room::ActiveEvent;
+use crate::states::AppState;
+use crate::ui::widgets;
+
+#[derive(Component)]
+pub struct EventRoomUi;
+
+pub fn setup_event_room_ui(mut commands: Commands, assets: Res<GameAssets>, event: Res<ActiveEvent>) {
+    // 全屏半透明背景 + 居中面板
+    // 显示事件标题 + 描述 + 选项列表（按 1/2 选择，Esc 离开）
+}
+
+pub fn cleanup_event_room_ui(mut commands: Commands, q: Query<Entity, With<EventRoomUi>>) {
+    for e in &q {
+        commands.entity(e).despawn_recursive();
+    }
+}
+```
+
+#### 8. 修改 `src/ui/mod.rs`
+
+添加 `pub mod event_room;`
+
+#### 9. 修改 `src/gameplay/mod.rs`
+
+添加 `pub mod event_room;` 和注册 `event_room::EventRoomPlugin`
+
+#### 10. 修改 `src/app.rs`
+
+注册 EventRoom 状态的 OnEnter/OnExit：
+```rust
+.add_systems(OnEnter(AppState::EventRoom), ui::event_room::setup_event_room_ui)
+.add_systems(OnExit(AppState::EventRoom), ui::event_room::cleanup_event_room_ui)
+```
+
+#### 11. 修改 `src/gameplay/session_core/mod.rs`
+
+Event 房通关不触发 RewardSelect（奖励由事件自身处理）。
 
 ### 需要注意的导入
 
-- `src/gameplay/shop/mod.rs` 需要新增导入：
-  - `use crate::gameplay::augment::data::{AugmentId, AugmentInventory};`
-  - `use crate::gameplay::curse::CurseState;`
-- `src/gameplay/session_core/mod.rs` 需要新增导入：
-  - `use crate::gameplay::augment::data::AugmentId;`（如果还没有的话）
+- `event_room/mod.rs` 需要：`AugmentId`, `AugmentInventory`, `CurseId`, `CurseState`, `Gold`, `Health`, `Player`, `GameRng`, `RoomClearedEvent`, `AppState`, `InGameEntity`
+- 从 `data::registry::GameDataRegistry` 获取强化池
+- 从 `gameplay::rewards::systems` 中复用强化选择逻辑（如果 `generate_augment_choices` 是 pub 的话），否则自行实现简单版本
 
 ### 验证命令
 ```bash

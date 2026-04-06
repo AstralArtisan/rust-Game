@@ -1,5 +1,6 @@
 pub mod augment_select;
 pub mod cursor;
+pub mod event_room;
 pub mod game_over;
 pub mod hud;
 pub mod levelup_select;

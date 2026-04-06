@@ -156,7 +156,7 @@ fn track_room_clear(
     for ev in cleared.read() {
         let room_type = layout.room(ev.room).map(|r| r.room_type);
         match room_type {
-            Some(RoomType::Puzzle) => {
+            Some(RoomType::Event) => {
                 unlock_once(&mut ach, &mut unlocked, AchievementId::PuzzleSolver)
             }
             Some(RoomType::Boss) => unlock_once(&mut ach, &mut unlocked, AchievementId::BossSlayer),

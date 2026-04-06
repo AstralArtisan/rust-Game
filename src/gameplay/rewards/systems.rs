@@ -257,7 +257,7 @@ fn enter_reward_selection(
     let Some(room) = layout.room(current.0) else {
         return;
     };
-    if room.room_type == RoomType::Reward {
+    if matches!(room.room_type, RoomType::Reward | RoomType::Event) {
         return;
     }
 

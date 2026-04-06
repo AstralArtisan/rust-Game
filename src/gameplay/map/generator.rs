@@ -244,7 +244,7 @@ fn build_layer_rooms(
     pick_weighted_unique_room_types(width, layer_index, floor, rng)
         .into_iter()
         .map(|room_type| GeneratedRoom {
-            mystery: room_type == RoomType::Puzzle,
+            mystery: room_type == RoomType::Event,
             room_type,
         })
         .collect()
@@ -261,7 +261,7 @@ fn pick_weighted_unique_room_types(
         let total_weight = [
             RoomType::Normal,
             RoomType::Shop,
-            RoomType::Puzzle,
+            RoomType::Event,
             RoomType::Reward,
         ]
         .into_iter()
@@ -275,7 +275,7 @@ fn pick_weighted_unique_room_types(
         for room_type in [
             RoomType::Normal,
             RoomType::Shop,
-            RoomType::Puzzle,
+            RoomType::Event,
             RoomType::Reward,
         ] {
             if selected.contains(&room_type) {
@@ -313,7 +313,7 @@ fn room_weight(room_type: RoomType, layer_index: usize, floor: u32) -> u32 {
                 2
             }
         }
-        RoomType::Puzzle => 2,
+        RoomType::Event => 2,
         RoomType::Reward => 1,
         RoomType::Start | RoomType::Boss => 0,
     }

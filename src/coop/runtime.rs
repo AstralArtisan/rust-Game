@@ -58,7 +58,7 @@ const REVIVE_HEALTH_FRACTION: f32 = 0.5;
 const COOP_RPS_INPUT_TIMEOUT_S: f32 = 12.0;
 
 fn normalize_coop_room_type(room_type: RoomType) -> RoomType {
-    if room_type == RoomType::Puzzle {
+    if room_type == RoomType::Event {
         RoomType::Normal
     } else {
         room_type
@@ -2828,7 +2828,7 @@ mod tests {
             rooms: vec![
                 RoomData {
                     id: RoomId(0),
-                    room_type: RoomType::Puzzle,
+                    room_type: RoomType::Event,
                     mystery: true,
                     connections: RoomConnections { exits: Vec::new() },
                     bounds: RoomBounds {

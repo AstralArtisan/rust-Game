@@ -157,10 +157,10 @@ fn spawn_room_decor(commands: &mut Commands, assets: &GameAssets, room_type: Roo
             Some("奖励圣坛"),
             Vec3::new(0.0, -118.0, 2.0),
         ),
-        RoomType::Puzzle => (
+        RoomType::Event => (
             Color::srgba(0.62, 0.36, 0.86, 0.20),
             Vec2::new(148.0, 148.0),
-            Some("机关房"),
+            Some("事件房"),
             Vec3::new(0.0, -118.0, 2.0),
         ),
         RoomType::Boss => (

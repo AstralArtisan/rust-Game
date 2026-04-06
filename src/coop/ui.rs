@@ -2525,7 +2525,7 @@ fn coop_room_type_brief_label(room_type: RoomType) -> &'static str {
         RoomType::Normal => "战斗",
         RoomType::Shop => "商店",
         RoomType::Reward => "奖励",
-        RoomType::Puzzle => "事件",
+        RoomType::Event => "事件",
         RoomType::Boss => "首领",
     }
 }

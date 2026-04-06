@@ -4,6 +4,7 @@ pub mod curse;
 pub mod drops;
 pub mod effects;
 pub mod enemy;
+pub mod event_room;
 pub mod map;
 pub mod player;
 pub mod progression;
@@ -32,6 +33,7 @@ impl Plugin for GameplayPlugin {
             rewards::RewardsPlugin,
             effects::EffectsPlugin,
             puzzle::PuzzlePlugin,
+            event_room::EventRoomPlugin,
             shop::ShopPlugin,
             drops::DropPlugin,
         ))
