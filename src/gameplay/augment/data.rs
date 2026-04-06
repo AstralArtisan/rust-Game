@@ -94,3 +94,48 @@ impl AugmentInventory {
         self.augments.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_add_augment() {
+        let mut inv = AugmentInventory::default();
+        inv.add(AugmentId::Piercing);
+        assert!(inv.has(AugmentId::Piercing));
+        assert_eq!(inv.stacks(AugmentId::Piercing), 1);
+    }
+
+    #[test]
+    fn test_upgrade_augment() {
+        let mut inv = AugmentInventory::default();
+        inv.add(AugmentId::Piercing);
+        inv.add(AugmentId::Piercing);
+        assert_eq!(inv.stacks(AugmentId::Piercing), 2);
+    }
+
+    #[test]
+    fn test_max_stacks() {
+        let mut inv = AugmentInventory::default();
+        inv.add(AugmentId::Piercing);
+        inv.add(AugmentId::Piercing);
+        inv.add(AugmentId::Piercing);
+        assert_eq!(inv.stacks(AugmentId::Piercing), 2);
+    }
+
+    #[test]
+    fn test_count() {
+        let mut inv = AugmentInventory::default();
+        inv.add(AugmentId::Piercing);
+        inv.add(AugmentId::GoldBonus);
+        inv.add(AugmentId::DashTrail);
+        assert_eq!(inv.count(), 3);
+    }
+
+    #[test]
+    fn test_has_returns_false() {
+        let inv = AugmentInventory::default();
+        assert!(!inv.has(AugmentId::Phoenix));
+    }
+}

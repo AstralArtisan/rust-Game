@@ -154,3 +154,59 @@ pub fn handle_levelup_event(
 
     next_state.set(AppState::LevelUpSelect);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_level() {
+        let level = PlayerLevel::default();
+        assert_eq!(level.level, 1);
+        assert_eq!(level.xp, 0);
+        assert_eq!(level.xp_to_next, 40);
+    }
+
+    #[test]
+    fn test_add_xp_no_levelup() {
+        let mut level = PlayerLevel::default();
+        let gained = level.add_xp(30);
+        assert_eq!(gained, 0);
+        assert_eq!(level.level, 1);
+        assert_eq!(level.xp, 30);
+    }
+
+    #[test]
+    fn test_add_xp_levelup() {
+        let mut level = PlayerLevel::default();
+        let gained = level.add_xp(45);
+        assert_eq!(gained, 1);
+        assert_eq!(level.level, 2);
+        assert_eq!(level.xp, 5);
+        assert_eq!(level.xp_to_next, 55);
+    }
+
+    #[test]
+    fn test_multi_levelup() {
+        let mut level = PlayerLevel::default();
+        // Level 1→2: 40 XP, Level 2→3: 55 XP, Level 3→4: 70 XP = 165 total
+        let gained = level.add_xp(200);
+        assert_eq!(gained, 3);
+        assert_eq!(level.level, 4);
+        assert_eq!(level.xp, 200 - 40 - 55 - 70); // 35
+        assert_eq!(level.xp_to_next, 85);
+    }
+
+    #[test]
+    fn test_xp_threshold_formula() {
+        assert_eq!(PlayerLevel::xp_threshold(1), 40);
+        assert_eq!(PlayerLevel::xp_threshold(2), 55);
+        assert_eq!(PlayerLevel::xp_threshold(5), 100);
+    }
+
+    #[test]
+    fn test_pending_levelups_default() {
+        let pending = PendingLevelUps::default();
+        assert!(pending.levels.is_empty());
+    }
+}
