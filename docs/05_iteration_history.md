@@ -603,6 +603,55 @@ Boss 死亡同时触发 hitstop（`Time<Virtual>` 降到 0.05x）和 ScreenFlash
 - Summoner 的召唤物用 SummonedBy(Entity) 标记，死亡时批量 despawn
 
 ### 已知问题 / 后续工作
-- Phase 5b：精英词缀系统
-- Phase 5c：TideHunter 调整
+- `cargo check` 通过，`cargo test` 44 项全部通过
+
+---
+
+## 2026-04-06 Phase 5b：精英词缀系统
+
+### 改动内容
+- **EliteAffix 枚举**：6 种词缀（Swift/Splitting/Shielded/Vampiric/Berserk/Teleporting）
+- **Swift**：移速 +50%，攻速 +30%（cooldown ×0.77），spawn 时直接修改 stats，无运行时系统
+- **Splitting**：死亡分裂为 2 个同类型弱化版（50% HP，70% damage，无词缀）
+- **Shielded**：开局 1 层护盾，在 damage.rs 拦截首次伤害
+- **Vampiric**：命中玩家回复自身 10% max HP
+- **Berserk**：HP<30% 时 damage ×2，sprite 变红
+- **Teleporting**：每 3s 短距离闪现（80-120px）靠近玩家
+- **视觉**：精英体型 1.3×，金色色调叠加
+- **5 个运行时系统**：elite_splitting_system、elite_shielded（damage.rs 拦截）、elite_vampiric_system、elite_berserk_system、elite_teleport_system
+
+### 目的与动机
+精英怪原本只是纯数值放大（HP×2, damage×1.55），缺乏机制区别和辨识度。词缀系统让每个精英都有独特行为，增加战斗策略深度。
+
+### 关键决策
+- 每个精英随机分配 1 个词缀，避免多词缀叠加导致的复杂度爆炸
+- Shielded 在 damage.rs 伤害管线中拦截，而非独立系统，确保所有伤害来源都被正确拦截
+- Splitting 生成的弱化版不带词缀，防止无限分裂
+
+### 已知问题 / 后续工作
+- `cargo check` 通过，`cargo test` 44 项全部通过
+
+---
+
+## 2026-04-06 Phase 5c：TideHunter 威胁度提升
+
+### 改动内容
+- **Stalk 时间缩短**：P1/P2/P3 从 1.8/1.4/1.0s 降至 1.2/0.8/0.5s，攻击更频繁
+- **暗影伤害提升**：shadow_damage_mult 从 0.6 提升至 1.0（全额攻击力）
+- **P3 暗影持续延长**：shadow_duration 从 4.5s 增至 6.0s，地面危险区域更持久
+- **ShadowDash 接触伤害**：新增 tide_hunter_contact_damage_system，冲刺路径上接触玩家造成 0.5× attack_damage，0.3s 冷却防止连续命中
+- **P2+ 目标预判**：Telegraph 阶段计算 predicted_pos = player_pos + velocity × 0.3s，冲刺目标不再是玩家当前位置而是预判位置
+
+### 目的与动机
+Floor 3 Boss TideHunter 威胁偏低，玩家可以轻松站撸。通过缩短攻击间隔、提升伤害、增加接触伤害和目标预判，让 Boss 战更有压迫感和躲避需求。
+
+### 关键决策
+- 接触伤害用 TideHunterState 内置 contact_hit_cooldown Timer，避免新增组件
+- 目标预判只在 P2+ 生效，P1 保持原始行为作为学习阶段
+- player query 新增 Option<&Velocity>，兼容无 Velocity 组件的情况
+
+### 已知问题 / 后续工作
+- Phase 5 全部完成（5a 新怪物 + 5b 精英词缀 + 5c TideHunter）
+- 下一步：Phase 6（HUD + 平衡 + 旧代码清理）
+- 需要手动游玩验证 TideHunter P2/P3 的压迫感和接触伤害触发频率
 - `cargo check` 通过，`cargo test` 44 项全部通过
