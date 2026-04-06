@@ -1,4 +1,5 @@
 use bevy::app::AppExit;
+use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
@@ -130,7 +131,7 @@ pub fn setup_pvp_menu(mut commands: Commands, assets: Res<GameAssets>) {
 }
 
 pub fn pvp_menu_input_system(
-    mut chars: EventReader<ReceivedCharacter>,
+    mut key_events: EventReader<KeyboardInput>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut ip: ResMut<PvpJoinIp>,
     mut ip_text_q: Query<&mut Text, With<PvpIpText>>,
@@ -159,11 +160,16 @@ pub fn pvp_menu_input_system(
     }
 
     // Edit IP.
-    for ev in chars.read() {
-        for c in ev.char.chars() {
-            if c.is_ascii_digit() || c == '.' || c == ':' {
-                if ip.ip.len() < 64 {
-                    ip.ip.push(c);
+    for ev in key_events.read() {
+        if !ev.state.is_pressed() {
+            continue;
+        }
+        if let Key::Character(ref s) = ev.logical_key {
+            for c in s.chars() {
+                if c.is_ascii_digit() || c == '.' || c == ':' {
+                    if ip.ip.len() < 64 {
+                        ip.ip.push(c);
+                    }
                 }
             }
         }

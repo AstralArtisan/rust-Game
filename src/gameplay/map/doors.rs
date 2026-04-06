@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -111,10 +113,12 @@ pub fn spawn_room_doors(commands: &mut Commands, assets: &GameAssets) {
     }
 }
 
+#[allow(dead_code)]
 pub fn lock_room_doors(mut room_state: ResMut<RoomState>) {
     *room_state = RoomState::Locked;
 }
 
+#[allow(dead_code)]
 pub fn unlock_room_doors(mut room_state: ResMut<RoomState>) {
     *room_state = RoomState::Cleared;
 }

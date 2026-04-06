@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 
 use crate::data::definitions::*;
@@ -7,6 +9,7 @@ pub struct GameDataRegistry {
     pub player: PlayerConfig,
     pub enemies: EnemiesConfig,
     pub bosses: BossesConfig,
+    #[allow(dead_code)]
     pub rewards: RewardsConfig,
     pub runes: RunesConfig,
     pub curses: CursesConfig,

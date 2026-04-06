@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -70,6 +72,7 @@ pub struct TeleportAffixTimer {
     pub timer: Timer,
 }
 
+#[allow(dead_code)]
 #[derive(Component, Debug, Clone, Copy)]
 pub struct TeamMarker(pub Team);
 

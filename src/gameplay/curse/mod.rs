@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -51,6 +53,7 @@ impl CurseState {
         expired
     }
 
+    #[allow(dead_code)]
     pub fn damage_taken_mult(&self) -> f32 {
         let mut mult = 1.0;
         for curse in &self.active {
@@ -61,6 +64,7 @@ impl CurseState {
         mult
     }
 
+    #[allow(dead_code)]
     pub fn move_speed_mult(&self) -> f32 {
         let mut mult = 1.0;
         for curse in &self.active {
@@ -71,6 +75,7 @@ impl CurseState {
         mult
     }
 
+    #[allow(dead_code)]
     pub fn energy_gain_mult(&self) -> f32 {
         let mut mult = 1.0;
         for curse in &self.active {
@@ -81,6 +86,7 @@ impl CurseState {
         mult
     }
 
+    #[allow(dead_code)]
     pub fn dash_cooldown_mult(&self) -> f32 {
         let mut mult = 1.0;
         for curse in &self.active {
@@ -91,6 +97,7 @@ impl CurseState {
         mult
     }
 
+    #[allow(dead_code)]
     pub fn damage_dealt_mult(&self) -> f32 {
         let mut mult = 1.0;
         for curse in &self.active {

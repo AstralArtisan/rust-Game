@@ -30,7 +30,7 @@ pub fn generate_and_spawn_floor(
     existing_current: Option<Res<CurrentRoom>>,
     existing_room_state: Option<Res<RoomState>>,
     existing_transition: Option<Res<RoomTransition>>,
-    mut visited: Option<ResMut<VisitedRooms>>,
+    visited: Option<ResMut<VisitedRooms>>,
     mut player_q: Query<(&mut Transform, &mut Velocity, &mut DashState), With<Player>>,
     player_curse_q: Query<&CurseState, With<Player>>,
 ) {
@@ -328,6 +328,7 @@ fn directions_for_width(width: usize) -> Vec<Direction> {
     }
 }
 
+#[allow(dead_code)]
 fn opposite_direction(dir: Direction) -> Direction {
     match dir {
         Direction::Up => Direction::Down,

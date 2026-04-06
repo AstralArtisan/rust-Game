@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
@@ -8,6 +10,7 @@ use crate::states::AppState;
 pub struct GameAssets {
     pub font: Handle<Font>,
     pub textures: TextureHandles,
+    #[allow(dead_code)]
     pub audio: AudioHandles,
 }
 
@@ -21,6 +24,7 @@ pub struct TextureHandles {
     pub slash_layout: Handle<TextureAtlasLayout>,
 }
 
+#[allow(dead_code)]
 #[derive(Resource, Clone, Default)]
 pub struct AudioHandles {
     pub ui_click: Handle<bevy_kira_audio::AudioSource>,

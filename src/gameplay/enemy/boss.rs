@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 
 use lightyear::prelude::Replicated;
@@ -1220,6 +1222,7 @@ fn spawn_mirror_decoy(
     }
 }
 
+#[allow(dead_code)]
 fn spawn_melee_hitbox(
     commands: &mut Commands,
     assets: &crate::core::assets::GameAssets,

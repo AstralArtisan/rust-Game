@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
-use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory, AugmentRarity};
 use crate::gameplay::player::components::Player;
 use crate::states::AppState;

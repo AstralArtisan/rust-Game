@@ -3,7 +3,6 @@ use bevy_kira_audio::prelude::StaticSoundData;
 use bevy_kira_audio::prelude::*;
 use rand::Rng;
 
-use crate::core::assets::GameAssets;
 use crate::core::events::{SfxEvent, SfxKind};
 use crate::data::registry::GameDataRegistry;
 
@@ -564,6 +563,7 @@ pub enum BgmTrack {
     Boss,
 }
 
+#[allow(dead_code)]
 #[derive(Resource)]
 pub struct BgmState {
     pub current: BgmTrack,

@@ -10,7 +10,6 @@ use crate::data::registry::GameDataRegistry;
 use crate::gameplay::curse::CurseState;
 use crate::gameplay::enemy::components::Enemy;
 use crate::gameplay::enemy::components::{EnemyKind, EnemyType};
-use crate::gameplay::map::VisitedRooms;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::player::components::{
     DashCooldown, Energy, Gold, Health, Player, PlayerSkillState, SkillSlot, SkillSlots,
@@ -92,12 +91,6 @@ pub struct HintText;
 
 #[derive(Component)]
 pub struct MinimapRoot;
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct MinimapRoomNode(pub RoomId);
-
-#[derive(Component)]
-pub struct MinimapDynamic;
 
 #[derive(Component)]
 pub struct StageProgressText;
@@ -926,111 +919,6 @@ pub fn update_stage_progress(
     text.sections[0].value = format!("第{}层：{}/{}", floor_number, current_step, total_steps);
 }
 
-pub fn update_minimap(
-    mut commands: Commands,
-    assets: Res<GameAssets>,
-    layout: Option<Res<FloorLayout>>,
-    current: Option<Res<CurrentRoom>>,
-    visited: Option<Res<VisitedRooms>>,
-    root_q: Query<Entity, With<MinimapRoot>>,
-    mut nodes_q: Query<(
-        Entity,
-        &MinimapRoomNode,
-        &mut BackgroundColor,
-        &mut Style,
-        &mut BorderColor,
-    )>,
-    dynamic_q: Query<Entity, With<MinimapDynamic>>,
-) {
-    let (Some(layout), Some(current), Some(visited)) = (layout, current, visited) else {
-        return;
-    };
-    let Ok(root) = root_q.get_single() else {
-        return;
-    };
-
-    let need_rebuild = nodes_q.iter().next().is_none() || layout.is_changed();
-    if need_rebuild {
-        let existing_nodes: Vec<Entity> = nodes_q.iter().map(|(e, _, _, _, _)| e).collect();
-        for e in existing_nodes {
-            safe_despawn_recursive(&mut commands, e);
-        }
-        let existing_dynamic: Vec<Entity> = dynamic_q.iter().collect();
-        for e in existing_dynamic {
-            safe_despawn_recursive(&mut commands, e);
-        }
-
-        commands.entity(root).with_children(|mm| {
-            mm.spawn((
-                NodeBundle {
-                    style: Style {
-                        column_gap: Val::Px(6.0),
-                        flex_direction: FlexDirection::Row,
-                        ..default()
-                    },
-                    ..default()
-                },
-                MinimapDynamic,
-                Name::new("MinimapRow"),
-            ))
-            .with_children(|row| {
-                for room in &layout.rooms {
-                    let (base, size) = room_color(room.room_type);
-                    let visited_room = visited.0.contains(&room.id);
-                    let alpha = if visited_room { 0.95 } else { 0.25 };
-                    row.spawn((
-                        NodeBundle {
-                            style: Style {
-                                width: Val::Px(size),
-                                height: Val::Px(size),
-                                border: UiRect::all(Val::Px(0.0)),
-                                ..default()
-                            },
-                            background_color: BackgroundColor(base.with_alpha(alpha)),
-                            border_color: BorderColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-                            ..default()
-                        },
-                        MinimapRoomNode(room.id),
-                        MinimapDynamic,
-                        Name::new(format!("MinimapRoom{}", room.id.0)),
-                    ));
-                }
-            });
-
-            mm.spawn((
-                widgets::body_text(
-                    &assets,
-                    "白：当前位置 灰：起点 红：战斗 绿：商店 黄：奖励 蓝：机关 紫：Boss",
-                    12.0,
-                ),
-                MinimapDynamic,
-            ));
-        });
-    }
-
-    if !need_rebuild && !current.is_changed() && !visited.is_changed() {
-        return;
-    }
-
-    for (_, node, mut bg, mut style, mut border) in nodes_q.iter_mut() {
-        let Some(room) = layout.room(node.0) else {
-            continue;
-        };
-        let (base, _) = room_color(room.room_type);
-        let visited_room = visited.0.contains(&node.0);
-        let alpha = if visited_room { 0.95 } else { 0.25 };
-        let mut col = base.with_alpha(alpha);
-        style.border = UiRect::all(Val::Px(0.0));
-        border.0 = Color::srgba(0.0, 0.0, 0.0, 0.0);
-        if node.0 == current.0 {
-            col = Color::srgb(1.0, 1.0, 1.0).with_alpha(0.95);
-            style.border = UiRect::all(Val::Px(2.0));
-            border.0 = Color::srgba(0.0, 0.0, 0.0, 0.85);
-        }
-        *bg = BackgroundColor(col);
-    }
-}
-
 fn room_distances_from_start(layout: &FloorLayout) -> HashMap<RoomId, u32> {
     let mut distances = HashMap::new();
     let mut queue = VecDeque::from([(RoomId(0), 0u32)]);
@@ -1076,17 +964,6 @@ fn rune_glyph(
     })
     .map(|glyph| glyph.to_string())
     .unwrap_or_else(|| "?".to_string())
-}
-
-fn room_color(room_type: RoomType) -> (Color, f32) {
-    match room_type {
-        RoomType::Start => (Color::srgb(0.50, 0.50, 0.55), 12.0),
-        RoomType::Normal => (Color::srgb(0.85, 0.35, 0.25), 12.0),
-        RoomType::Shop => (Color::srgb(0.25, 0.85, 0.35), 12.0),
-        RoomType::Reward => (Color::srgb(0.85, 0.85, 0.20), 12.0),
-        RoomType::Event => (Color::srgb(0.25, 0.85, 0.85), 12.0),
-        RoomType::Boss => (Color::srgb(0.85, 0.25, 0.95), 14.0),
-    }
 }
 
 fn skill_palette(skill: crate::gameplay::player::components::SkillType) -> Color {

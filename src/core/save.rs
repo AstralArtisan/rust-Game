@@ -180,7 +180,7 @@ fn apply_pending_load(
     mut pending: ResMut<PendingLoad>,
     mut floor: Option<ResMut<FloorNumber>>,
     mut spawn_count: Option<ResMut<EnemySpawnCount>>,
-    mut achievements: Option<ResMut<Achievements>>,
+    achievements: Option<ResMut<Achievements>>,
     mut player_q: Query<
         (
             &mut Health,

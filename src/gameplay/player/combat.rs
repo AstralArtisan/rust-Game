@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 use std::f32::consts::PI;
@@ -279,6 +281,7 @@ pub fn player_ranged_input_system(
     }
 }
 
+#[allow(dead_code)]
 pub fn spawn_player_melee_hitbox(
     commands: &mut Commands,
     assets: &GameAssets,

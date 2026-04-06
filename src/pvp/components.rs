@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +45,7 @@ impl PvpCooldowns {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Component, Debug, Clone, Copy)]
 pub struct PvpTeam(pub Team);
 

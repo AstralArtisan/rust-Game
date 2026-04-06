@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 
 use crate::gameplay::combat::components::{DamageKind, Team};
@@ -52,11 +54,13 @@ pub struct RewardChosenEvent {
     pub group: RewardChoiceGroup,
 }
 
+#[allow(dead_code)]
 #[derive(Event, Debug, Clone, Copy)]
 pub struct DoorOpenEvent {
     pub room: RoomId,
 }
 
+#[allow(dead_code)]
 #[derive(Event, Debug, Clone, Copy)]
 pub struct SpawnEnemyEvent {
     pub room: RoomId,
@@ -69,6 +73,7 @@ pub struct BossPhaseChangeEvent {
 
 // --- 音效 / 视觉反馈事件 ---
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SfxKind {
     MeleeAttack,

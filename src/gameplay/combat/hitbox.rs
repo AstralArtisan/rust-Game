@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 
@@ -18,6 +20,7 @@ use crate::utils::collision::aabb_from_transform_size;
 use crate::utils::entity::safe_despawn_recursive;
 use crate::utils::rng::GameRng;
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 struct MeleeReflector {
     owner: Entity,
@@ -25,6 +28,7 @@ struct MeleeReflector {
     arc: ArcHitbox,
 }
 
+#[allow(dead_code)]
 pub fn reflect_enemy_projectiles_on_melee(
     mut commands: Commands,
     assets: Res<GameAssets>,
@@ -398,6 +402,7 @@ pub fn tick_rupture_dots(
     }
 }
 
+#[allow(dead_code)]
 fn blended_reflect_direction(projectile_velocity: Vec2, slash_direction: Vec2) -> Vec2 {
     let slash = slash_direction.normalize_or_zero();
     let away = (-projectile_velocity).normalize_or_zero();

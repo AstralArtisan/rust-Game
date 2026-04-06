@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use lightyear::prelude::ClientId;
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,7 @@ pub enum PlayerSlot {
 }
 
 impl PlayerSlot {
+    #[allow(dead_code)]
     pub const ALL: [Self; 2] = [Self::P1, Self::P2];
 
     pub fn index(self) -> usize {
@@ -60,6 +63,7 @@ pub enum GhostState {
 }
 
 impl GhostState {
+    #[allow(dead_code)]
     pub fn can_interact(self) -> bool {
         matches!(self, Self::Alive)
     }

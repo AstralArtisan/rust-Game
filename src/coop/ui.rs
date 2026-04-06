@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 
+use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 use lightyear::prelude::client::MessageEvent as LyClientMessageEvent;
@@ -306,7 +307,7 @@ pub fn setup_coop_menu(mut commands: Commands, assets: Res<GameAssets>) {
 }
 
 pub fn coop_menu_input_system(
-    mut chars: EventReader<ReceivedCharacter>,
+    mut key_events: EventReader<KeyboardInput>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mut ip: ResMut<CoopJoinIp>,
     mut text_q: ParamSet<(
@@ -319,10 +320,15 @@ pub fn coop_menu_input_system(
     mut flow: ResMut<CoopSessionFlow>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    for ev in chars.read() {
-        for c in ev.char.chars() {
-            if (c.is_ascii_digit() || c == '.') && ip.ip.len() < 64 {
-                ip.ip.push(c);
+    for ev in key_events.read() {
+        if !ev.state.is_pressed() {
+            continue;
+        }
+        if let Key::Character(ref s) = ev.logical_key {
+            for c in s.chars() {
+                if (c.is_ascii_digit() || c == '.') && ip.ip.len() < 64 {
+                    ip.ip.push(c);
+                }
             }
         }
     }
@@ -588,7 +594,7 @@ pub fn coop_lobby_input_system(
         (&Interaction, &mut BackgroundColor),
         (With<CoopLobbyBackButton>, Without<CoopLobbyStartButton>),
     >,
-    mut config: ResMut<CoopNetConfig>,
+    config: ResMut<CoopNetConfig>,
     mut net: ResMut<CoopNetState>,
     mut flow: ResMut<CoopSessionFlow>,
 ) {

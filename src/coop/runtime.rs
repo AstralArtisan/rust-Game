@@ -139,8 +139,8 @@ pub fn reset_coop_runtime(
     mut config: ResMut<CoopNetConfig>,
     mut net: ResMut<CoopNetState>,
     mut flow: ResMut<CoopSessionFlow>,
-    mut visited: Option<ResMut<VisitedRooms>>,
-    mut reward_bonus_seen: Option<ResMut<RewardRoomGoldBonusSeen>>,
+    visited: Option<ResMut<VisitedRooms>>,
+    reward_bonus_seen: Option<ResMut<RewardRoomGoldBonusSeen>>,
     world_q: Query<Entity, With<InGameEntity>>,
     player_q: Query<Entity, With<CoopParticipant>>,
 ) {
@@ -187,8 +187,8 @@ fn process_pending_exit_request(
     mut config: ResMut<CoopNetConfig>,
     mut net: ResMut<CoopNetState>,
     mut flow: ResMut<CoopSessionFlow>,
-    mut visited: Option<ResMut<VisitedRooms>>,
-    mut reward_bonus_seen: Option<ResMut<RewardRoomGoldBonusSeen>>,
+    visited: Option<ResMut<VisitedRooms>>,
+    reward_bonus_seen: Option<ResMut<RewardRoomGoldBonusSeen>>,
     mut next_state: ResMut<NextState<AppState>>,
     world_q: Query<Entity, With<InGameEntity>>,
     player_q: Query<Entity, With<CoopParticipant>>,
@@ -602,12 +602,12 @@ fn host_process_phase_commands(
     mut layout: Option<ResMut<FloorLayout>>,
     mut current_room: Option<ResMut<CurrentRoom>>,
     mut room_state: Option<ResMut<RoomState>>,
-    mut visited: Option<ResMut<VisitedRooms>>,
-    mut reward_bonus_seen: Option<ResMut<RewardRoomGoldBonusSeen>>,
-    mut spawned_for_room: Option<ResMut<SpawnedForRoom>>,
-    mut clear_grace: Option<ResMut<ClearGrace>>,
-    mut spawn_count: Option<ResMut<EnemySpawnCount>>,
-    mut active_puzzle: Option<ResMut<ActivePuzzle>>,
+    visited: Option<ResMut<VisitedRooms>>,
+    reward_bonus_seen: Option<ResMut<RewardRoomGoldBonusSeen>>,
+    spawned_for_room: Option<ResMut<SpawnedForRoom>>,
+    clear_grace: Option<ResMut<ClearGrace>>,
+    spawn_count: Option<ResMut<EnemySpawnCount>>,
+    active_puzzle: Option<ResMut<ActivePuzzle>>,
     mut session_q: Query<&mut CoopSessionState, With<CoopSessionEntity>>,
     mut player_queries: ParamSet<(
         Query<
@@ -746,10 +746,10 @@ fn host_process_phase_commands(
         if runtime.pending_next_floor {
             if let (
                 Some(data),
-                Some(mut floor),
-                Some(mut layout),
-                Some(mut current_room),
-                Some(mut room_state),
+                Some(floor),
+                Some(layout),
+                Some(current_room),
+                Some(room_state),
             ) = (
                 data.as_deref(),
                 floor.as_mut(),
@@ -1322,6 +1322,7 @@ fn slot_index(slot: PlayerSlot) -> usize {
     slot.index()
 }
 
+#[allow(dead_code)]
 fn spawn_dash_trail_hitbox(
     commands: &mut Commands,
     assets: &GameAssets,

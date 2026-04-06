@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -90,6 +92,7 @@ impl AugmentInventory {
             .unwrap_or(0)
     }
 
+    #[allow(dead_code)]
     pub fn count(&self) -> usize {
         self.augments.len()
     }

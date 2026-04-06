@@ -120,7 +120,7 @@ pub fn fade_transition_system(
     mut overlay_q: Query<(&mut Sprite, Entity), With<TransitionOverlay>>,
     mut room_state: ResMut<RoomState>,
     mut player_q: Query<&mut Transform, With<Player>>,
-    mut visited: Option<ResMut<VisitedRooms>>,
+    visited: Option<ResMut<VisitedRooms>>,
 ) {
     if !transition.active {
         return;
@@ -129,22 +129,20 @@ pub fn fade_transition_system(
     let (mut overlay_sprite, overlay_entity) = match overlay_q.get_single_mut() {
         Ok(v) => v,
         Err(_) => {
-            let e = commands
-                .spawn((
-                    SpriteBundle {
-                        texture: assets.textures.white.clone(),
-                        transform: Transform::from_translation(Vec3::new(0.0, 0.0, UI_Z - 1.0)),
-                        sprite: Sprite {
-                            color: Color::srgba(0.0, 0.0, 0.0, 0.0),
-                            custom_size: Some(Vec2::new(4000.0, 4000.0)),
-                            ..default()
-                        },
+            commands.spawn((
+                SpriteBundle {
+                    texture: assets.textures.white.clone(),
+                    transform: Transform::from_translation(Vec3::new(0.0, 0.0, UI_Z - 1.0)),
+                    sprite: Sprite {
+                        color: Color::srgba(0.0, 0.0, 0.0, 0.0),
+                        custom_size: Some(Vec2::new(4000.0, 4000.0)),
                         ..default()
                     },
-                    TransitionOverlay,
-                    Name::new("TransitionOverlay"),
-                ))
-                .id();
+                    ..default()
+                },
+                TransitionOverlay,
+                Name::new("TransitionOverlay"),
+            ));
             return;
         }
     };

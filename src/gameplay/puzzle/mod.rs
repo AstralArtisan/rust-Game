@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod pressure_plate;
 pub mod switch_order;
 pub mod trap;
@@ -56,6 +58,7 @@ impl Default for ActivePuzzle {
     }
 }
 
+#[allow(dead_code)]
 pub fn clear_active_puzzle(mut active: ResMut<ActivePuzzle>) {
     reset_active_puzzle(&mut active);
 }

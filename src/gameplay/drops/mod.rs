@@ -264,13 +264,11 @@ pub fn drop_collect(
         let drop_pos = drop_tf.translation().truncate();
 
         // Find closest player
-        let mut closest = None;
         let mut closest_dist = f32::MAX;
         for (player_tf, _) in &player_q {
             let dist = drop_pos.distance(player_tf.translation().truncate());
             if dist < closest_dist {
                 closest_dist = dist;
-                closest = Some(player_tf.translation().truncate());
             }
         }
 

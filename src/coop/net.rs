@@ -247,6 +247,8 @@ pub fn is_coop_authority(config: Res<CoopNetConfig>) -> bool {
     config.mode == NetMode::Host
 }
 
+#[allow(dead_code)]
+#[allow(dead_code)]
 pub fn local_client_id(mode: NetMode) -> ClientId {
     match mode {
         NetMode::Host => ClientId::Netcode(HOST_CLIENT_ID),

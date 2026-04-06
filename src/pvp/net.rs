@@ -123,7 +123,7 @@ fn try_send_to(sock: &UdpSocket, peer: SocketAddr, msg: &PvpMsg) {
 }
 
 pub fn pvp_net_tick_system(
-    mut config: ResMut<PvpNetConfig>,
+    config: ResMut<PvpNetConfig>,
     mut net: ResMut<PvpNetState>,
     mut next: ResMut<NextState<AppState>>,
     state: Res<State<AppState>>,

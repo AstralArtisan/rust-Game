@@ -1,5 +1,8 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 
+#[allow(dead_code)]
 #[derive(Resource, Debug, Default, Clone)]
 pub struct RunStats {
     pub time_s: f32,

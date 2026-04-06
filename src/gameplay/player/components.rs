@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +44,7 @@ pub struct Energy {
 }
 
 impl Energy {
+    #[allow(dead_code)]
     pub fn ratio(self) -> f32 {
         if self.max <= 0.0 {
             0.0
@@ -117,6 +120,7 @@ impl Combo {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Component, Debug, Clone)]
 pub struct Skill1Cooldown {
     pub timer: Timer,
@@ -591,5 +595,6 @@ impl RangedCooldown {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Component, Debug, Clone, Copy)]
 pub struct TeamMarker(pub Team);

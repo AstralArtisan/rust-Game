@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +27,7 @@ pub enum Direction {
 }
 
 impl Direction {
+    #[allow(dead_code)]
     pub fn as_vec2(self) -> Vec2 {
         match self {
             Direction::Up => Vec2::Y,
@@ -42,6 +45,7 @@ pub struct RoomConnections {
 
 #[derive(Debug, Clone)]
 pub struct RoomBounds {
+    #[allow(dead_code)]
     pub half_size: Vec2,
 }
 
@@ -51,6 +55,7 @@ pub struct RoomData {
     pub room_type: RoomType,
     pub mystery: bool,
     pub connections: RoomConnections,
+    #[allow(dead_code)]
     pub bounds: RoomBounds,
 }
 

@@ -2,7 +2,6 @@ use bevy::prelude::*;
 use rand::Rng;
 
 use crate::core::assets::GameAssets;
-use crate::data::registry::GameDataRegistry;
 use crate::gameplay::map::InGameEntity;
 use crate::utils::entity::safe_despawn_recursive;
 

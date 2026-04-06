@@ -18,6 +18,8 @@ pub fn section_alt_color() -> Color {
     Color::srgba(0.12, 0.14, 0.22, 0.95)
 }
 
+#[allow(dead_code)]
+#[allow(dead_code)]
 pub fn info_color() -> Color {
     Color::srgba(0.09, 0.11, 0.16, 0.92)
 }
@@ -89,6 +91,8 @@ pub fn panel_node(color: Color) -> NodeBundle {
     }
 }
 
+#[allow(dead_code)]
+#[allow(dead_code)]
 pub fn panel_node_with_padding(color: Color, padding: f32) -> NodeBundle {
     NodeBundle {
         style: Style {

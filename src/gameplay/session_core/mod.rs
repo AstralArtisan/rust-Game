@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::data::definitions::{CursesConfig, RunesConfig};
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentRarity};
@@ -323,6 +325,7 @@ pub fn apply_reward_selection(
     post_reward
 }
 
+#[allow(dead_code)]
 pub fn reward_selection_requests_revive(selection: RewardSelection) -> bool {
     [selection.primary, selection.secondary]
         .into_iter()
@@ -330,6 +333,7 @@ pub fn reward_selection_requests_revive(selection: RewardSelection) -> bool {
         .any(reward_option_requests_revive)
 }
 
+#[allow(dead_code)]
 pub fn reward_option_requests_revive(option: RewardOptionDraft) -> bool {
     option == RewardOptionDraft::Revive
 }
@@ -392,6 +396,7 @@ pub fn evaluate_death(mode: SessionMode, living_players: usize) -> DeathDecision
     }
 }
 
+#[allow(dead_code)]
 pub fn can_advance_room(
     mode: SessionMode,
     room_type: RoomType,
@@ -409,6 +414,7 @@ pub fn next_refresh_cost(refresh_count: u32) -> u32 {
     }
 }
 
+#[allow(dead_code)]
 fn room_clear_requires_reward(mode: SessionMode, room_type: RoomType) -> bool {
     match mode {
         SessionMode::Solo => matches!(room_type, RoomType::Normal | RoomType::Boss),

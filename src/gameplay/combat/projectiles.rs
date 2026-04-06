@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 use std::collections::HashSet;
@@ -77,6 +79,7 @@ pub fn spawn_projectile_with_owner(
     )
 }
 
+#[allow(dead_code)]
 pub fn spawn_player_projectile(
     commands: &mut Commands,
     assets: &GameAssets,

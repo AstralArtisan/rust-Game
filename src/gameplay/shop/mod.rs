@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 
 use crate::core::achievements::ShopPurchaseEvent;
@@ -369,6 +371,7 @@ pub fn next_refresh_cost(refresh_count: u32) -> u32 {
     shared_next_refresh_cost(refresh_count)
 }
 
+#[allow(dead_code)]
 fn describe_item(item: ShopItem, base_cost: u32) -> (&'static str, &'static str, u32) {
     match item {
         ShopItem::Heal => ("治疗", "立刻恢复 35 点生命", base_cost),

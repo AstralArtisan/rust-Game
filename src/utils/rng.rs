@@ -19,6 +19,8 @@ impl GameRng {
         }
     }
 
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn reseed(&mut self, seed: u64) {
         self.rng = StdRng::seed_from_u64(seed);
     }
