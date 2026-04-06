@@ -533,7 +533,10 @@ fn apply_reward_choice(
                 ranged_cooldown: &mut ranged_cd,
                 mods: &mut mods,
             };
-            let scaling = registry.as_ref().map(|d| d.rewards.scaling.clone()).unwrap_or_else(RewardScalingConfig::default_config);
+            let scaling = registry
+                .as_ref()
+                .map(|d| d.rewards.scaling.clone())
+                .unwrap_or_else(RewardScalingConfig::default_config);
             let _ = apply_shared_reward_selection(
                 selection,
                 floor_number,

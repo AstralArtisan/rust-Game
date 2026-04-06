@@ -411,8 +411,7 @@ fn resolve_attacks(
             p2_hp = Some(hp.current);
         }
     }
-    let (Some(_), Some(_), Some(p1_h), Some(p2_h)) = (p1_lives, p2_lives, p1_hp, p2_hp)
-    else {
+    let (Some(_), Some(_), Some(p1_h), Some(p2_h)) = (p1_lives, p2_lives, p1_hp, p2_hp) else {
         return;
     };
     if p1_h <= 0.0 {

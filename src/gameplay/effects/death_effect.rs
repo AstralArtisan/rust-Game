@@ -30,10 +30,10 @@ pub fn death_effect_system(
             continue;
         }
 
-        let pos = transform_q
-            .get(ev.entity)
-            .map(|t| t.translation.truncate())
-            .unwrap_or(Vec2::ZERO);
+        let Ok(tf) = transform_q.get(ev.entity) else {
+            continue;
+        };
+        let pos = tf.translation.truncate();
 
         let color = sprite_q
             .get(ev.entity)
@@ -54,9 +54,9 @@ pub fn death_effect_system(
         for _ in 0..particle_count {
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
             let speed = rng.gen_range(80.0..280.0);
-            let size = rng.gen_range(4.0..10.0);
+            let size = rng.gen_range(2.5..6.0);
             let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
-            let lifetime = if is_boss { 0.6 } else { 0.35 };
+            let lifetime = if is_boss { 0.6 } else { 0.25 };
 
             commands.spawn((
                 SpriteBundle {

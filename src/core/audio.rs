@@ -476,25 +476,9 @@ pub fn sfx_playback_system(
     sfx: Option<Res<SfxHandles>>,
     registry: Option<Res<GameDataRegistry>>,
 ) {
-    let Some(sfx) = sfx else { return };
-    let volume = registry
-        .as_ref()
-        .map(|r| (r.audio.master_volume * r.audio.sfx_volume) as f64)
-        .unwrap_or(0.56);
-    let pitch_var = registry
-        .as_ref()
-        .map(|r| r.audio.pitch_variation)
-        .unwrap_or(0.08);
-
-    let mut rng = rand::thread_rng();
-    for ev in events.read() {
-        let handle = sfx.get(ev.kind);
-        let pitch = 1.0 + rng.gen_range(-pitch_var..pitch_var) as f64;
-        audio
-            .play(handle.clone())
-            .with_volume(Volume::Amplitude(volume))
-            .with_playback_rate(pitch);
-    }
+    // SFX disabled — pending redesign
+    for _ in events.read() {}
+    let _ = (&audio, &sfx, &registry);
 }
 
 // --- Plugin ---
@@ -597,21 +581,9 @@ pub fn bgm_state_sync_system(
     room_state: Option<Res<crate::states::RoomState>>,
     mut bgm: ResMut<BgmState>,
 ) {
-    use crate::states::AppState;
-    let track = match state.get() {
-        AppState::MainMenu => BgmTrack::Menu,
-        AppState::InGame | AppState::CoopGame => {
-            if room_state.as_deref() == Some(&crate::states::RoomState::BossFight) {
-                BgmTrack::Boss
-            } else if room_state.as_deref() == Some(&crate::states::RoomState::Locked) {
-                BgmTrack::Combat
-            } else {
-                BgmTrack::Exploration
-            }
-        }
-        _ => BgmTrack::None,
-    };
-    bgm.request(track);
+    // BGM disabled — pending redesign
+    let _ = (&state, &room_state);
+    bgm.request(BgmTrack::None);
 }
 
 pub struct AudioPlugin;

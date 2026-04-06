@@ -1,6 +1,6 @@
 (
-    master_volume: 0.7,
-    sfx_volume: 0.8,
-    bgm_volume: 0.5,
+    master_volume: 0.0,
+    sfx_volume: 0.0,
+    bgm_volume: 0.0,
     pitch_variation: 0.08,
 )

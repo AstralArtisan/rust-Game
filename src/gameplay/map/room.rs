@@ -14,6 +14,7 @@ pub enum RoomType {
     Shop,
     Reward,
     Event,
+    Elite,
     Boss,
 }
 

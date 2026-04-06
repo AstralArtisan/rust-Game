@@ -299,7 +299,7 @@ pub fn room_entry_spawner(
         RoomType::Start | RoomType::Reward | RoomType::Shop | RoomType::Event => {
             *room_state = RoomState::Idle;
         }
-        RoomType::Normal => {
+        RoomType::Normal | RoomType::Elite => {
             *room_state = RoomState::Locked;
             if spawn_count.current == 0 {
                 spawn_count.current = base_enemy_count;
@@ -312,6 +312,9 @@ pub fn room_entry_spawner(
                 } else if current_room.0.0 == 2 {
                     floor_multiplier *= 0.93;
                 }
+            }
+            if room_type == RoomType::Elite {
+                floor_multiplier *= 1.2;
             }
             spawn_room_enemies(
                 &mut commands,
@@ -346,11 +349,11 @@ pub fn spawn_room_enemies(
     floor_number: u32,
     coop_hp_mult: f32,
 ) {
-    let points = spawner::get_spawn_points_for_room();
+    let count = enemy_count as usize;
+    let points = player_safe_spawn_points(spawner::get_spawn_points_for_room(), count);
     let pool = spawner::choose_enemy_types(data, floor_number);
     let frontline_pool = spawner::frontline_enemy_types(&pool);
     let backline_pool = spawner::backline_enemy_types(&pool);
-    let count = enemy_count as usize;
     let mut rng = GameRng::default();
     let spawn_n = count.min(points.len());
     let frontline_in_pool = !frontline_pool.is_empty();
@@ -423,6 +426,29 @@ pub fn spawn_room_enemies(
             is_elite,
         );
     }
+}
+
+fn player_safe_spawn_points(points: Vec<Vec2>, required_count: usize) -> Vec<Vec2> {
+    let player_spawn = Vec2::new(-ROOM_HALF_WIDTH * 0.6, 0.0);
+    let mut safe_points = points
+        .iter()
+        .copied()
+        .filter(|point| point.distance(player_spawn) >= 120.0)
+        .collect::<Vec<_>>();
+    if safe_points.len() >= required_count || safe_points.len() == points.len() {
+        return safe_points;
+    }
+
+    let mut fallback_points = points
+        .into_iter()
+        .filter(|point| point.distance(player_spawn) < 120.0)
+        .collect::<Vec<_>>();
+    fallback_points.sort_by(|a, b| {
+        b.distance_squared(player_spawn)
+            .total_cmp(&a.distance_squared(player_spawn))
+    });
+    safe_points.extend(fallback_points);
+    safe_points
 }
 
 pub fn spawn_enemy(
@@ -555,20 +581,52 @@ pub fn spawn_enemy(
             EliteAffix::Swift | EliteAffix::Splitting | EliteAffix::Vampiric => {}
         }
         entity.with_children(|parent| {
-            parent.spawn((
-                Text2dBundle {
+            let label = affix.label();
+            let label_color = affix.color();
+            // Outline: 4 black shadow copies offset by ±1px
+            for &(dx, dy) in &[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                parent.spawn(Text2dBundle {
                     text: Text::from_section(
-                        affix.label(),
+                        label,
                         TextStyle {
-                            font_size: 12.0,
-                            color: affix.color(),
+                            font_size: 18.0,
+                            color: Color::srgba(0.0, 0.0, 0.0, 0.9),
                             ..default()
                         },
                     ),
-                    transform: Transform::from_translation(Vec3::new(0.0, 20.0, 10.0)),
+                    transform: Transform::from_translation(Vec3::new(dx, 28.0 + dy, 9.9)),
+                    ..default()
+                });
+            }
+            // Main colored label
+            parent.spawn((
+                Text2dBundle {
+                    text: Text::from_section(
+                        label,
+                        TextStyle {
+                            font_size: 18.0,
+                            color: label_color,
+                            ..default()
+                        },
+                    ),
+                    transform: Transform::from_translation(Vec3::new(0.0, 28.0, 10.0)),
                     ..default()
                 },
                 EliteAffixLabel,
+            ));
+            // Body glow aura
+            parent.spawn((
+                SpriteBundle {
+                    texture: assets.textures.white.clone(),
+                    transform: Transform::from_translation(Vec3::new(0.0, 0.0, -0.5)),
+                    sprite: Sprite {
+                        color: label_color.with_alpha(0.18),
+                        custom_size: Some(Vec2::splat(48.0)),
+                        ..default()
+                    },
+                    ..default()
+                },
+                EliteGlow,
             ));
         });
     }

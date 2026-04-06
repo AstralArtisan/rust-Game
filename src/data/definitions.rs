@@ -135,14 +135,54 @@ pub struct RewardScalingConfig {
 impl RewardScalingConfig {
     pub fn default_config() -> Self {
         Self {
-            attack_speed_s: FloorGains { floor_1: 0.04, floor_2: 0.06, floor_3: 0.07, floor_4: 0.08 },
-            attack_power: FloorGains { floor_1: 4.0, floor_2: 5.0, floor_3: 6.0, floor_4: 7.0 },
-            max_health: FloorGains { floor_1: 20.0, floor_2: 24.0, floor_3: 28.0, floor_4: 32.0 },
-            dash_cooldown_s: FloorGains { floor_1: 0.08, floor_2: 0.10, floor_3: 0.12, floor_4: 0.14 },
-            lifesteal: FloorGains { floor_1: 3.0, floor_2: 4.0, floor_3: 5.0, floor_4: 6.0 },
-            crit_chance: FloorGains { floor_1: 0.03, floor_2: 0.04, floor_3: 0.05, floor_4: 0.06 },
-            move_speed: FloorGains { floor_1: 18.0, floor_2: 24.0, floor_3: 30.0, floor_4: 36.0 },
-            heal_base: FloorGains { floor_1: 24.0, floor_2: 30.0, floor_3: 36.0, floor_4: 42.0 },
+            attack_speed_s: FloorGains {
+                floor_1: 0.04,
+                floor_2: 0.06,
+                floor_3: 0.07,
+                floor_4: 0.08,
+            },
+            attack_power: FloorGains {
+                floor_1: 4.0,
+                floor_2: 5.0,
+                floor_3: 6.0,
+                floor_4: 7.0,
+            },
+            max_health: FloorGains {
+                floor_1: 20.0,
+                floor_2: 24.0,
+                floor_3: 28.0,
+                floor_4: 32.0,
+            },
+            dash_cooldown_s: FloorGains {
+                floor_1: 0.08,
+                floor_2: 0.10,
+                floor_3: 0.12,
+                floor_4: 0.14,
+            },
+            lifesteal: FloorGains {
+                floor_1: 3.0,
+                floor_2: 4.0,
+                floor_3: 5.0,
+                floor_4: 6.0,
+            },
+            crit_chance: FloorGains {
+                floor_1: 0.03,
+                floor_2: 0.04,
+                floor_3: 0.05,
+                floor_4: 0.06,
+            },
+            move_speed: FloorGains {
+                floor_1: 18.0,
+                floor_2: 24.0,
+                floor_3: 30.0,
+                floor_4: 36.0,
+            },
+            heal_base: FloorGains {
+                floor_1: 24.0,
+                floor_2: 30.0,
+                floor_3: 36.0,
+                floor_4: 42.0,
+            },
             heal_hp_fraction: 0.22,
         }
     }

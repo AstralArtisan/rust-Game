@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
+use rand::Rng;
 
 use crate::core::assets::GameAssets;
 use crate::core::events::{DamageAppliedEvent, DamageEvent};
@@ -278,6 +279,8 @@ pub fn homing_projectile_system(
 }
 
 pub fn chain_lightning_system(
+    mut commands: Commands,
+    assets: Res<GameAssets>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     mut damage_writer: EventWriter<DamageEvent>,
     player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
@@ -322,6 +325,14 @@ pub fn chain_lightning_system(
                 break;
             };
             struck.insert(enemy);
+
+            crate::gameplay::effects::particles::spawn_lightning_segment(
+                &mut commands,
+                &assets,
+                from_pos,
+                enemy_pos,
+            );
+
             from_pos = enemy_pos;
 
             damage_writer.send(DamageEvent {
@@ -338,6 +349,8 @@ pub fn chain_lightning_system(
 }
 
 pub fn thorns_system(
+    mut commands: Commands,
+    assets: Res<GameAssets>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     mut damage_writer: EventWriter<DamageEvent>,
     player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
@@ -378,6 +391,15 @@ pub fn thorns_system(
             kind: DamageKind::Passive,
             is_crit: false,
         });
+
+        // Thorns visual
+        if let Ok(source_tf) = source_q.get(source) {
+            crate::gameplay::effects::particles::spawn_thorns_particles(
+                &mut commands,
+                &assets,
+                source_tf.translation().truncate(),
+            );
+        }
     }
 }
 
@@ -502,32 +524,83 @@ pub fn freeze_system(
 /// Tick frozen timers, tint sprite blue while frozen, remove when expired.
 pub fn tick_frozen_system(
     mut commands: Commands,
+    assets: Res<GameAssets>,
     time: Res<Time>,
-    mut q: Query<(Entity, &mut Frozen, Option<&mut Sprite>), Without<Replicated>>,
+    mut q: Query<(Entity, &mut Frozen, Option<&mut Sprite>, &GlobalTransform), Without<Replicated>>,
 ) {
-    for (entity, mut frozen, sprite) in &mut q {
+    let mut rng = rand::thread_rng();
+    for (entity, mut frozen, sprite, gtf) in &mut q {
         frozen.timer.tick(time.delta());
-        // Tint blue while frozen
         if let Some(mut sprite) = sprite {
             sprite.color = Color::srgba(0.5, 0.7, 1.0, 1.0);
         }
+        // Spawn occasional ice crystal particles
+        if rng.gen_ratio(1, 8) {
+            let pos = gtf.translation().truncate();
+            let offset = Vec2::new(rng.gen_range(-12.0..12.0), rng.gen_range(-8.0..16.0));
+            commands.spawn((
+                SpriteBundle {
+                    texture: assets.textures.white.clone(),
+                    transform: Transform::from_translation((pos + offset).extend(52.0)),
+                    sprite: Sprite {
+                        color: Color::srgba(0.6, 0.85, 1.0, 0.6),
+                        custom_size: Some(Vec2::splat(3.0)),
+                        ..default()
+                    },
+                    ..default()
+                },
+                crate::gameplay::effects::particles::Particle {
+                    velocity: Vec2::new(rng.gen_range(-10.0..10.0), rng.gen_range(15.0..30.0)),
+                    lifetime: Timer::from_seconds(0.4, TimerMode::Once),
+                },
+                crate::gameplay::map::InGameEntity,
+                Name::new("IceCrystal"),
+            ));
+        }
         if frozen.timer.finished() {
             commands.entity(entity).remove::<Frozen>();
-            // Restore color (approximate — the enemy color system will fix it next frame)
         }
     }
 }
 
-/// DashShield: tick timer, remove when expired.
+/// DashShield: tick timer, remove when expired. Manage shield visual.
 pub fn tick_dash_shield_system(
     mut commands: Commands,
+    assets: Res<GameAssets>,
     time: Res<Time>,
     mut q: Query<(Entity, &mut DashShieldBuff), (With<Player>, Without<Replicated>)>,
+    visual_q: Query<Entity, With<crate::gameplay::effects::particles::ShieldVisual>>,
 ) {
+    let has_shield = !q.is_empty();
     for (entity, mut shield) in &mut q {
         shield.timer.tick(time.delta());
         if shield.timer.finished() {
             commands.entity(entity).remove::<DashShieldBuff>();
+            // Despawn visual
+            for vis in &visual_q {
+                crate::utils::entity::safe_despawn_recursive(&mut commands, vis);
+            }
+        }
+    }
+    // Spawn visual if shield active but no visual exists
+    if has_shield && visual_q.is_empty() {
+        if let Ok((player_entity, _)) = q.get_single() {
+            commands.entity(player_entity).with_children(|parent| {
+                parent.spawn((
+                    SpriteBundle {
+                        texture: assets.textures.white.clone(),
+                        transform: Transform::from_translation(Vec3::new(0.0, 0.0, -0.3)),
+                        sprite: Sprite {
+                            color: Color::srgba(0.4, 0.7, 1.0, 0.25),
+                            custom_size: Some(Vec2::splat(64.0)),
+                            ..default()
+                        },
+                        ..default()
+                    },
+                    crate::gameplay::effects::particles::ShieldVisual,
+                    Name::new("ShieldVisual"),
+                ));
+            });
         }
     }
 }

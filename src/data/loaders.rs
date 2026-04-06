@@ -182,7 +182,10 @@ fn default_registry() -> GameDataRegistry {
                 projectile_speed: 540.0,
             },
         },
-        rewards: RewardsConfig { rewards: vec![], scaling: RewardScalingConfig::default_config() },
+        rewards: RewardsConfig {
+            rewards: vec![],
+            scaling: RewardScalingConfig::default_config(),
+        },
         runes: RunesConfig { runes: vec![] },
         curses: CursesConfig { curses: vec![] },
         rooms: RoomGenConfig {

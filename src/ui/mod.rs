@@ -48,6 +48,8 @@ impl Plugin for UiPlugin {
                 (
                     hud::update_health_bar,
                     hud::update_health_text,
+                    hud::update_experience_bar,
+                    hud::update_experience_text,
                     hud::update_rune_and_curse_ui,
                     hud::update_gold_text,
                     hud::update_energy_text,

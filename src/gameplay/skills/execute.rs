@@ -210,6 +210,7 @@ pub fn activate_skill_inputs(
             strength: 4.0,
             duration: 0.12,
         });
+        crate::gameplay::effects::particles::spawn_burst_ring(&mut commands, &assets, player_pos);
     }
 }
 

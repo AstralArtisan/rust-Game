@@ -24,11 +24,14 @@ impl Plugin for DropPlugin {
         app.add_systems(
             Update,
             (
-                spawn_drops_on_death.before(crate::gameplay::enemy::systems::enemy_death_system),
+                spawn_drops_on_death
+                    .after(crate::gameplay::combat::damage::apply_damage_events)
+                    .before(crate::gameplay::enemy::systems::enemy_death_system),
                 drop_physics,
                 drop_magnet,
                 drop_collect,
                 drop_expire,
+                update_pickup_texts,
             )
                 .run_if(
                     in_state(AppState::InGame).or_else(
@@ -61,6 +64,12 @@ pub struct DropVelocity(pub Vec2);
 
 #[derive(Component)]
 pub struct DropBob(pub f32);
+
+#[derive(Component)]
+pub struct PickupText {
+    pub timer: Timer,
+    pub velocity: Vec2,
+}
 
 // --- SYSTEMS ---
 
@@ -117,7 +126,7 @@ pub fn spawn_drops_on_death(
         // XP calculation (raw, XpBonus applied in experience.rs)
         let xp_amount: u32 = match kind {
             EnemyType::Boss => 100 + (floor_number.saturating_sub(1) * 30).min(100),
-            _ if is_elite => 25 + (floor_number.saturating_sub(1) * 5).min(15),
+            _ if is_elite => 35 + (floor_number.saturating_sub(1) * 8).min(25),
             _ => 8 + (floor_number.saturating_sub(1) * 2).min(7),
         };
 
@@ -171,31 +180,49 @@ fn spawn_drop(
     let vel = Vec2::new(angle.cos(), angle.sin()) * speed;
 
     let (color, size, name) = match kind {
-        DropKind::Gold => (Color::srgb(0.95, 0.85, 0.25), Vec2::splat(8.0), "GoldDrop"),
-        DropKind::Xp => (Color::srgb(0.35, 0.85, 0.95), Vec2::splat(6.0), "XpDrop"),
+        DropKind::Gold => (Color::srgb(1.0, 0.92, 0.20), Vec2::splat(12.0), "GoldDrop"),
+        DropKind::Xp => (Color::srgb(0.30, 0.75, 1.0), Vec2::splat(10.0), "XpDrop"),
     };
 
-    commands.spawn((
-        SpriteBundle {
-            texture: assets.textures.white.clone(),
-            transform: Transform::from_translation(pos.extend(45.0)),
-            sprite: Sprite {
-                color,
-                custom_size: Some(size),
+    let glow_color = match kind {
+        DropKind::Gold => Color::srgba(1.0, 0.92, 0.20, 0.25),
+        DropKind::Xp => Color::srgba(0.30, 0.75, 1.0, 0.25),
+    };
+
+    commands
+        .spawn((
+            SpriteBundle {
+                texture: assets.textures.white.clone(),
+                transform: Transform::from_translation(pos.extend(45.0)),
+                sprite: Sprite {
+                    color,
+                    custom_size: Some(size),
+                    ..default()
+                },
                 ..default()
             },
-            ..default()
-        },
-        DroppedItem {
-            kind,
-            value,
-            lifetime: Timer::from_seconds(15.0, TimerMode::Once),
-        },
-        DropVelocity(vel),
-        DropBob(rng.gen_range_f32(0.0, std::f32::consts::TAU)),
-        InGameEntity,
-        Name::new(name),
-    ));
+            DroppedItem {
+                kind,
+                value,
+                lifetime: Timer::from_seconds(15.0, TimerMode::Once),
+            },
+            DropVelocity(vel),
+            DropBob(rng.gen_range_f32(0.0, std::f32::consts::TAU)),
+            InGameEntity,
+            Name::new(name),
+        ))
+        .with_children(|parent| {
+            parent.spawn(SpriteBundle {
+                texture: assets.textures.white.clone(),
+                transform: Transform::from_translation(Vec3::new(0.0, 0.0, -0.1)),
+                sprite: Sprite {
+                    color: glow_color,
+                    custom_size: Some(size * 2.5),
+                    ..default()
+                },
+                ..default()
+            });
+        });
 }
 
 pub fn drop_physics(
@@ -255,6 +282,7 @@ pub fn drop_magnet(
 
 pub fn drop_collect(
     mut commands: Commands,
+    assets: Res<GameAssets>,
     mut sfx_events: EventWriter<SfxEvent>,
     mut xp_events: EventWriter<XpGainEvent>,
     mut player_q: Query<(&GlobalTransform, &mut Gold), (With<Player>, Without<Replicated>)>,
@@ -272,9 +300,14 @@ pub fn drop_collect(
             }
         }
 
-        if closest_dist >= 28.0 {
+        if closest_dist >= 36.0 {
             continue;
         }
+
+        let (text_str, text_color) = match item.kind {
+            DropKind::Gold => (format!("+{}", item.value), Color::srgb(1.0, 0.92, 0.20)),
+            DropKind::Xp => (format!("+{}XP", item.value), Color::srgb(0.30, 0.75, 1.0)),
+        };
 
         match item.kind {
             DropKind::Gold => {
@@ -286,6 +319,31 @@ pub fn drop_collect(
                 xp_events.send(XpGainEvent { amount: item.value });
             }
         }
+
+        // Spawn pickup floating text
+        commands.spawn((
+            Text2dBundle {
+                text: Text::from_section(
+                    text_str,
+                    TextStyle {
+                        font: assets.font.clone(),
+                        font_size: 18.0,
+                        color: text_color,
+                    },
+                ),
+                transform: Transform::from_translation(
+                    (drop_pos + Vec2::new(0.0, 12.0)).extend(90.0),
+                ),
+                ..default()
+            },
+            PickupText {
+                timer: Timer::from_seconds(0.6, TimerMode::Once),
+                velocity: Vec2::new(0.0, 60.0),
+            },
+            InGameEntity,
+            Name::new("PickupText"),
+        ));
+
         sfx_events.send(SfxEvent {
             kind: SfxKind::RewardPickup,
         });
@@ -301,6 +359,25 @@ pub fn drop_expire(
     for (entity, mut item) in &mut q {
         item.lifetime.tick(time.delta());
         if item.lifetime.finished() {
+            safe_despawn_recursive(&mut commands, entity);
+        }
+    }
+}
+
+pub fn update_pickup_texts(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut PickupText, &mut Transform, &mut Text)>,
+) {
+    for (entity, mut pt, mut tf, mut text) in &mut q {
+        pt.timer.tick(time.delta());
+        tf.translation += (pt.velocity * time.delta_seconds()).extend(0.0);
+        let t = pt.timer.fraction();
+        let alpha = (1.0 - t).clamp(0.0, 1.0);
+        if let Some(section) = text.sections.get_mut(0) {
+            section.style.color.set_alpha(alpha);
+        }
+        if pt.timer.finished() {
             safe_despawn_recursive(&mut commands, entity);
         }
     }

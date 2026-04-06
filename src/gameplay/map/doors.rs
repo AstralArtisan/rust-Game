@@ -198,6 +198,7 @@ fn room_type_label(room_type: RoomType) -> &'static str {
         RoomType::Shop => "商店",
         RoomType::Reward => "奖励",
         RoomType::Event => "事件",
+        RoomType::Elite => "精英",
         RoomType::Boss => "首领",
     }
 }

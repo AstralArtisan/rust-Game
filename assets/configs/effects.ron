@@ -1,6 +1,6 @@
 (
     hit_particle_count: 10,
-    death_particle_count: 16,
+    death_particle_count: 8,
     hitstop_duration_s: 0.04,
     hitstop_crit_s: 0.06,
     hitstop_kill_s: 0.08,

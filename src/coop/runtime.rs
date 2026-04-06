@@ -12,6 +12,7 @@ use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::assets::GameAssets;
 use crate::core::events::{DamageAppliedEvent, DeathEvent, RoomClearedEvent};
 use crate::core::input::PlayerInputState;
+use crate::data::definitions::RewardScalingConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{Projectile, Team};
 use crate::gameplay::enemy::components::Enemy;
@@ -29,7 +30,6 @@ use crate::gameplay::player::components::{
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::puzzle::{ActivePuzzle, reset_active_puzzle};
-use crate::data::definitions::RewardScalingConfig;
 use crate::gameplay::rewards::apply::{
     apply_reward_to_player_components, attack_power_gain, attack_speed_gain_s, crit_gain,
     dash_cooldown_gain_s, heal_amount, max_health_gain, move_speed_gain,
@@ -755,13 +755,7 @@ fn host_process_phase_commands(
         }
 
         if runtime.pending_next_floor {
-            if let (
-                Some(data),
-                Some(floor),
-                Some(layout),
-                Some(current_room),
-                Some(room_state),
-            ) = (
+            if let (Some(data), Some(floor), Some(layout), Some(current_room), Some(room_state)) = (
                 data.as_deref(),
                 floor.as_mut(),
                 layout.as_mut(),
@@ -2149,7 +2143,8 @@ fn apply_shop_item(
             if remain <= 0.0 {
                 return false;
             }
-            mods.shop_dash_cooldown_reduction_s += dash_cooldown_gain_s(scaling, floor_number).min(remain);
+            mods.shop_dash_cooldown_reduction_s +=
+                dash_cooldown_gain_s(scaling, floor_number).min(remain);
             dash_cd.apply_reduction(mods.total_dash_cooldown_reduction());
             mods.shop_dash_purchases = mods.shop_dash_purchases.saturating_add(1);
             true
@@ -2180,7 +2175,8 @@ fn apply_shop_item(
             if remain <= 0.0 {
                 return false;
             }
-            mods.shop_attack_speed_reduction_s += attack_speed_gain_s(scaling, floor_number).min(remain);
+            mods.shop_attack_speed_reduction_s +=
+                attack_speed_gain_s(scaling, floor_number).min(remain);
             attack_cd.apply_speed_bonus(mods.total_melee_speed_bonus());
             ranged_cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
             mods.shop_attack_speed_purchases = mods.shop_attack_speed_purchases.saturating_add(1);

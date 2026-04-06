@@ -256,28 +256,25 @@ fn pick_weighted_unique_room_types(
     floor: u32,
     rng: &mut GameRng,
 ) -> Vec<RoomType> {
+    let candidates = [
+        RoomType::Normal,
+        RoomType::Shop,
+        RoomType::Event,
+        RoomType::Reward,
+        RoomType::Elite,
+    ];
     let mut selected = vec![RoomType::Normal];
     while selected.len() < width {
-        let total_weight = [
-            RoomType::Normal,
-            RoomType::Shop,
-            RoomType::Event,
-            RoomType::Reward,
-        ]
-        .into_iter()
-        .filter(|room_type| !selected.contains(room_type))
-        .map(|room_type| room_weight(room_type, layer_index, floor))
-        .sum::<u32>()
-        .max(1);
+        let total_weight = candidates
+            .into_iter()
+            .filter(|room_type| !selected.contains(room_type))
+            .map(|room_type| room_weight(room_type, layer_index, floor))
+            .sum::<u32>()
+            .max(1);
         let mut pick = rng.gen_range_f32(0.0, total_weight as f32).floor() as u32;
         let mut chosen = RoomType::Normal;
 
-        for room_type in [
-            RoomType::Normal,
-            RoomType::Shop,
-            RoomType::Event,
-            RoomType::Reward,
-        ] {
+        for room_type in candidates {
             if selected.contains(&room_type) {
                 continue;
             }
@@ -315,7 +312,13 @@ fn room_weight(room_type: RoomType, layer_index: usize, floor: u32) -> u32 {
         }
         RoomType::Event => 2,
         RoomType::Reward => 1,
-        RoomType::Start | RoomType::Boss => 0,
+        RoomType::Start | RoomType::Boss | RoomType::Elite => {
+            if floor >= 2 && room_type == RoomType::Elite {
+                2
+            } else {
+                0
+            }
+        }
     }
 }
 

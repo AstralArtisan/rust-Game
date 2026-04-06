@@ -30,13 +30,16 @@ impl Plugin for EffectsPlugin {
                 (
                     flash::update_flash_effect,
                     particles::update_particles,
+                    particles::update_expanding_rings,
                     afterimage::update_afterimages,
                     damage_numbers::update_damage_numbers,
                     hitstop::hitstop_receive_system,
                     hitstop::hitstop_update_system,
                     screen_flash::screen_flash_receive_system,
                     screen_flash::screen_flash_update_system,
-                    death_effect::death_effect_system,
+                    death_effect::death_effect_system
+                        .after(crate::gameplay::combat::damage::apply_damage_events)
+                        .before(crate::gameplay::enemy::systems::enemy_death_system),
                 )
                     .run_if(
                         in_state(AppState::InGame)

@@ -60,6 +60,9 @@ pub struct EliteAffixMarker(pub EliteAffix);
 #[derive(Component)]
 pub struct EliteAffixLabel;
 
+#[derive(Component)]
+pub struct EliteGlow;
+
 impl EliteAffix {
     pub fn label(&self) -> &'static str {
         match self {

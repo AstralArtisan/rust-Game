@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::data::definitions::RewardScalingConfig;
 use crate::data::definitions::{CursesConfig, RunesConfig};
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentRarity};
@@ -9,7 +10,6 @@ use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Health,
     MoveSpeed, RangedCooldown, RewardModifiers,
 };
-use crate::data::definitions::RewardScalingConfig;
 use crate::gameplay::rewards::apply::{
     apply_reward_to_player_components, attack_power_gain, attack_speed_gain_s, crit_gain,
     dash_cooldown_gain_s, heal_amount, max_health_gain, move_speed_gain,
@@ -207,7 +207,7 @@ pub fn on_room_enter(
 
 pub fn on_room_cleared(ctx: SessionRuleContext) -> RoomClearDecision {
     match ctx.room_type {
-        RoomType::Normal => RoomClearDecision {
+        RoomType::Normal | RoomType::Elite => RoomClearDecision {
             reward_mode: Some(RewardDraftMode::HealOrBuff),
             heal_alive_fraction: 0.0,
             post_reward: PostRewardDecision::ResumeRun,
@@ -220,7 +220,7 @@ pub fn on_room_cleared(ctx: SessionRuleContext) -> RoomClearDecision {
                 PostRewardDecision::NextFloor
             };
             RoomClearDecision {
-                reward_mode: Some(RewardDraftMode::DualBuff),
+                reward_mode: None,
                 heal_alive_fraction: 0.80,
                 post_reward,
             }
@@ -420,8 +420,14 @@ pub fn next_refresh_cost(refresh_count: u32) -> u32 {
 #[allow(dead_code)]
 fn room_clear_requires_reward(mode: SessionMode, room_type: RoomType) -> bool {
     match mode {
-        SessionMode::Solo => matches!(room_type, RoomType::Normal | RoomType::Boss),
-        SessionMode::Coop => matches!(room_type, RoomType::Normal | RoomType::Boss),
+        SessionMode::Solo => matches!(
+            room_type,
+            RoomType::Normal | RoomType::Elite | RoomType::Boss
+        ),
+        SessionMode::Coop => matches!(
+            room_type,
+            RoomType::Normal | RoomType::Elite | RoomType::Boss
+        ),
     }
 }
 
@@ -1040,7 +1046,7 @@ mod tests {
             room_type: RoomType::Boss,
         });
 
-        assert_eq!(decision.reward_mode, Some(RewardDraftMode::DualBuff));
+        assert_eq!(decision.reward_mode, None);
         assert_eq!(decision.heal_alive_fraction, 0.80);
         assert_eq!(decision.post_reward, PostRewardDecision::Victory);
     }
@@ -1097,7 +1103,8 @@ mod tests {
             mods: &mut mods,
         };
 
-        let result = apply_shop_purchase(SharedShopItem::IncreaseEnergyMax, 1, &mut effects, &scaling);
+        let result =
+            apply_shop_purchase(SharedShopItem::IncreaseEnergyMax, 1, &mut effects, &scaling);
         assert_eq!(result, ShopPurchaseResult::Applied);
         assert_eq!(effects.energy.max, 125.0);
         assert_eq!(effects.energy.current, 75.0);

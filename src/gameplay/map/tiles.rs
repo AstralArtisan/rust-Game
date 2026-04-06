@@ -145,6 +145,12 @@ fn spawn_room_decor(commands: &mut Commands, assets: &GameAssets, room_type: Roo
             None,
             Vec3::ZERO,
         ),
+        RoomType::Elite => (
+            Color::srgba(0.75, 0.35, 0.20, 0.18),
+            Vec2::new(140.0, 140.0),
+            Some("精英房"),
+            Vec3::new(0.0, -118.0, 2.0),
+        ),
         RoomType::Shop => (
             Color::srgba(0.20, 0.58, 0.24, 0.18),
             Vec2::new(180.0, 118.0),

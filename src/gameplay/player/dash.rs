@@ -114,6 +114,18 @@ pub fn player_dash_input_system(
         });
         particles::spawn_dash_particles(&mut commands, &assets, tf.translation().truncate());
 
+        // Blink visual: particles at origin and destination
+        if blink_stacks > 0 {
+            let from = tf.translation().truncate();
+            let to = from + dash.dir * dash.speed * 0.016;
+            crate::gameplay::effects::particles::spawn_blink_particles(
+                &mut commands,
+                &assets,
+                from,
+                to,
+            );
+        }
+
         afterimage::spawn_afterimage(
             &mut commands,
             texture.clone(),

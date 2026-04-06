@@ -413,6 +413,11 @@ pub fn spawn_player_melee_hitbox_with_mods(
         Name::new("PlayerHitbox"),
     ));
 
+    // Whirlwind visual effect
+    if whirlwind_stacks > 0 {
+        crate::gameplay::effects::particles::spawn_whirlwind_visual(commands, assets, owner_pos);
+    }
+
     if mods.melee_sword_wave_unlocked() {
         spawn_player_sword_wave(
             commands,
@@ -526,6 +531,8 @@ fn spawn_ranged_burst(
     let final_crit_multiplier = 1.75 + crit_multiplier_bonus;
 
     if scatter_stacks > 0 {
+        // Scatter fan visual
+        crate::gameplay::effects::particles::spawn_scatter_fan(commands, assets, pos, dir);
         let angles: &[f32] = if scatter_stacks >= 2 {
             &[-0.36, -0.18, 0.0, 0.18, 0.36]
         } else {
