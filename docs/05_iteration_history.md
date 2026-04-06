@@ -580,3 +580,29 @@ Boss 死亡同时触发 hitstop（`Time<Virtual>` 降到 0.05x）和 ScreenFlash
 - 下一步：Phase 5（新怪物 + 精英词缀 + TideHunter 调整）或 Phase 6（HUD + 平衡 + 旧代码清理）
 - 需要手动游玩验证事件房各分支的运行时表现
 - `cargo check` 通过，`cargo test` 44 项全部通过
+
+---
+
+## 2026-04-06 Phase 5a：三种新怪物（Bomber/Shielder/Summoner）
+
+### 改动内容
+- **EnemyType 新增 3 变体**：Bomber、Shielder、Summoner
+- **Bomber**（Floor 2+）：靠近玩家后 1s 蓄力自爆（脉冲红白），AoE 65px 范围伤害 28 点。蓄力期可击杀阻止爆炸。HP=30，速度=185
+- **Shielder**（Floor 3+）：正面 60° 盾牌挡远程弹幕，缓慢推进（速度=80）。需绕背或近战。HP=72
+- **Summoner**（Floor 4+）：保持 350-500 距离，每 4s 召唤 1-2 个 MeleeChaser（最多 3 个活跃）。本体脆弱 HP=28，死亡时所有召唤物 despawn
+- **5 个新系统**：bomber_fuse_system、shielder_facing_system、shielder_block_system、summoner_summon_system、summoner_death_cleanup
+- **配置**：enemies.ron 新增三种敌人数值
+- **AI**：ai.rs 新增 3 个行为分支；spawner.rs 按楼层解锁加入 spawn pool
+
+### 目的与动机
+小怪池只有 6 种，Floor 2-4 缺乏新鲜感。3 种新怪物各有独特机制（自爆/盾牌/召唤），增加战术多样性和楼层差异化。
+
+### 关键决策
+- Bomber 用 BomberPhase 状态机（Approach→Fuse→Exploded），爆炸生成 Hitbox 而非直接扣血
+- Shielder 的盾牌用角度判定（facing 与攻击方向夹角 < 60°），只挡 PlayerRanged 不挡近战
+- Summoner 的召唤物用 SummonedBy(Entity) 标记，死亡时批量 despawn
+
+### 已知问题 / 后续工作
+- Phase 5b：精英词缀系统
+- Phase 5c：TideHunter 调整
+- `cargo check` 通过，`cargo test` 44 项全部通过
