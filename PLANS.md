@@ -321,6 +321,208 @@
 
 **验证**：`cargo check --quiet` + `cargo test --quiet`
 
+**状态**：✅ 已完成（Codex 实现，cargo check + cargo test 通过）
+
+---
+
+### 阶段 3b：Elite + Legendary 强化战斗效果实现（18 个）
+
+**目标**：实现全部 10 个 Elite 和 8 个 Legendary 强化的战斗效果。
+
+**实现策略**：
+- 复杂效果（Whirlwind, Scatter, BulletStorm, Blink 等）需要修改攻击/冲刺的核心行为
+- 简单数值效果（ArmorBreak, CritEnhance, KillHeal 等）在现有系统中添加条件分支
+- 新增独立系统处理 Thorns（受伤反弹）、Phoenix（死亡复活）、Freeze（冻结）等
+- 所有效果都通过 `Option<&AugmentInventory>` 查询，不影响无强化时的行为
+
+---
+
+#### Elite 强化（10 个）
+
+**1. Whirlwind — 旋风斩**
+- **效果**：近战攻击变为 360° 旋风（伤害 70%，升级: 100%）
+- **文件**：`src/gameplay/player/combat.rs` → `spawn_player_melee_hitbox_with_mods`
+- **实现**：当玩家有 Whirlwind 时，将 `ArcHitbox` 的 `half_angle_rad` 设为 `PI`（360°），伤害乘以 0.70/1.00
+
+**2. ArmorBreak — 破甲**
+- **效果**：近战命中降低敌人受伤抗性 20%（升级: 30%），持续 3s（升级: 5s）
+- **文件**：`src/gameplay/augment/effects.rs` + `src/gameplay/combat/hitbox.rs`
+- **新增组件**：`ArmorBroken { multiplier: f32, timer: Timer }` 在 effects.rs
+- **实现**：
+  1. 在 hitbox.rs 的 PlayerMelee 命中后，如果玩家有 ArmorBreak，给目标敌人挂 `ArmorBroken` 组件
+  2. 在 effects.rs 新增 `tick_armor_break` 系统，倒计时并移除过期的 ArmorBroken
+  3. 在 damage.rs 的 `apply_damage_events` 中，如果目标有 ArmorBroken，伤害 *= (1.0 + multiplier)
+
+**3. Reflect — 弹幕反弹**
+- **效果**：近战攻击反弹附近弹幕（升级: 反弹弹幕伤害 +50%）
+- **文件**：`src/gameplay/augment/effects.rs`
+- **实现**：新增 `melee_reflect_system`
+  1. 检测玩家近战攻击时（通过 AnimationState::Attack 或 melee hitbox 存在）
+  2. 查找附近的敌方弹丸（Team::Enemy 的 Projectile）
+  3. 反转弹丸方向（velocity *= -1），改 team 为 Player
+  4. 如果 stacks >= 2，damage *= 1.50
+
+**4. Homing — 追踪弹**
+- **效果**：弹丸轻微追踪最近敌人（升级: 强追踪）
+- **文件**：`src/gameplay/augment/effects.rs`
+- **新增组件**：`HomingProjectile { strength: f32 }` 
+- **实现**：
+  1. 在 combat.rs spawn_projectile 时，如果玩家有 Homing，挂载 HomingProjectile
+  2. 新增 `homing_projectile_system`：每帧找最近敌人，微调弹丸 velocity 方向
+  3. strength = if stacks >= 2 { 4.0 } else { 1.5 }（弧度/秒的转向速度）
+
+**5. ChainLightning — 连锁闪电**
+- **效果**：远程命中后闪电跳到 1 个附近敌人（50% 伤害，升级: 跳 2 个）
+- **文件**：`src/gameplay/augment/effects.rs`
+- **实现**：新增 `chain_lightning_system`
+  1. 监听 `DamageAppliedEvent`，过滤 `DamageKind::PlayerRanged`
+  2. 如果玩家有 ChainLightning，找目标附近最近的 1-2 个敌人（排除已命中的）
+  3. 对每个链接目标发送新的 `DamageEvent`（damage * 0.50, kind = Passive）
+  4. 跳数 = if stacks >= 2 { 2 } else { 1 }
+
+**6. Scatter — 散射**
+- **效果**：射击变为 3 发扇形（每发 50% 伤害，升级: 5 发）
+- **文件**：`src/gameplay/player/combat.rs` → `spawn_ranged_burst`
+- **实现**：当玩家有 Scatter 时，替换正常射击为扇形模式
+  1. 弹丸数 = if stacks >= 2 { 5 } else { 3 }
+  2. 扇形角度 = 30°（±15°）
+  3. 每发伤害 = base_damage * 0.50
+  4. 与 ExtraProjectile 互斥（Scatter 优先）
+
+**7. Thorns — 荆棘**
+- **效果**：受伤时反弹 15 点伤害（升级: 25 点）
+- **文件**：`src/gameplay/augment/effects.rs`
+- **实现**：新增 `thorns_system`
+  1. 监听 `DamageAppliedEvent`，过滤目标为 Player
+  2. 如果玩家有 Thorns，对 source 发送 `DamageEvent`（damage = 15/25, kind = Passive, team = Player）
+
+**8. KillHeal — 击杀回血**
+- **效果**：击杀回复 5 HP（升级: 8 HP）
+- **文件**：`src/gameplay/enemy/systems.rs` → `enemy_death_system`
+- **实现**：在敌人死亡时，如果玩家有 KillHeal：
+  ```
+  let heal = match stacks { 2 => 8.0, 1 => 5.0, _ => 0.0 };
+  hp.current = (hp.current + heal).min(hp.max);
+  ```
+  注意：与现有 `lifesteal_on_kill` 奖励叠加
+
+**9. CritEnhance — 暴击强化**
+- **效果**：暴击率 +10%，暴击伤害 +30%（升级: +15%，+50%）
+- **文件**：`src/gameplay/augment/effects.rs`
+- **实现**：新增 `apply_crit_enhance_system`（OnEnter(InGame) 或在 AugmentSelect exit 时）
+  - 简化方案：在 hitbox.rs 的命中检测中，如果玩家有 CritEnhance：
+    - crit_chance += 0.10/0.15
+    - crit_multiplier += 0.30/0.50
+  - 在 `spawn_player_melee_hitbox_with_mods` 和 ranged spawn 中修改 Hitbox 的 crit 字段
+
+**10. DashReset — 冲刺重置**
+- **效果**：击杀敌人刷新冲刺冷却（升级: 击杀 +30% 移速 2s）
+- **文件**：`src/gameplay/enemy/systems.rs` → `enemy_death_system`
+- **新增组件**：`SpeedBuff { multiplier: f32, timer: Timer }` 在 effects.rs
+- **实现**：
+  1. 在 enemy_death_system 中，如果玩家有 DashReset，重置 DashCooldown timer
+  2. 如果 stacks >= 2，额外挂载 SpeedBuff 组件
+  3. 新增 `tick_speed_buff` 系统处理临时移速加成
+
+---
+
+#### Legendary 强化（8 个）
+
+**11. SwordWave — 剑气**
+- **效果**：近战释放远程剑气（35% 伤害，升级: 穿透 + 50% 伤害）
+- **文件**：`src/gameplay/player/combat.rs` → `player_attack_input_system`
+- **实现**：在近战攻击后，额外 spawn 一个 Projectile（team Player, kind PlayerMelee）
+  1. 方向 = facing_direction，速度 = 500
+  2. damage = attack_power * 0.35 / 0.50
+  3. 如果 stacks >= 2，挂载 PierceCount { remaining: 255 }（无限穿透）
+
+**12. Executioner — 处刑者**
+- **效果**：敌人 HP<15% 时近战秒杀（升级: HP<25%）
+- **文件**：`src/gameplay/combat/hitbox.rs` → `detect_hitbox_hurtbox_overlap`
+- **实现**：在 PlayerMelee 命中后，检查目标 Health：
+  ```
+  let threshold = if stacks >= 2 { 0.25 } else { 0.15 };
+  if target_health.current / target_health.max < threshold {
+      damage = target_health.current + 1.0; // 秒杀
+  }
+  ```
+
+**13. BulletStorm — 弹幕风暴**
+- **效果**：终结技改为全屏弹幕（8 方向 ×3 波，升级: 12 方向 ×5 波）
+- **文件**：`src/gameplay/player/systems.rs` → 终结技释放逻辑
+- **实现**：当释放终结技时，如果有 BulletStorm，替换为弹幕模式
+  1. 方向数 = if stacks >= 2 { 12 } else { 8 }
+  2. 波数 = if stacks >= 2 { 5 } else { 3 }
+  3. 每波间隔 0.15s，每发 damage = attack_power * 0.30
+
+**14. Freeze — 冻结**
+- **效果**：远程命中 15% 概率冻结敌人 1.5s（升级: 25% 概率，2s）
+- **文件**：`src/gameplay/augment/effects.rs`
+- **新增组件**：`Frozen { timer: Timer }` 
+- **实现**：
+  1. 在 DamageAppliedEvent 处理中（chain_lightning_system 同文件），检查 PlayerRanged 命中
+  2. 随机判定冻结概率，成功则给敌人挂 Frozen 组件
+  3. 新增 `tick_frozen_system`：冻结的敌人 MoveSpeed 设为 0，timer 到期后恢复
+  4. 视觉：冻结时 Sprite color 变蓝
+
+**15. DashShield — 冲刺护盾**
+- **效果**：冲刺结束获得护盾（吸收 1 次伤害，3s，升级: 5s）
+- **文件**：`src/gameplay/augment/effects.rs` + `src/gameplay/player/dash.rs`
+- **新增组件**：`DashShieldBuff { timer: Timer }`
+- **实现**：
+  1. 在 dash.rs 冲刺结束时（dash.active 从 true 变 false），如果有 DashShield，挂载 DashShieldBuff
+  2. 在 damage.rs apply_damage_events 中，如果玩家有 DashShieldBuff，吸收伤害并移除组件
+  3. 新增 `tick_dash_shield` 系统处理超时移除
+
+**16. Blink — 瞬移**
+- **效果**：冲刺改为瞬移（无中间帧，升级: 距离 +50%）
+- **文件**：`src/gameplay/player/dash.rs` → `player_dash_input_system` + `update_dash_state`
+- **实现**：当有 Blink 时：
+  1. 冲刺不走中间帧，直接 teleport 到目标位置
+  2. 目标位置 = current_pos + dir * dash_distance * (if stacks >= 2 { 1.50 } else { 1.0 })
+  3. dash_distance = dash.speed * dash.base_duration_s
+  4. 设置 dash.active = false（跳过中间帧），但仍触发无敌
+
+**17. Phoenix — 凤凰**
+- **效果**：死亡时复活（50% HP，每局 1 次，升级: 80% HP）
+- **文件**：`src/gameplay/augment/effects.rs`
+- **新增组件**：`PhoenixUsed`（标记已使用）
+- **实现**：新增 `phoenix_system`
+  1. 检测玩家 Health.current <= 0 且有 Phoenix 且没有 PhoenixUsed
+  2. 恢复 HP = max * (if stacks >= 2 { 0.80 } else { 0.50 })
+  3. 挂载 PhoenixUsed 标记
+  4. 触发屏幕闪光效果
+
+**18. Greed — 贪婪**
+- **效果**：每 100 金币 → +5% 伤害（升级: 每 80 金币）
+- **文件**：`src/gameplay/player/combat.rs` → melee/ranged damage 计算处
+- **实现**：在计算 damage 时查询 Gold 和 AugmentInventory：
+  ```
+  let greed_bonus = if has Greed {
+      let threshold = if stacks >= 2 { 80 } else { 100 };
+      (gold.0 / threshold) as f32 * 0.05
+  } else { 0.0 };
+  damage *= 1.0 + greed_bonus;
+  ```
+
+---
+
+**影响文件**：
+| 文件 | 操作 |
+|------|------|
+| `src/gameplay/augment/effects.rs` | 修改 — 新增 ArmorBroken, Frozen, DashShieldBuff, PhoenixUsed, SpeedBuff, HomingProjectile 组件 + 7 个新系统 |
+| `src/gameplay/augment/mod.rs` | 修改 — 注册所有新系统 |
+| `src/gameplay/player/combat.rs` | 修改 — Whirlwind, SwordWave, Scatter, CritEnhance, Greed |
+| `src/gameplay/player/dash.rs` | 修改 — Blink, DashShield |
+| `src/gameplay/combat/hitbox.rs` | 修改 — ArmorBreak 挂载, Executioner 秒杀 |
+| `src/gameplay/combat/damage.rs` | 修改 — ArmorBroken 伤害加成, DashShield 吸收 |
+| `src/gameplay/enemy/systems.rs` | 修改 — KillHeal, DashReset |
+| `src/gameplay/player/systems.rs` | 修改 — BulletStorm 终结技替换 |
+
+**验证**：`cargo check --quiet` + `cargo test --quiet`
+
+---
+
 **新建文件**：
 - `src/gameplay/augment/mod.rs` — AugmentPlugin
 - `src/gameplay/augment/data.rs` — AugmentId, AugmentRarity, AugmentCategory, AugmentDef, HeldAugment, AugmentInventory Component

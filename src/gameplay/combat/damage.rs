@@ -4,6 +4,7 @@ use lightyear::prelude::Replicated;
 use crate::coop::components::GhostState;
 use crate::core::events::{DamageAppliedEvent, DamageEvent, DeathEvent};
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::augment::effects::ArmorBroken;
 use crate::gameplay::combat::components::{Hurtbox, Knockback, Team};
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::enemy::components::{
@@ -33,6 +34,7 @@ pub fn apply_damage_events(
             Option<&Hurtbox>,
             Option<&GhostState>,
             Option<&mut Flash>,
+            Option<&ArmorBroken>,
             &mut Knockback,
             &GlobalTransform,
         ),
@@ -44,7 +46,17 @@ pub fn apply_damage_events(
             continue;
         }
 
-        let Ok((entity, mut health, inv_opt, hurtbox, ghost, flash_opt, mut knockback, tf)) =
+        let Ok((
+            entity,
+            mut health,
+            inv_opt,
+            hurtbox,
+            ghost,
+            flash_opt,
+            armor_broken,
+            mut knockback,
+            tf,
+        )) =
             q.get_mut(ev.target)
         else {
             continue;
@@ -106,6 +118,9 @@ pub fn apply_damage_events(
                 amount *= 1.5;
             }
         }
+        if let Some(armor_broken) = armor_broken {
+            amount *= armor_broken.damage_multiplier.max(1.0);
+        }
 
         health.current = (health.current - amount).max(0.0);
         applied_events.send(DamageAppliedEvent {
@@ -127,7 +142,11 @@ pub fn apply_damage_events(
 
         if health.current <= 0.0 {
             let team = hurtbox.map(|h| h.team).unwrap_or(Team::Enemy);
-            death_events.send(DeathEvent { entity, team });
+            death_events.send(DeathEvent {
+                entity,
+                source: ev.source,
+                team,
+            });
         }
     }
 }

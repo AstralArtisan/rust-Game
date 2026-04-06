@@ -49,6 +49,34 @@ pub fn spawn_projectile(
     )
 }
 
+pub fn spawn_projectile_with_owner(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    owner: Entity,
+    team: Team,
+    pos: Vec2,
+    velocity: Vec2,
+    damage: f32,
+) -> Entity {
+    spawn_projectile_with_hitbox(
+        commands,
+        assets,
+        Some(owner),
+        team,
+        if team == Team::Enemy {
+            DamageKind::Enemy
+        } else {
+            DamageKind::PlayerRanged
+        },
+        pos,
+        velocity,
+        damage,
+        false,
+        0.0,
+        1.0,
+    )
+}
+
 pub fn spawn_player_projectile(
     commands: &mut Commands,
     assets: &GameAssets,
@@ -80,6 +108,30 @@ pub fn spawn_player_projectile_with_kind(
     crit_chance: f32,
     damage_kind: DamageKind,
 ) -> Entity {
+    spawn_player_projectile_with_kind_and_crit(
+        commands,
+        assets,
+        owner,
+        pos,
+        velocity,
+        damage,
+        crit_chance,
+        1.75,
+        damage_kind,
+    )
+}
+
+pub fn spawn_player_projectile_with_kind_and_crit(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    owner: Entity,
+    pos: Vec2,
+    velocity: Vec2,
+    damage: f32,
+    crit_chance: f32,
+    crit_multiplier: f32,
+    damage_kind: DamageKind,
+) -> Entity {
     spawn_projectile_with_hitbox(
         commands,
         assets,
@@ -91,7 +143,7 @@ pub fn spawn_player_projectile_with_kind(
         damage,
         true,
         crit_chance,
-        1.75,
+        crit_multiplier,
     )
 }
 

@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
+use std::time::Duration;
 
 use crate::coop::components::{CoopNetPosition, CoopNetRotation, CoopNetVelocity};
 use crate::coop::components::{CoopParticipant, GhostState};
@@ -9,6 +10,7 @@ use crate::core::events::{DamageEvent, DeathEvent, RoomClearedEvent};
 use crate::data::definitions::EnemyStatsConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
+use crate::gameplay::augment::effects::DashResetSpeedBuff;
 use crate::gameplay::combat::components::{
     DamageKind, Hitbox, Hurtbox, Knockback, Lifetime, Projectile, Team,
 };
@@ -18,7 +20,9 @@ use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::{ai, boss, spawner};
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};
-use crate::gameplay::player::components::{Gold, Health, InvincibilityTimer, RewardModifiers};
+use crate::gameplay::player::components::{
+    DashCooldown, Gold, Health, InvincibilityTimer, RewardModifiers,
+};
 use crate::gameplay::player::components::{Health as PlayerHealth, Player};
 use crate::gameplay::progression::difficulty::{
     get_floor_difficulty_multiplier, get_floor_enemy_count,
@@ -703,9 +707,10 @@ pub fn enemy_attack_system(
                     }
                     for (angle, damage_mult) in [(-0.16_f32, 0.75_f32), (0.0, 1.0), (0.16, 0.75)] {
                         let shot_dir = Mat2::from_angle(angle).mul_vec2(sniper.aim_dir);
-                        projectiles::spawn_projectile(
+                        projectiles::spawn_projectile_with_owner(
                             &mut commands,
                             &assets,
+                            entity,
                             Team::Enemy,
                             pos + shot_dir * 20.0,
                             shot_dir * stats.projectile_speed,
@@ -742,6 +747,7 @@ pub fn enemy_attack_system(
                     spawn_enemy_melee_hitbox(
                         &mut commands,
                         &assets,
+                        entity,
                         pos,
                         dir,
                         if kind.0 == EnemyType::Flanker {
@@ -756,9 +762,10 @@ pub fn enemy_attack_system(
                 if dist <= stats.attack_range {
                     cd.timer = Timer::from_seconds(effective_cooldown, TimerMode::Once);
                     cd.timer.reset();
-                    projectiles::spawn_projectile(
+                    projectiles::spawn_projectile_with_owner(
                         &mut commands,
                         &assets,
+                        entity,
                         Team::Enemy,
                         pos + dir * 18.0,
                         dir * stats.projectile_speed,
@@ -808,9 +815,10 @@ pub fn enemy_attack_system(
                 }
                 if let Some(target_pos) = nearest_player_pos {
                     let dir = (target_pos - pos).normalize_or_zero();
-                    projectiles::spawn_projectile(
+                    projectiles::spawn_projectile_with_owner(
                         &mut commands,
                         &assets,
+                        entity,
                         Team::Enemy,
                         pos,
                         dir * stats.projectile_speed,
@@ -835,6 +843,7 @@ pub fn enemy_attack_system(
 fn spawn_enemy_melee_hitbox(
     commands: &mut Commands,
     assets: &crate::core::assets::GameAssets,
+    owner: Entity,
     pos: Vec2,
     dir: Vec2,
     damage: f32,
@@ -851,7 +860,7 @@ fn spawn_enemy_melee_hitbox(
             ..default()
         },
         Hitbox {
-            owner: None,
+            owner: Some(owner),
             team: Team::Enemy,
             damage_kind: DamageKind::Enemy,
             size: Vec2::new(40.0, 22.0),
@@ -882,6 +891,7 @@ pub fn enemy_death_system(
                 Entity,
                 &RewardModifiers,
                 &mut PlayerHealth,
+                &mut DashCooldown,
                 &mut Gold,
                 &GlobalTransform,
                 Option<&AugmentInventory>,
@@ -951,7 +961,9 @@ pub fn enemy_death_system(
         };
         xp_events.send(XpGainEvent { amount: xp_amount });
 
-        for (player_e, mods, mut hp, mut gold, player_tf, inventory, ghost) in &mut player_q.p0() {
+        for (player_e, mods, mut hp, mut dash_cd, mut gold, player_tf, inventory, ghost) in
+            &mut player_q.p0()
+        {
             let gold_mult = match inventory
                 .map(|value| value.stacks(AugmentId::GoldBonus))
                 .unwrap_or(0)
@@ -979,6 +991,39 @@ pub fn enemy_death_system(
                         player_tf.translation().truncate(),
                         Color::srgba(0.42, 1.0, 0.52, 0.88),
                     );
+                }
+            }
+
+            if ev.source != Some(player_e) {
+                continue;
+            }
+
+            let kill_heal = match inventory
+                .map(|value| value.stacks(AugmentId::KillHeal))
+                .unwrap_or(0)
+            {
+                2 => 8.0,
+                1 => 5.0,
+                _ => 0.0,
+            };
+            if kill_heal > 0.0 {
+                hp.current = (hp.current + kill_heal).min(hp.max);
+            }
+
+            let dash_reset_stacks = inventory
+                .map(|value| value.stacks(AugmentId::DashReset))
+                .unwrap_or(0);
+            if dash_reset_stacks > 0 {
+                let dash_cd_duration = dash_cd.base_duration_s.max(0.01);
+                dash_cd.timer = Timer::from_seconds(dash_cd_duration, TimerMode::Once);
+                dash_cd
+                    .timer
+                    .tick(Duration::from_secs_f32(dash_cd_duration));
+                if dash_reset_stacks >= 2 {
+                    commands.entity(player_e).insert(DashResetSpeedBuff {
+                        timer: Timer::from_seconds(2.0, TimerMode::Once),
+                        move_speed_mult: 1.30,
+                    });
                 }
             }
         }
@@ -1036,7 +1081,7 @@ pub fn enemy_death_system(
 
 fn boss_contact_damage_system(
     mut damage_ev: EventWriter<DamageEvent>,
-    boss_q: Query<(&EnemyStats, &Hurtbox, &GlobalTransform), With<BossArchetype>>,
+    boss_q: Query<(Entity, &EnemyStats, &Hurtbox, &GlobalTransform), With<BossArchetype>>,
     player_q: Query<
         (
             Entity,
@@ -1048,7 +1093,7 @@ fn boss_contact_damage_system(
         (With<Player>, Without<Replicated>),
     >,
 ) {
-    for (boss_stats, boss_hurtbox, boss_tf) in &boss_q {
+    for (boss_entity, boss_stats, boss_hurtbox, boss_tf) in &boss_q {
         let boss_aabb = aabb_from_transform_size(boss_tf, boss_hurtbox.size);
         let boss_pos = boss_tf.translation().truncate();
         for (entity, hurtbox, player_tf, inv, ghost) in &player_q {
@@ -1066,7 +1111,7 @@ fn boss_contact_damage_system(
             let player_pos = player_tf.translation().truncate();
             damage_ev.send(DamageEvent {
                 target: entity,
-                source: None,
+                source: Some(boss_entity),
                 amount: boss_stats.attack_damage * 0.45,
                 knockback: direction_to(boss_pos, player_pos) * 120.0,
                 team: Team::Enemy,

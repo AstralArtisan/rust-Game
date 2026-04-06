@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::core::events::RoomClearedEvent;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::player::components::Player;
 use crate::states::AppState;
@@ -84,22 +85,45 @@ pub fn process_xp_gains(
     }
 }
 
+/// Resource: queues level-up events so they don't race with room-clear rewards.
+#[derive(Resource, Debug, Default)]
+pub struct PendingLevelUps {
+    pub levels: Vec<u32>,
+}
+
 /// System: when a LevelUpEvent fires, generate 3 random stat options and enter LevelUpSelect.
+/// Defers if a RoomClearedEvent is pending in the same frame (Boss kill gives XP + room clear).
 pub fn handle_levelup_event(
     mut levelup_events: EventReader<LevelUpEvent>,
+    mut pending: ResMut<PendingLevelUps>,
     mut choices: ResMut<LevelUpChoices>,
     mut next_state: ResMut<NextState<AppState>>,
     mut rng: ResMut<GameRng>,
     current_state: Res<State<AppState>>,
+    room_cleared: EventReader<RoomClearedEvent>,
 ) {
-    let Some(ev) = levelup_events.read().last() else {
+    // Collect new level-ups into pending queue
+    for ev in levelup_events.read() {
+        pending.levels.push(ev.new_level);
+    }
+
+    if pending.levels.is_empty() {
         return;
+    }
+
+    // Don't pop level-up if a room clear is happening this frame (let rewards go first)
+    if !room_cleared.is_empty() {
+        return;
+    }
+
+    // Only trigger when we're actually in a gameplay state
+    let return_state = match current_state.get() {
+        AppState::InGame => AppState::InGame,
+        AppState::CoopGame => AppState::CoopGame,
+        _ => return, // Not in gameplay, wait
     };
 
-    let return_state = match current_state.get() {
-        AppState::CoopGame => AppState::CoopGame,
-        _ => AppState::InGame,
-    };
+    let new_level = pending.levels.remove(0);
 
     let all_stats: Vec<(LevelUpStat, &str, &str)> = vec![
         (LevelUpStat::AttackPower(3.0), "攻击力 +3", "提升近战和远程攻击伤害"),
@@ -126,7 +150,7 @@ pub fn handle_levelup_event(
         })
         .collect();
     choices.return_state = Some(return_state);
-    choices.new_level = ev.new_level;
+    choices.new_level = new_level;
 
     next_state.set(AppState::LevelUpSelect);
 }

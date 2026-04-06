@@ -3,11 +3,64 @@ use std::collections::{HashMap, HashSet};
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 
-use crate::core::events::DamageAppliedEvent;
-use crate::gameplay::combat::components::{DamageKind, Team};
-use crate::gameplay::player::components::{DashState, Energy, Player};
+use crate::core::assets::GameAssets;
+use crate::core::events::{DamageAppliedEvent, DamageEvent};
+use crate::gameplay::combat::components::{
+    ArcHitbox, DamageKind, Hitbox, Hurtbox, Projectile, Team,
+};
+use crate::gameplay::effects::particles;
+use crate::gameplay::enemy::components::Enemy;
+use crate::gameplay::player::components::{
+    DashState, Energy, Health, RewardModifiers, Player,
+};
+use crate::utils::collision::{Aabb2, aabb_from_transform_size};
 
 use super::data::{AugmentId, AugmentInventory};
+
+#[derive(Component, Debug, Clone)]
+pub struct ArmorBroken {
+    pub damage_multiplier: f32,
+    pub timer: Timer,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct HomingProjectile {
+    pub speed: f32,
+    pub turn_rate: f32,
+    pub search_radius: f32,
+}
+
+impl HomingProjectile {
+    pub fn from_stacks(stacks: u8, speed: f32) -> Self {
+        if stacks >= 2 {
+            Self {
+                speed,
+                turn_rate: 0.22,
+                search_radius: 320.0,
+            }
+        } else {
+            Self {
+                speed,
+                turn_rate: 0.12,
+                search_radius: 240.0,
+            }
+        }
+    }
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct DashResetSpeedBuff {
+    pub timer: Timer,
+    pub move_speed_mult: f32,
+}
+
+#[derive(Clone, Copy)]
+struct MeleeReflector {
+    owner: Entity,
+    augment_stacks: u8,
+    aabb: Aabb2,
+    arc: ArcHitbox,
+}
 
 pub fn dash_energy_system(
     mut damage_events: EventReader<DamageAppliedEvent>,
@@ -61,5 +114,341 @@ pub fn dash_energy_system(
 
         let gain = if stacks >= 2 { 15.0 } else { 10.0 };
         energy.current = (energy.current + gain).min(energy.max);
+    }
+}
+
+pub fn armor_broken_tick_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut ArmorBroken), Without<Replicated>>,
+) {
+    for (entity, mut armor_broken) in &mut q {
+        armor_broken.timer.tick(time.delta());
+        if armor_broken.timer.finished() {
+            commands.entity(entity).remove::<ArmorBroken>();
+        }
+    }
+}
+
+pub fn melee_reflect_system(
+    mut commands: Commands,
+    assets: Res<GameAssets>,
+    owner_mods: Query<&RewardModifiers>,
+    owner_augments: Query<&AugmentInventory>,
+    mut collision_sets: ParamSet<(
+        Query<(&Hitbox, &GlobalTransform, Option<&ArcHitbox>), Without<Replicated>>,
+        Query<
+            (
+                Entity,
+                &mut Projectile,
+                &mut Hitbox,
+                &GlobalTransform,
+                &mut Transform,
+                &mut Sprite,
+            ),
+            Without<Replicated>,
+        >,
+    )>,
+) {
+    let mut reflectors = Vec::new();
+    for (hitbox, hitbox_tf, arc) in &collision_sets.p0() {
+        if hitbox.team != Team::Player || hitbox.damage_kind != DamageKind::PlayerMelee {
+            continue;
+        }
+        let Some(arc) = arc.copied() else {
+            continue;
+        };
+        let Some(owner) = hitbox.owner else {
+            continue;
+        };
+        let augment_stacks = owner_augments
+            .get(owner)
+            .map(|inventory| inventory.stacks(AugmentId::Reflect))
+            .unwrap_or(0);
+        let mastery_unlocked = owner_mods
+            .get(owner)
+            .map(|mods| mods.melee_projectile_reflect_unlocked())
+            .unwrap_or(false);
+        if augment_stacks == 0 && !mastery_unlocked {
+            continue;
+        }
+
+        reflectors.push(MeleeReflector {
+            owner,
+            augment_stacks,
+            aabb: aabb_from_transform_size(hitbox_tf, hitbox.size),
+            arc,
+        });
+    }
+
+    for (_entity, mut projectile, mut projectile_hitbox, projectile_tf, mut tf, mut sprite) in
+        &mut collision_sets.p1()
+    {
+        if projectile.team != Team::Enemy {
+            continue;
+        }
+
+        let projectile_proxy = Hurtbox {
+            team: Team::Enemy,
+            size: projectile_hitbox.size,
+        };
+        let Some(reflector) = reflectors.iter().find(|reflector| {
+            hitbox_intersects_target(
+                reflector.aabb,
+                Some(reflector.arc),
+                &projectile_proxy,
+                projectile_tf,
+            )
+        }) else {
+            continue;
+        };
+
+        let reflected_dir = projectile_reflect_direction(projectile.velocity, reflector.arc.direction);
+        let reflected_speed = projectile.velocity.length().max(360.0);
+        let damage_mult = if reflector.augment_stacks >= 2 {
+            1.50
+        } else if reflector.augment_stacks >= 1 {
+            1.0
+        } else {
+            1.10
+        };
+
+        projectile.velocity = reflected_dir * reflected_speed;
+        projectile.team = Team::Player;
+        projectile_hitbox.owner = Some(reflector.owner);
+        projectile_hitbox.team = Team::Player;
+        projectile_hitbox.damage *= damage_mult;
+        projectile_hitbox.knockback = projectile_hitbox.knockback.max(260.0);
+        projectile_hitbox.can_crit = false;
+        projectile_hitbox.crit_chance = 0.0;
+        projectile_hitbox.crit_multiplier = 1.0;
+
+        tf.translation += (reflected_dir * 12.0).extend(0.0);
+        tf.rotation = Quat::from_rotation_z(reflected_dir.y.atan2(reflected_dir.x));
+        sprite.color = Color::srgb(0.86, 1.0, 0.52);
+        sprite.custom_size = Some(Vec2::new(18.0, 9.0));
+
+        particles::spawn_hit_particles(
+            &mut commands,
+            &assets,
+            projectile_tf.translation().truncate(),
+            Color::srgba(0.92, 1.0, 0.72, 0.9),
+        );
+    }
+}
+
+pub fn homing_projectile_system(
+    enemy_q: Query<(Entity, &GlobalTransform), (With<Enemy>, Without<Replicated>)>,
+    mut projectile_q: Query<
+        (&HomingProjectile, &mut Projectile, &mut Transform),
+        Without<Replicated>,
+    >,
+) {
+    for (homing, mut projectile, mut transform) in &mut projectile_q {
+        if projectile.team != Team::Player {
+            continue;
+        }
+
+        let projectile_pos = transform.translation.truncate();
+        let current_dir = projectile.velocity.try_normalize().unwrap_or(Vec2::X);
+        let mut best_target = None;
+        let mut best_dist_sq = homing.search_radius * homing.search_radius;
+
+        for (_, enemy_tf) in &enemy_q {
+            let delta = enemy_tf.translation().truncate() - projectile_pos;
+            let dist_sq = delta.length_squared();
+            if dist_sq >= best_dist_sq {
+                continue;
+            }
+            if let Some(dir) = delta.try_normalize() {
+                best_target = Some(dir);
+                best_dist_sq = dist_sq;
+            }
+        }
+
+        let Some(target_dir) = best_target else {
+            continue;
+        };
+        let next_dir = current_dir
+            .lerp(target_dir, homing.turn_rate.clamp(0.0, 1.0))
+            .try_normalize()
+            .unwrap_or(target_dir);
+        projectile.velocity = next_dir * homing.speed;
+        transform.rotation = Quat::from_rotation_z(next_dir.y.atan2(next_dir.x));
+    }
+}
+
+pub fn chain_lightning_system(
+    mut damage_events: EventReader<DamageAppliedEvent>,
+    mut damage_writer: EventWriter<DamageEvent>,
+    player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
+    enemy_q: Query<(Entity, &GlobalTransform, &Health), (With<Enemy>, Without<Replicated>)>,
+) {
+    for event in damage_events.read() {
+        if event.kind != DamageKind::PlayerRanged || event.target_team != Some(Team::Enemy) {
+            continue;
+        }
+        let Some(player) = event.source else {
+            continue;
+        };
+        let Ok(inventory) = player_augments.get(player) else {
+            continue;
+        };
+        let stacks = inventory.stacks(AugmentId::ChainLightning);
+        if stacks == 0 {
+            continue;
+        }
+
+        let max_jumps = if stacks >= 2 { 2 } else { 1 };
+        let mut struck = HashSet::from([event.target]);
+        let mut from_pos = event.pos;
+
+        for _ in 0..max_jumps {
+            let mut next_target = None;
+            let mut best_dist_sq = 180.0_f32 * 180.0;
+            for (enemy, enemy_tf, health) in &enemy_q {
+                if struck.contains(&enemy) || health.current <= 0.0 {
+                    continue;
+                }
+                let to_enemy = enemy_tf.translation().truncate() - from_pos;
+                let dist_sq = to_enemy.length_squared();
+                if dist_sq >= best_dist_sq {
+                    continue;
+                }
+                next_target = Some((enemy, enemy_tf.translation().truncate(), to_enemy));
+                best_dist_sq = dist_sq;
+            }
+
+            let Some((enemy, enemy_pos, to_enemy)) = next_target else {
+                break;
+            };
+            struck.insert(enemy);
+            from_pos = enemy_pos;
+
+            damage_writer.send(DamageEvent {
+                target: enemy,
+                source: Some(player),
+                amount: event.amount * 0.50,
+                knockback: to_enemy.normalize_or_zero() * 120.0,
+                team: Team::Player,
+                kind: DamageKind::Passive,
+                is_crit: false,
+            });
+        }
+    }
+}
+
+pub fn thorns_system(
+    mut damage_events: EventReader<DamageAppliedEvent>,
+    mut damage_writer: EventWriter<DamageEvent>,
+    player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
+    source_q: Query<&GlobalTransform, Without<Replicated>>,
+    target_q: Query<&GlobalTransform, Without<Replicated>>,
+) {
+    for event in damage_events.read() {
+        if event.attacker_team != Team::Enemy || event.target_team != Some(Team::Player) {
+            continue;
+        }
+        let Some(source) = event.source else {
+            continue;
+        };
+        let Ok(inventory) = player_augments.get(event.target) else {
+            continue;
+        };
+        let stacks = inventory.stacks(AugmentId::Thorns);
+        if stacks == 0 {
+            continue;
+        }
+
+        let reflected_damage = if stacks >= 2 { 25.0 } else { 15.0 };
+        let knockback = match (target_q.get(event.target), source_q.get(source)) {
+            (Ok(target_tf), Ok(source_tf)) => {
+                (source_tf.translation().truncate() - target_tf.translation().truncate())
+                    .normalize_or_zero()
+                    * 90.0
+            }
+            _ => Vec2::ZERO,
+        };
+
+        damage_writer.send(DamageEvent {
+            target: source,
+            source: Some(event.target),
+            amount: reflected_damage,
+            knockback,
+            team: Team::Player,
+            kind: DamageKind::Passive,
+            is_crit: false,
+        });
+    }
+}
+
+pub fn dash_reset_speed_buff_tick_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut DashResetSpeedBuff), Without<Replicated>>,
+) {
+    for (entity, mut buff) in &mut q {
+        buff.timer.tick(time.delta());
+        if buff.timer.finished() {
+            commands.entity(entity).remove::<DashResetSpeedBuff>();
+        }
+    }
+}
+
+fn hitbox_intersects_target(
+    hb_aabb: Aabb2,
+    arc: Option<ArcHitbox>,
+    hurtbox: &Hurtbox,
+    target_tf: &GlobalTransform,
+) -> bool {
+    if let Some(arc) = arc {
+        return arc_hitbox_intersects_target(arc, hurtbox, target_tf);
+    }
+
+    let target_aabb = aabb_from_transform_size(target_tf, hurtbox.size);
+    hb_aabb.intersects(target_aabb)
+}
+
+fn arc_hitbox_intersects_target(
+    arc: ArcHitbox,
+    hurtbox: &Hurtbox,
+    target_tf: &GlobalTransform,
+) -> bool {
+    let to_target = target_tf.translation().truncate() - arc.origin;
+    let distance = to_target.length();
+    let target_radius = hurtbox.size.length() * 0.35;
+
+    if distance > arc.radius + target_radius {
+        return false;
+    }
+    if distance <= target_radius {
+        return true;
+    }
+
+    let Some(target_dir) = to_target.try_normalize() else {
+        return true;
+    };
+    let facing = arc.direction.try_normalize().unwrap_or(Vec2::X);
+    let dot = facing.dot(target_dir).clamp(-1.0, 1.0);
+    let angle = dot.acos();
+    let angular_padding = (target_radius / distance.max(target_radius + 0.001))
+        .clamp(0.0, 0.95)
+        .asin();
+
+    angle <= arc.half_angle_rad + angular_padding
+}
+
+fn projectile_reflect_direction(projectile_velocity: Vec2, slash_direction: Vec2) -> Vec2 {
+    let slash = slash_direction.normalize_or_zero();
+    let away = (-projectile_velocity).normalize_or_zero();
+    let blended = slash * 0.75 + away * 0.25;
+    if blended.length_squared() > 0.0 {
+        blended.normalize()
+    } else if slash.length_squared() > 0.0 {
+        slash
+    } else if away.length_squared() > 0.0 {
+        away
+    } else {
+        Vec2::X
     }
 }

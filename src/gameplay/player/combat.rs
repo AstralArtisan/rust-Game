@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::Replicated;
+use std::f32::consts::PI;
 
 use crate::coop::components::{
     CoopMeleeFlashState, CoopPhase, CoopSessionEntity, CoopSessionState, GhostState,
@@ -55,7 +56,9 @@ pub struct DelayedRangedShot {
     pub projectile_speed: f32,
     pub damage: f32,
     pub crit_chance: f32,
+    pub crit_multiplier: f32,
     pub pierce_remaining: u8,
+    pub homing_stacks: u8,
 }
 
 pub fn player_attack_input_system(
@@ -313,6 +316,22 @@ pub fn spawn_player_melee_hitbox_with_mods(
         1 => (1.15, 1.80),
         _ => (1.0, 1.0),
     };
+    let whirlwind_stacks = inventory
+        .map(|value| value.stacks(AugmentId::Whirlwind))
+        .unwrap_or(0);
+    let whirlwind_damage_mult = match whirlwind_stacks {
+        2 => 1.0,
+        1 => 0.70,
+        _ => 1.0,
+    };
+    let crit_enhance_stacks = inventory
+        .map(|value| value.stacks(AugmentId::CritEnhance))
+        .unwrap_or(0);
+    let (crit_bonus, crit_multiplier_bonus) = match crit_enhance_stacks {
+        2 => (0.15, 0.50),
+        1 => (0.10, 0.30),
+        _ => (0.0, 0.0),
+    };
 
     let slash_rotation = Quat::from_rotation_z(direction.y.atan2(direction.x));
     let primary_color = if mods.melee_mastery_stacks >= 2 {
@@ -362,17 +381,17 @@ pub fn spawn_player_melee_hitbox_with_mods(
             team: Team::Player,
             damage_kind: DamageKind::PlayerMelee,
             size: swing.hitbox_size,
-            damage: damage * heavy_damage_mult,
+            damage: damage * heavy_damage_mult * whirlwind_damage_mult,
             knockback: (360.0 + mods.melee_mastery_stacks as f32 * 12.0) * heavy_knockback_mult,
             can_crit: true,
-            crit_chance,
-            crit_multiplier: 1.75,
+            crit_chance: crit_chance + crit_bonus,
+            crit_multiplier: 1.75 + crit_multiplier_bonus,
         },
         ArcHitbox {
             origin: owner_pos,
             direction,
             radius: swing.reach,
-            half_angle_rad: half_angle,
+            half_angle_rad: if whirlwind_stacks > 0 { PI } else { half_angle },
         },
         Lifetime(Timer::from_seconds(
             MELEE_HITBOX_LIFETIME_S,
@@ -458,6 +477,45 @@ fn spawn_ranged_burst(
         1 => 1,
         _ => 0,
     };
+    let scatter_stacks = inventory
+        .map(|value| value.stacks(AugmentId::Scatter))
+        .unwrap_or(0);
+    let crit_enhance_stacks = inventory
+        .map(|value| value.stacks(AugmentId::CritEnhance))
+        .unwrap_or(0);
+    let (crit_bonus, crit_multiplier_bonus) = match crit_enhance_stacks {
+        2 => (0.15, 0.50),
+        1 => (0.10, 0.30),
+        _ => (0.0, 0.0),
+    };
+    let final_crit_chance = crit_chance + crit_bonus;
+    let final_crit_multiplier = 1.75 + crit_multiplier_bonus;
+
+    if scatter_stacks > 0 {
+        let angles: &[f32] = if scatter_stacks >= 2 {
+            &[-0.36, -0.18, 0.0, 0.18, 0.36]
+        } else {
+            &[-0.24, 0.0, 0.24]
+        };
+        for angle in angles {
+            let shot_dir = Mat2::from_angle(*angle).mul_vec2(dir);
+            queue_or_spawn_ranged_projectile(
+                commands,
+                assets,
+                owner,
+                pos,
+                shot_dir,
+                projectile_speed,
+                damage * 0.50,
+                final_crit_chance,
+                final_crit_multiplier,
+                delay_s,
+                pierce_remaining,
+                inventory,
+            );
+        }
+        return;
+    }
 
     match pattern {
         RangedVolleyPattern::Single | RangedVolleyPattern::Double => {
@@ -474,9 +532,11 @@ fn spawn_ranged_burst(
                     } else {
                         1.0
                     },
-                crit_chance,
+                final_crit_chance,
+                final_crit_multiplier,
                 delay_s,
                 pierce_remaining,
+                inventory,
             );
             spawn_extra_projectiles_for_burst(
                 commands,
@@ -486,10 +546,12 @@ fn spawn_ranged_burst(
                 dir,
                 projectile_speed,
                 damage,
-                crit_chance,
+                final_crit_chance,
+                final_crit_multiplier,
                 delay_s,
                 extra_projectiles,
                 pierce_remaining,
+                inventory,
             );
         }
         RangedVolleyPattern::Triple => {
@@ -508,9 +570,11 @@ fn spawn_ranged_burst(
                     shot_dir,
                     projectile_speed,
                     shot_damage,
-                    crit_chance,
+                    final_crit_chance,
+                    final_crit_multiplier,
                     delay_s,
                     pierce_remaining,
+                    inventory,
                 );
             }
             spawn_extra_projectiles_for_burst(
@@ -521,10 +585,12 @@ fn spawn_ranged_burst(
                 dir,
                 projectile_speed,
                 damage,
-                crit_chance,
+                final_crit_chance,
+                final_crit_multiplier,
                 delay_s,
                 extra_projectiles,
                 pierce_remaining,
+                inventory,
             );
         }
         RangedVolleyPattern::Nova => {
@@ -536,9 +602,11 @@ fn spawn_ranged_burst(
                 dir,
                 projectile_speed,
                 damage * 0.48,
-                crit_chance,
+                final_crit_chance,
+                final_crit_multiplier,
                 delay_s,
                 pierce_remaining,
+                inventory,
             );
 
             let base_angle = dir.y.atan2(dir.x);
@@ -554,9 +622,11 @@ fn spawn_ranged_burst(
                     shot_dir,
                     projectile_speed,
                     damage * 0.20,
-                    crit_chance,
+                    final_crit_chance,
+                    final_crit_multiplier,
                     delay_s,
                     pierce_remaining,
+                    inventory,
                 );
             }
             spawn_extra_projectiles_for_burst(
@@ -567,10 +637,12 @@ fn spawn_ranged_burst(
                 dir,
                 projectile_speed,
                 damage,
-                crit_chance,
+                final_crit_chance,
+                final_crit_multiplier,
                 delay_s,
                 extra_projectiles,
                 pierce_remaining,
+                inventory,
             );
         }
     }
@@ -585,9 +657,11 @@ fn spawn_extra_projectiles_for_burst(
     projectile_speed: f32,
     damage: f32,
     crit_chance: f32,
+    crit_multiplier: f32,
     delay_s: f32,
     extra_projectiles: u8,
     pierce_remaining: u8,
+    inventory: Option<&AugmentInventory>,
 ) {
     for extra_index in 0..extra_projectiles {
         let angle = if extra_projectiles == 1 || extra_index > 0 {
@@ -605,8 +679,10 @@ fn spawn_extra_projectiles_for_burst(
             projectile_speed,
             damage * EXTRA_PROJECTILE_DAMAGE_MULT,
             crit_chance,
+            crit_multiplier,
             delay_s,
             pierce_remaining,
+            inventory,
         );
     }
 }
@@ -620,9 +696,14 @@ fn queue_or_spawn_ranged_projectile(
     projectile_speed: f32,
     damage: f32,
     crit_chance: f32,
+    crit_multiplier: f32,
     delay_s: f32,
     pierce_remaining: u8,
+    inventory: Option<&AugmentInventory>,
 ) {
+    let homing_stacks = inventory
+        .map(|value| value.stacks(AugmentId::Homing))
+        .unwrap_or(0);
     if delay_s <= 0.0 {
         spawn_ranged_projectile(
             commands,
@@ -633,7 +714,9 @@ fn queue_or_spawn_ranged_projectile(
             projectile_speed,
             damage,
             crit_chance,
+            crit_multiplier,
             pierce_remaining,
+            homing_stacks,
         );
         return;
     }
@@ -647,7 +730,9 @@ fn queue_or_spawn_ranged_projectile(
             projectile_speed,
             damage,
             crit_chance,
+            crit_multiplier,
             pierce_remaining,
+            homing_stacks,
         },
         InGameEntity,
         Name::new("DelayedRangedShot"),
@@ -663,9 +748,11 @@ fn spawn_ranged_projectile(
     projectile_speed: f32,
     damage: f32,
     crit_chance: f32,
+    crit_multiplier: f32,
     pierce_remaining: u8,
+    homing_stacks: u8,
 ) {
-    let projectile = projectiles::spawn_player_projectile(
+    let projectile = projectiles::spawn_player_projectile_with_kind_and_crit(
         commands,
         assets,
         owner,
@@ -673,7 +760,17 @@ fn spawn_ranged_projectile(
         dir * projectile_speed,
         damage,
         crit_chance,
+        crit_multiplier,
+        DamageKind::PlayerRanged,
     );
+    if homing_stacks > 0 {
+        commands.entity(projectile).insert(
+            crate::gameplay::augment::effects::HomingProjectile::from_stacks(
+                homing_stacks,
+                projectile_speed,
+            ),
+        );
+    }
     if pierce_remaining > 0 {
         commands.entity(projectile).insert((
             PierceCount {
@@ -744,7 +841,9 @@ pub fn update_delayed_ranged_shots(
             shot.projectile_speed,
             shot.damage,
             shot.crit_chance,
+            shot.crit_multiplier,
             shot.pierce_remaining,
+            shot.homing_stacks,
         );
         safe_despawn_recursive(&mut commands, entity);
     }

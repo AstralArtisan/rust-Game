@@ -30,6 +30,7 @@ pub struct DamageAppliedEvent {
 #[derive(Event, Debug, Clone, Copy)]
 pub struct DeathEvent {
     pub entity: Entity,
+    pub source: Option<Entity>,
     pub team: Team,
 }
 

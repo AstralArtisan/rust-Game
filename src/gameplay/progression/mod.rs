@@ -13,6 +13,7 @@ impl Plugin for ProgressionPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<experience::XpGainEvent>()
             .add_event::<experience::LevelUpEvent>()
+            .init_resource::<experience::PendingLevelUps>()
             .add_systems(OnEnter(AppState::InGame), floor::setup_floor)
             .add_systems(
                 Update,

@@ -4,6 +4,7 @@ use lightyear::prelude::Replicated;
 use crate::core::assets::GameAssets;
 use crate::core::events::DamageEvent;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
+use crate::gameplay::augment::effects::ArmorBroken;
 use crate::gameplay::combat::components::{
     ArcHitbox, DamageKind, Hitbox, Hurtbox, Projectile, RuptureDot, Team,
 };
@@ -203,6 +204,22 @@ pub fn detect_hitbox_hurtbox_overlap(
                         .unwrap_or(0);
 
                     let mut total_heal = 0.0;
+                    let armor_break_stacks = owner_augments
+                        .get(owner)
+                        .map(|inventory| inventory.stacks(AugmentId::ArmorBreak))
+                        .unwrap_or(0);
+                    if armor_break_stacks > 0 {
+                        let (damage_multiplier, duration_s) = if armor_break_stacks >= 2 {
+                            (1.30, 5.0)
+                        } else {
+                            (1.20, 3.0)
+                        };
+                        commands.entity(target).insert(ArmorBroken {
+                            damage_multiplier,
+                            timer: Timer::from_seconds(duration_s, TimerMode::Once),
+                        });
+                    }
+
                     if let Some(mods) = mods {
                         let heal_fraction = mods.melee_on_hit_heal_fraction(target_is_boss);
                         if heal_fraction > 0.0 {

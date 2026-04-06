@@ -486,6 +486,7 @@ pub fn shadow_trail_damage_system(
                 if previous > 0.0 && health.current <= 0.0 {
                     death_events.send(DeathEvent {
                         entity,
+                        source: None,
                         team: Team::Player,
                     });
                 }

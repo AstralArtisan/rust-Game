@@ -8,6 +8,7 @@ use crate::core::assets::GameAssets;
 use crate::core::events::DeathEvent;
 use crate::core::input::PlayerInputState;
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::augment::effects::DashResetSpeedBuff;
 use crate::gameplay::combat::components::{Hurtbox, Knockback, Team};
 use crate::gameplay::augment::data::AugmentInventory;
 use crate::gameplay::curse::CurseState;
@@ -154,6 +155,7 @@ pub fn player_move_system(
             &PlayerDriveInput,
             &DashState,
             &MoveSpeed,
+            Option<&DashResetSpeedBuff>,
             &mut Velocity,
             &mut Transform,
             Option<&GhostState>,
@@ -165,7 +167,7 @@ pub fn player_move_system(
     if matches!(*room_state, RoomState::BossFight) {
         // still movable
     }
-    for (input, dash, move_speed, mut vel, mut tf, ghost) in &mut q {
+    for (input, dash, move_speed, dash_reset_buff, mut vel, mut tf, ghost) in &mut q {
         if coop_phase.is_some_and(coop_phase_blocks_player_movement) {
             vel.0 = Vec2::ZERO;
             continue;
@@ -178,7 +180,10 @@ pub fn player_move_system(
         if dash.active {
             vel.0 = dash.dir * dash.speed;
         } else {
-            vel.0 = input.move_axis * move_speed.0.max(0.0) * move_scale;
+            let dash_reset_mult = dash_reset_buff
+                .map(|buff| buff.move_speed_mult.max(1.0))
+                .unwrap_or(1.0);
+            vel.0 = input.move_axis * move_speed.0.max(0.0) * move_scale * dash_reset_mult;
         }
         vel.0 = clamp_length(vel.0, dash.speed.max(move_speed.0));
         tf.translation += (vel.0 * time.delta_seconds()).extend(0.0);
