@@ -453,3 +453,20 @@
 - 阶段5：新怪物（Bomber/Shielder/Summoner）+ 精英词缀
 - 阶段6：HUD 更新 + 数值平衡 + 清理旧铭文代码
 - `cargo check` 通过，`cargo test` 33 项全部通过
+
+---
+
+## 2026-04-06 修复Boss通关后白光遮挡+状态转换丢失
+
+### 改动内容
+- `ScreenFlash` timer 改用 `Time<Real>`，不再受 hitstop 的 `Time<Virtual>` 缩放影响
+- 进入 `AugmentSelect`/`LevelUpSelect` 时强制调用 `clear_screen_flash` 清除残留闪光
+- `LevelUpEvent` 改为延迟队列 `PendingLevelUps`，当同帧有 `RoomClearedEvent` 时不抢占 `NextState`
+- 升级选择延迟到回到 `InGame` 后再弹出
+
+### 目的与动机
+Boss 死亡同时触发 hitstop（`Time<Virtual>` 降到 0.05x）和 ScreenFlash（0.3s），导致闪光实际持续约6秒遮挡 UI。同时 Boss 击杀给大量 XP 导致升级，`handle_levelup_event` 与 `enter_reward_selection` 竞争 `NextState`，`RoomClearedEvent` 被消费后丢失，玩家无法进入下一层。
+
+### 关键决策
+- 闪光用真实时间而非虚拟时间：闪光是视觉效果，不应受游戏逻辑时间缩放影响
+- 升级延迟队列：奖励流程优先级高于升级选择，避免状态竞争
