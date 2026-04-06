@@ -1018,6 +1018,9 @@ pub fn attach_replicated_visuals(
             EnemyType::Flanker => Color::srgb(0.96, 0.56, 0.78),
             EnemyType::Sniper => Color::srgb(0.70, 0.82, 1.0),
             EnemyType::SupportCaster => Color::srgb(0.55, 0.95, 0.80),
+            EnemyType::Bomber => Color::srgb(0.98, 0.38, 0.22),
+            EnemyType::Shielder => Color::srgb(0.36, 0.56, 0.78),
+            EnemyType::Summoner => Color::srgb(0.64, 0.38, 0.90),
             EnemyType::Boss => Color::srgb(0.85, 0.25, 0.95),
         };
         commands.entity(entity).insert((

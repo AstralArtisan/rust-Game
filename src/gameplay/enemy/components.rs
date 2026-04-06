@@ -42,6 +42,34 @@ pub struct EnemyAttackCooldown {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct Elite;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum EliteAffix {
+    Swift,
+    Splitting,
+    Shielded,
+    Vampiric,
+    Berserk,
+    Teleporting,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct EliteAffixMarker(pub EliteAffix);
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct ShieldedAffixState {
+    pub charges: u8,
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+pub struct BerserkAffixState {
+    pub active: bool,
+}
+
+#[derive(Component, Debug, Clone)]
+pub struct TeleportAffixTimer {
+    pub timer: Timer,
+}
+
 #[derive(Component, Debug, Clone, Copy)]
 pub struct TeamMarker(pub Team);
 

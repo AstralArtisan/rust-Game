@@ -8,7 +8,8 @@ use crate::gameplay::augment::effects::{ArmorBroken, DashShieldBuff};
 use crate::gameplay::combat::components::{Hurtbox, Knockback, Team};
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::enemy::components::{
-    BossCoreShield, BossDecoy, BossDirectionalDefense, TideHunterPhase, TideHunterState,
+    BossCoreShield, BossDecoy, BossDirectionalDefense, ShieldedAffixState, TideHunterPhase,
+    TideHunterState,
 };
 use crate::gameplay::player::components::{Health, InvincibilityTimer};
 use crate::gameplay::skills::ChargeGainEvent;
@@ -37,6 +38,7 @@ pub fn apply_damage_events(
             Option<&mut Flash>,
             Option<&ArmorBroken>,
             Option<&DashShieldBuff>,
+            Option<&mut ShieldedAffixState>,
             &mut Knockback,
             &GlobalTransform,
         ),
@@ -57,6 +59,7 @@ pub fn apply_damage_events(
             flash_opt,
             armor_broken,
             dash_shield,
+            shielded_affix,
             mut knockback,
             tf,
         )) = q.get_mut(ev.target)
@@ -100,6 +103,16 @@ pub fn apply_damage_events(
         if dash_shield.is_some() && hurtbox.is_some_and(|h| h.team == Team::Player) {
             commands.entity(entity).remove::<DashShieldBuff>();
             continue;
+        }
+
+        if let Some(mut shielded) = shielded_affix {
+            if shielded.charges > 0 {
+                shielded.charges -= 1;
+                if shielded.charges == 0 {
+                    commands.entity(entity).remove::<ShieldedAffixState>();
+                }
+                continue;
+            }
         }
 
         let mut amount = ev.amount;

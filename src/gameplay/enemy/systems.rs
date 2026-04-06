@@ -7,7 +7,7 @@ use crate::coop::components::{CoopNetPosition, CoopNetRotation, CoopNetVelocity}
 use crate::coop::components::{CoopParticipant, GhostState};
 use crate::coop::net::{CoopNetConfig, NetMode, is_coop_authority};
 use crate::coop::runtime::is_coop_simulation_active;
-use crate::core::events::{DamageEvent, DeathEvent, RoomClearedEvent};
+use crate::core::events::{DamageAppliedEvent, DamageEvent, DeathEvent, RoomClearedEvent};
 use crate::data::definitions::EnemyStatsConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
@@ -91,6 +91,17 @@ impl Plugin for EnemySystemsPlugin {
                     shielder_block_system
                         .before(crate::gameplay::combat::hitbox::detect_hitbox_hurtbox_overlap),
                     summoner_summon_system.after(ai::update_enemy_ai),
+                    elite_berserk_system
+                        .after(crate::gameplay::combat::damage::apply_damage_events)
+                        .before(enemy_attack_system),
+                    elite_teleport_system
+                        .after(ai::update_enemy_ai)
+                        .before(enemy_attack_system),
+                    elite_vampiric_system
+                        .after(crate::gameplay::combat::damage::apply_damage_events),
+                    elite_splitting_system
+                        .after(crate::gameplay::combat::damage::apply_damage_events)
+                        .before(enemy_death_system),
                     summoner_death_cleanup.before(enemy_death_system),
                 )
                     .run_if(
@@ -438,16 +449,24 @@ pub fn spawn_enemy(
     };
     let mut stats = scaled_enemy_stats(stats_cfg, enemy_type, floor_number, floor_multiplier);
     stats.max_hp *= coop_hp_mult.max(1.0);
+    let elite_affix = if is_elite && enemy_type != EnemyType::Boss {
+        let mut affix_rng = GameRng::default();
+        let affix = pick_elite_affix(&mut affix_rng);
+        if affix == EliteAffix::Swift {
+            stats.move_speed *= 1.5;
+            stats.attack_cooldown_s *= 0.77;
+        }
+        Some(affix)
+    } else {
+        None
+    };
     if is_elite && enemy_type != EnemyType::Boss {
         stats.max_hp *= data.balance.elite_hp_mult.max(1.0);
         stats.attack_damage *= data.balance.elite_damage_mult.max(1.0);
-        stats.move_speed *= 1.12;
     }
     let color = enemy_color(enemy_type, is_elite);
-    let sprite_size = if enemy_type == EnemyType::Boss {
+    let base_sprite_size = if enemy_type == EnemyType::Boss {
         56.0
-    } else if is_elite {
-        34.0
     } else {
         match enemy_type {
             EnemyType::Charger => 30.0,
@@ -460,10 +479,13 @@ pub fn spawn_enemy(
             _ => 28.0,
         }
     };
+    let sprite_size = if is_elite && enemy_type != EnemyType::Boss {
+        base_sprite_size * 1.3
+    } else {
+        base_sprite_size
+    };
     let hurtbox_size = if enemy_type == EnemyType::Boss {
         60.0
-    } else if is_elite {
-        32.0
     } else {
         match enemy_type {
             EnemyType::Charger => 28.0,
@@ -515,8 +537,22 @@ pub fn spawn_enemy(
         CoopNetRotation(0.0),
     ));
 
-    if is_elite && enemy_type != EnemyType::Boss {
-        entity.insert(Elite);
+    if let Some(affix) = elite_affix {
+        entity.insert((Elite, EliteAffixMarker(affix)));
+        match affix {
+            EliteAffix::Shielded => {
+                entity.insert(ShieldedAffixState { charges: 1 });
+            }
+            EliteAffix::Berserk => {
+                entity.insert(BerserkAffixState { active: false });
+            }
+            EliteAffix::Teleporting => {
+                entity.insert(TeleportAffixTimer {
+                    timer: Timer::from_seconds(3.0, TimerMode::Repeating),
+                });
+            }
+            EliteAffix::Swift | EliteAffix::Splitting | EliteAffix::Vampiric => {}
+        }
     }
 
     if enemy_type == EnemyType::Charger {
@@ -940,6 +976,203 @@ fn summoner_death_cleanup(
                 safe_despawn_recursive(&mut commands, summoned);
             }
         }
+    }
+}
+
+fn elite_splitting_system(
+    mut commands: Commands,
+    assets: Res<crate::core::assets::GameAssets>,
+    data: Res<GameDataRegistry>,
+    mut rng: ResMut<GameRng>,
+    mut death_events: EventReader<DeathEvent>,
+    coop_config: Option<Res<CoopNetConfig>>,
+    coop_players: Query<(), With<CoopParticipant>>,
+    floor: Option<Res<FloorNumber>>,
+    elites: Query<
+        (
+            &EnemyKind,
+            &Transform,
+            &EliteAffixMarker,
+            &EnemyStats,
+            &Health,
+        ),
+        (With<Enemy>, Without<Replicated>),
+    >,
+) {
+    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+    let floor_multiplier = get_floor_difficulty_multiplier(&data, floor_number);
+    let coop_hp_mult = if coop_config
+        .as_deref()
+        .map(|value| value.mode == NetMode::Host && !coop_players.is_empty())
+        .unwrap_or(false)
+    {
+        2.0
+    } else {
+        1.0
+    };
+
+    for death in death_events.read() {
+        let Ok((kind, tf, affix, stats, health)) = elites.get(death.entity) else {
+            continue;
+        };
+        if affix.0 != EliteAffix::Splitting {
+            continue;
+        }
+
+        if kind.0 == EnemyType::Boss {
+            continue;
+        }
+
+        let mut split_stats = *stats;
+        split_stats.max_hp = health.max * 0.5;
+        split_stats.attack_damage *= 0.5;
+
+        let origin = tf.translation.truncate();
+        let base_angle = rng.gen_range_f32(0.0, std::f32::consts::TAU);
+        for index in 0..2 {
+            let angle = base_angle + if index == 0 { -0.55 } else { 0.55 };
+            let offset = Vec2::new(angle.cos(), angle.sin()) * 32.0;
+            let spawn_pos = clamp_in_room(
+                origin + offset,
+                Vec2::new(ROOM_HALF_WIDTH, ROOM_HALF_HEIGHT),
+                28.0,
+            );
+            let split = spawn_enemy(
+                &mut commands,
+                &assets,
+                &data,
+                kind.0,
+                spawn_pos,
+                floor_number,
+                floor_multiplier,
+                coop_hp_mult,
+                false,
+            );
+            commands.entity(split).insert((
+                Health {
+                    current: split_stats.max_hp,
+                    max: split_stats.max_hp,
+                },
+                split_stats,
+                EnemyAttackCooldown {
+                    timer: Timer::from_seconds(split_stats.attack_cooldown_s, TimerMode::Once),
+                },
+            ));
+            if kind.0 == EnemyType::Bomber {
+                commands.entity(split).insert(BomberState {
+                    phase: BomberPhase::Approach,
+                    timer: Timer::from_seconds(1.0, TimerMode::Once),
+                    explosion_radius: 65.0,
+                    explosion_damage: split_stats.attack_damage,
+                });
+            } else if kind.0 == EnemyType::Summoner {
+                commands.entity(split).insert(SummonerState {
+                    summon_timer: Timer::from_seconds(split_stats.attack_cooldown_s, TimerMode::Once),
+                    max_active_summons: 3,
+                });
+            }
+        }
+    }
+}
+
+fn elite_vampiric_system(
+    mut damage_events: EventReader<DamageAppliedEvent>,
+    mut elites: Query<(&EliteAffixMarker, &mut Health), Without<Replicated>>,
+) {
+    for event in damage_events.read() {
+        if event.target_team != Some(Team::Player) || event.attacker_team != Team::Enemy {
+            continue;
+        }
+        let Some(source) = event.source else {
+            continue;
+        };
+        let Ok((affix, mut health)) = elites.get_mut(source) else {
+            continue;
+        };
+        if affix.0 != EliteAffix::Vampiric {
+            continue;
+        }
+
+        let heal = health.max * 0.10;
+        health.current = (health.current + heal).min(health.max);
+    }
+}
+
+fn elite_berserk_system(
+    mut elites: Query<
+        (
+            &Health,
+            &mut EnemyStats,
+            &mut BerserkAffixState,
+            &mut Sprite,
+        ),
+        (With<Enemy>, Without<Replicated>),
+    >,
+) {
+    for (health, mut stats, mut state, mut sprite) in &mut elites {
+        if state.active || health.max <= 0.0 || health.current / health.max >= 0.30 {
+            continue;
+        }
+
+        state.active = true;
+        stats.attack_damage *= 2.0;
+        sprite.color = Color::srgb(0.96, 0.22, 0.20);
+    }
+}
+
+fn elite_teleport_system(
+    time: Res<Time>,
+    mut rng: ResMut<GameRng>,
+    player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
+    mut elites: Query<(&mut Transform, &mut TeleportAffixTimer), (With<Enemy>, Without<Replicated>)>,
+) {
+    let player_positions = player_q
+        .iter()
+        .filter_map(|(tf, ghost)| {
+            (!matches!(ghost, Some(GhostState::Ghost))).then_some(tf.translation().truncate())
+        })
+        .collect::<Vec<_>>();
+    if player_positions.is_empty() {
+        return;
+    }
+
+    for (mut tf, mut teleport) in &mut elites {
+        teleport.timer.tick(time.delta());
+        if !teleport.timer.just_finished() {
+            continue;
+        }
+
+        let pos = tf.translation.truncate();
+        let Some(player_pos) = player_positions
+            .iter()
+            .copied()
+            .min_by(|a, b| pos.distance(*a).total_cmp(&pos.distance(*b)))
+        else {
+            continue;
+        };
+        let dir = direction_to(pos, player_pos);
+        if dir.length_squared() <= f32::EPSILON {
+            continue;
+        }
+
+        let desired_separation = rng.gen_range_f32(80.0, 120.0);
+        let max_blink = rng.gen_range_f32(80.0, 120.0);
+        let toward_player = (pos.distance(player_pos) - desired_separation)
+            .max(0.0)
+            .min(max_blink);
+        let mut target_pos = pos + dir * toward_player;
+        if toward_player <= f32::EPSILON {
+            let side_sign = if rng.gen_bool(0.5) { 1.0 } else { -1.0 };
+            let side = Vec2::new(-dir.y, dir.x) * side_sign * 20.0;
+            target_pos = player_pos - dir * desired_separation + side;
+        }
+        let clamped = clamp_in_room(
+            target_pos,
+            Vec2::new(ROOM_HALF_WIDTH, ROOM_HALF_HEIGHT),
+            28.0,
+        );
+        tf.translation.x = clamped.x;
+        tf.translation.y = clamped.y;
     }
 }
 
@@ -1532,33 +1765,43 @@ fn effective_enemy_attack_cooldown(base_cooldown_s: f32, buff: Option<&EnemyBuff
     (base_cooldown_s / cooldown_mult.max(0.2)).max(0.28)
 }
 
+fn pick_elite_affix(rng: &mut GameRng) -> EliteAffix {
+    const AFFIXES: [EliteAffix; 6] = [
+        EliteAffix::Swift,
+        EliteAffix::Splitting,
+        EliteAffix::Shielded,
+        EliteAffix::Vampiric,
+        EliteAffix::Berserk,
+        EliteAffix::Teleporting,
+    ];
+    let index =
+        (rng.gen_range_f32(0.0, AFFIXES.len() as f32) as usize).min(AFFIXES.len() - 1);
+    AFFIXES[index]
+}
+
 fn enemy_color(enemy_type: EnemyType, is_elite: bool) -> Color {
-    let base = match enemy_type {
-        EnemyType::MeleeChaser => Color::srgb(0.95, 0.45, 0.45),
-        EnemyType::RangedShooter => Color::srgb(0.55, 0.65, 0.95),
-        EnemyType::Charger => Color::srgb(0.95, 0.75, 0.25),
-        EnemyType::Flanker => Color::srgb(0.96, 0.56, 0.78),
-        EnemyType::Sniper => Color::srgb(0.70, 0.82, 1.0),
-        EnemyType::SupportCaster => Color::srgb(0.55, 0.95, 0.80),
-        EnemyType::Bomber => Color::srgb(0.98, 0.38, 0.22),
-        EnemyType::Shielder => Color::srgb(0.36, 0.56, 0.78),
-        EnemyType::Summoner => Color::srgb(0.64, 0.38, 0.90),
-        EnemyType::Boss => Color::srgb(0.85, 0.25, 0.95),
+    let (r, g, b) = match enemy_type {
+        EnemyType::MeleeChaser => (0.95, 0.45, 0.45),
+        EnemyType::RangedShooter => (0.55, 0.65, 0.95),
+        EnemyType::Charger => (0.95, 0.75, 0.25),
+        EnemyType::Flanker => (0.96, 0.56, 0.78),
+        EnemyType::Sniper => (0.70, 0.82, 1.0),
+        EnemyType::SupportCaster => (0.55, 0.95, 0.80),
+        EnemyType::Bomber => (0.98, 0.38, 0.22),
+        EnemyType::Shielder => (0.36, 0.56, 0.78),
+        EnemyType::Summoner => (0.64, 0.38, 0.90),
+        EnemyType::Boss => (0.85, 0.25, 0.95),
     };
-    if !is_elite || matches!(enemy_type, EnemyType::Boss | EnemyType::SupportCaster) {
-        return base;
+    if !is_elite || enemy_type == EnemyType::Boss {
+        return Color::srgb(r, g, b);
     }
-    match enemy_type {
-        EnemyType::MeleeChaser => Color::srgb(1.0, 0.65, 0.65),
-        EnemyType::RangedShooter => Color::srgb(0.75, 0.82, 1.0),
-        EnemyType::Charger => Color::srgb(1.0, 0.88, 0.45),
-        EnemyType::Flanker => Color::srgb(1.0, 0.68, 0.86),
-        EnemyType::Sniper => Color::srgb(0.84, 0.90, 1.0),
-        EnemyType::Bomber => Color::srgb(1.0, 0.58, 0.38),
-        EnemyType::Shielder => Color::srgb(0.58, 0.74, 0.96),
-        EnemyType::Summoner => Color::srgb(0.82, 0.64, 1.0),
-        EnemyType::SupportCaster | EnemyType::Boss => base,
-    }
+
+    let tint_strength = 0.34;
+    Color::srgb(
+        r * (1.0 - tint_strength) + 1.0 * tint_strength,
+        g * (1.0 - tint_strength) + 0.84 * tint_strength,
+        b * (1.0 - tint_strength) + 0.24 * tint_strength,
+    )
 }
 
 fn scaled_boss_stats(
