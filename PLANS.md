@@ -1,234 +1,129 @@
-# 修复计划：UI清理 + 事件房体验 + 进门位置
+# Phase 9 设计改进计划
 
 ## Context
 
-用户游玩后发现4个体验问题：铭文UI残留（系统已废弃但UI未清理）、事件房背景黑屏风格不符、事件房有概率连续触发、进门刷新位置不固定且可能刷在怪脸上。
+用户在游玩测试后提出 5 项设计改进需求：
+1. 事件房 Esc 退出后可重新交互（已实现，确认无需改动）
+2. 升级时提供"回血或强化"选择（参考 pre-augment-system tag 的 HealOrBuff UI 布局）
+3. 小怪头顶加血条，提升战斗信息反馈
+4. 精英房重新设计，与普通房拉开差距
+5. 精英词缀标签乱码修复（Text2dBundle 未指定中文字体）
+
+改动 2（小怪血条）和改动 3（精英房）已在上一轮 Codex 中实现，本轮只需实现改动 1（升级UI重构）和改动 4（词缀标签字体修复）。
 
 ---
 
-## 问题 1: 铭文UI清理
+## 改动 1：升级 UI 重构为"回血或强化"双栏布局
 
-**根因**: `RunePlugin` 已是空实现（`fn build(&self, _app: &mut App) {}`），铭文系统功能已废弃，但 HUD 中仍有铭文槽位 UI 和更新系统。
+### 当前状态
+`src/ui/levelup_select.rs`：升级时显示 3 个随机属性卡片，玩家按 1/2/3 选择。
+`src/gameplay/progression/experience.rs`：`handle_levelup_event` 从 7 个属性中随机选 3 个（含上轮新增的 RecoverHealth）。
 
-**影响文件**:
-- `src/ui/hud.rs`
-- `src/ui/mod.rs`
+### 参考设计
+`pre-augment-system` tag 的 `src/ui/reward_select.rs` 中 `HealOrBuff` 模式：
+- 左栏：固定"回血"按钮（按 1），显示恢复量
+- 右栏：3 个强化选项（按 2/3/4）
 
-**改动**:
+### 方案
 
-### 1a. `src/ui/hud.rs`
+**文件：`src/ui/levelup_select.rs`**
 
-1. 删除组件定义（约第 64-67 行）：
-   ```rust
-   #[derive(Component, Debug, Clone, Copy)]
-   pub struct RuneHudSlot(pub RuneSlot);
-   #[derive(Component, Debug, Clone, Copy)]
-   pub struct RuneHudText(pub RuneSlot);
-   ```
+重构 `setup_levelup_ui`，改为双栏布局：
 
-2. 删除 `setup_hud()` 中铭文 UI 节点（约第 322-360 行）：整个 `runes.spawn(widgets::title_text(&assets, "铭文", 15.0))` 及其子节点块。
+```
+┌─────────────────────────────────────────────────────┐
+│           升级！ Lv.X                                │
+│  选择回血恢复状态，或选择一项属性提升                  │
+├──────────────────┬──────────────────────────────────┤
+│   回血           │        属性强化                    │
+│ ┌──────────────┐ │ ┌──────────────────────────────┐ │
+│ │ 1. 回血      │ │ │ 2. 攻击力 +3               │ │
+│ │ 恢复 XX 生命 │ │ │ 提升近战和远程攻击伤害      │ │
+│ │ 稳住当前状态 │ │ └──────────────────────────────┘ │
+│ │ 后继续推进   │ │ ┌──────────────────────────────┐ │
+│ └──────────────┘ │ │ 3. 生命上限 +15             │ │
+│                  │ │ 提升最大生命值并回复等量HP   │ │
+│                  │ └──────────────────────────────┘ │
+│                  │ ┌──────────────────────────────┐ │
+│                  │ │ 4. 暴击率 +5%               │ │
+│                  │ │ 提升暴击概率                 │ │
+│                  │ └──────────────────────────────┘ │
+└──────────────────┴──────────────────────────────────┘
+```
 
-3. 删除 `update_rune_and_curse_ui` 函数中铭文相关的查询和更新逻辑（保留诅咒状态更新，只删除铭文部分）。
+具体改动：
+1. `setup_levelup_ui` 改为双栏布局（参考 `reward_select.rs` 行132-200 的 HealOrBuff 布局）
+2. 左栏：固定回血按钮，`LevelUpButton { index: 0 }`，显示回血量
+3. 右栏：3 个属性强化卡片，`LevelUpButton { index: 1/2/3 }`
+4. 回血量计算：使用 `heal_amount` 函数（已存在于 `src/gameplay/rewards/apply.rs:127`），需要导入
+5. 需要新增系统参数：`health_q: Query<&Health, With<Player>>`, `floor: Option<Res<FloorNumber>>`, `data: Option<Res<GameDataRegistry>>`
 
-### 1b. `src/ui/mod.rs`
+保留 `LevelUpStat::RecoverHealth(f32)` 变体（上轮已添加）。
 
-删除 `hud::update_rune_and_curse_ui` 的注册（如果铭文逻辑被完全移除后该函数仍有诅咒逻辑则保留，否则删除）。
+修改 `levelup_input`：
+- 按键 1：选择回血（index 0）
+- 按键 2/3/4：选择 3 个属性强化之一（index 1/2/3）
+- 回血处理已在上轮实现：`LevelUpStat::RecoverHealth(pct) => { health.current = (health.current + health.max * pct).min(health.max); }`
 
-**注意**: 保留 `src/gameplay/rune/` 目录下的数据结构（`RuneLoadout`、`RuneSlot` 等），因为可能被其他地方引用。只清理 UI 层。
+**文件：`src/gameplay/progression/experience.rs`**
+
+修改 `handle_levelup_event`：
+- `choices.options` 改为 4 个选项：第 0 个固定为回血，第 1-3 个为随机属性（从 6 个非回血属性中选）
+- 回血选项：`LevelUpOption { label: "回血".to_string(), description: format!("恢复 {:.0} 生命\n稳住当前状态后继续推进", heal_value), apply: LevelUpStat::RecoverHealth(heal_value) }`
+- 回血量用绝对值而非百分比：`heal_value = heal_amount(&scaling, health.max, floor_number)`
+- 需要新增系统参数：`health_q: Query<&Health, With<Player>>`, `floor: Option<Res<FloorNumber>>`, `data: Option<Res<GameDataRegistry>>`
+- 从 `all_stats` 中移除 `RecoverHealth` 条目（回血不再随机出现，而是固定在第 0 位）
 
 ---
 
-## 问题 2: 事件房流程重设计
+## 改动 4：精英词缀标签乱码修复
 
-**根因**: 当前非战斗事件房进入后立即切换到 `AppState::EventRoom` 弹出选择 UI，没有"交互过程"，且完成后直接返回游戏，没有选门流程。用户期望：进入事件房 → 有交互过程 → 完成后像战斗房一样选门离开。
+### 根因
+`src/gameplay/enemy/systems.rs` 精英词缀的 `Text2dBundle` 使用了 `TextStyle { font_size: 18.0, color: ..., ..default() }`，`font` 字段使用了 Bevy 默认字体（不支持中文），导致中文词缀名显示为乱码。
 
-**新流程设计**:
-```
-进入事件房
-  → RoomState::Locked（房间锁定，门关闭）
-  → 在游戏世界中显示事件交互提示（按 E 键触发事件）
-  → 玩家走近事件触发点按 E → 弹出 AppState::EventRoom UI
-  → 玩家选择完成 → RoomState::Cleared（门开启）
-  → 玩家自由选门离开（与战斗房完全一致）
-```
+### 方案
 
-**影响文件**:
-- `src/gameplay/event_room/mod.rs`
-- `src/ui/event_room.rs`
+**文件：`src/gameplay/enemy/systems.rs`**
 
-**改动**:
+在精英词缀标签生成代码中，为所有 `TextStyle` 添加 `font: assets.font.clone()`。
 
-### 2a. 进入事件房时先锁定房间，不立即弹 UI
-
-`src/gameplay/event_room/mod.rs` 中 `select_and_spawn_event` 函数，对非战斗事件的处理（约第 267-275 行）：
-
-**当前**：
+描边文字（4个黑色阴影副本）：
 ```rust
-EventType::Gambler | ... => {
-    configure_non_combat_event(...);
-    next_state.set(AppState::EventRoom);  // 立即弹UI
+TextStyle {
+    font: assets.font.clone(),
+    font_size: 18.0,
+    color: Color::srgba(0.0, 0.0, 0.0, 0.9),
 }
 ```
 
-**改为**：
+主标签：
 ```rust
-EventType::Gambler | ... => {
-    configure_non_combat_event(...);
-    *room_state = RoomState::Locked;  // 锁定房间
-    active.interaction_ready = true;  // 标记等待玩家交互
-    // 不切换状态，留在 InGame
+TextStyle {
+    font: assets.font.clone(),
+    font_size: 18.0,
+    color: label_color,
 }
 ```
 
-在 `ActiveEvent` 结构体中新增字段 `pub interaction_ready: bool`，默认 `false`。
-
-### 2b. 在游戏世界中生成事件交互提示实体
-
-在 `select_and_spawn_event` 中，非战斗事件触发时，在房间中心生成一个交互提示实体：
-
-```rust
-commands.spawn((
-    Text2dBundle {
-        text: Text::from_section(
-            format!("【{}】\n按 E 交互", event_type.title()),
-            TextStyle { font_size: 20.0, color: accent_color, ... }
-        ),
-        transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
-        ..default()
-    },
-    EventInteractPrompt,
-    InGameEntity,
-));
-```
-
-新增 `EventInteractPrompt` 组件标记。`accent_color` 根据事件类型选择（金/紫/红/绿/蓝/橙）。
-
-### 2c. 新增玩家靠近交互触发系统
-
-新增系统 `event_interact_system`，在 `AppState::InGame` 下运行：
-
-```rust
-fn event_interact_system(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut active: ResMut<ActiveEvent>,
-    mut next_state: ResMut<NextState<AppState>>,
-    player_q: Query<&GlobalTransform, With<Player>>,
-    prompt_q: Query<(Entity, &GlobalTransform), With<EventInteractPrompt>>,
-    mut commands: Commands,
-) {
-    if !active.interaction_ready { return; }
-    // 玩家靠近提示点（80px 内）且按 E 键
-    if keyboard.just_pressed(KeyCode::KeyE) {
-        // 销毁提示实体
-        for (e, _) in &prompt_q { commands.entity(e).despawn_recursive(); }
-        active.interaction_ready = false;
-        next_state.set(AppState::EventRoom);  // 此时才弹 UI
-    }
-}
-```
-
-### 2d. 事件完成后设置 Cleared，让玩家选门
-
-`event_room_input` 中所有退出路径都必须设置 `RoomState::Cleared`，让门开启：
-
-- `EventInputOutcome::Complete` 分支（约第 351 行）：已有 `*room_state = RoomState::Cleared`，保持不变
-- `Esc` 键放弃分支（约第 319 行）：添加 `*room_state = RoomState::Cleared`
-- `EventChoicePayload::Leave` 分支：添加 `*room_state = RoomState::Cleared`
-
-这样无论玩家选择完成事件还是放弃，房间都会解锁，门变金色可通行。
-
-### 2e. 改进事件 UI 样式
-
-`src/ui/event_room.rs` 中：
-- `scrim_node(0.62)` → `scrim_node(0.40)`（降低遮罩，让背景隐约可见）
-- 面板左侧添加 8px 彩色竖条（根据事件类型颜色）
-- 标题前加符号前缀（赌徒→`◈`，诅咒→`☠`，血契→`♦`，宝箱→`✦`，治愈泉→`✿`，商贩→`⚙`）
+`assets` 在 `spawn_enemy_with_elite_scale` 函数中已有参数 `assets: &GameAssets`。✓
 
 ---
 
-## 问题 3: 事件房连续触发
+## Affected files
 
-**根因**: 同一事件房可能在某些条件下被重复触发。
+| 文件 | 改动类型 | 描述 |
+|------|---------|------|
+| `src/ui/levelup_select.rs` | modified | 重构为双栏布局（回血+强化） |
+| `src/gameplay/progression/experience.rs` | modified | handle_levelup_event 生成 4 选项（1回血+3属性） |
+| `src/gameplay/enemy/systems.rs` | modified | 词缀标签字体修复（添加 font: assets.font.clone()） |
 
-**影响文件**: `src/gameplay/event_room/mod.rs`
-
-**改动**: 在 `select_and_spawn_event` 中，只要 `active.room == Some(current_room.0)` 就直接返回，不再检查 resolved 状态：
-
-```rust
-if active.room == Some(current_room.0) {
-    return;
-}
-```
-
----
-
-## 问题 4: 进门刷新位置固定 + 敌人生成保护区域
-
-**根因**:
-- `player_spawn_position` 根据进入方向动态计算位置（左进→左侧，右进→右侧，上进→上方，下进→下方）
-- 敌人生成点硬编码，无最小距离检查，从下方进入时玩家可能直接刷在敌人旁边（距离仅 36px）
-
-**影响文件**:
-- `src/gameplay/map/transitions.rs`
-- `src/gameplay/enemy/spawner.rs`（或 `systems.rs`）
-
-**改动**:
-
-### 4a. 固定进门位置到左侧
-
-`src/gameplay/map/transitions.rs` 中 `player_spawn_position` 函数：
-
-```rust
-fn player_spawn_position(_entry_from: Direction, z: f32, y_offset: f32) -> Vec3 {
-    // 始终在房间左侧固定位置
-    Vec3::new(-ROOM_HALF_WIDTH * 0.6, y_offset, z)
-}
-```
-
-### 4b. 敌人生成点添加玩家保护区域
-
-在 `src/gameplay/enemy/spawner.rs`（或 `systems.rs`）的 `spawn_room_enemies` 中，添加过滤逻辑：
-
-玩家固定在 `(-ROOM_HALF_WIDTH * 0.6, 0)` = `(-312, 0)`，设置保护半径 **120px**。
-
-```rust
-let player_spawn = Vec2::new(-ROOM_HALF_WIDTH * 0.6, 0.0);
-let safe_points: Vec<Vec2> = points.iter()
-    .filter(|&&p| p.distance(player_spawn) >= 120.0)
-    .copied()
-    .collect();
-// 使用 safe_points 替代 points
-```
-
-如果过滤后点数不足，将不足的点替换为距离玩家最远的备用点（房间右侧区域）。
-
----
-
-## 影响文件汇总
-
-| 文件 | 改动 |
-|------|------|
-| `src/ui/hud.rs` | 删除铭文 UI 节点和组件 |
-| `src/ui/mod.rs` | 删除铭文 update 系统注册（如适用） |
-| `src/ui/event_room.rs` | 降低 scrim 透明度，添加彩色边框和符号前缀 |
-| `src/gameplay/event_room/mod.rs` | 新增 `interaction_ready` 字段、交互提示生成、`event_interact_system`、防重复触发加强、标题符号 |
-| `src/gameplay/map/transitions.rs` | 固定进门位置到左侧 |
-| `src/gameplay/enemy/spawner.rs` 或 `systems.rs` | 添加玩家保护区域过滤（120px） |
-
----
-
-## 验证
+## 验证步骤
 
 ```bash
 cargo check --quiet
 cargo test --quiet
 ```
 
-手动验证：
-1. HUD 中不再显示铭文槽位
-2. 进入事件房后房间锁定，中央出现彩色交互提示文字
-3. 走近提示按 E → 弹出事件选择 UI（背景半透明可见游戏世界，面板有彩色边框）
-4. 选择完成 → 返回游戏，门变金色，可自由选门离开
-5. 同一事件房不会重复触发
-6. 无论从哪个方向进门，玩家始终出现在房间左侧
-7. 进门后附近 120px 内无敌人生成
+### 手动测试
+1. **升级回血**：升级时看到双栏 UI → 左边"回血"按钮显示恢复量 → 按 1 回血 → 按 2/3/4 选属性强化
+2. **精英词缀标签**：精英怪头顶显示中文词缀名（迅捷/分裂/护盾等），不再乱码

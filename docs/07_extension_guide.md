@@ -1,7 +1,7 @@
 # 扩展与维护指南
 
-- 适用版本：当前工作树（HEAD `aa90cf3c`，tag `saved-version-20260330-161713`）
-- 最后校验：2026-03-31；结合当前模块结构、配置入口与联机实现整理
+- 适用版本：当前工作树（branch `claude-playground`）
+- 最后校验：2026-04-08；结合当前模块结构、配置入口与联机实现整理
 - 关联源码：`src/gameplay/`、`src/data/`、`src/coop/`、`src/pvp/`、`src/ui/`、`assets/configs/`
 - 实验性内容：包含。联机相关扩展项需要按原型架构审慎推进
 

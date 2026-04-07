@@ -1,7 +1,7 @@
 # 内部接口契约与数据模型
 
-- 适用版本：当前工作树（HEAD `aa90cf3c`，tag `saved-version-20260330-161713`）
-- 最后校验：2026-03-31；`cargo check` 通过，`cargo test` 24 项通过
+- 适用版本：当前工作树（branch `claude-playground`）
+- 最后校验：2026-04-08；`cargo check` 通过，`cargo test` 44 项通过
 - 关联源码：`src/states.rs`、`src/core/events.rs`、`src/core/input.rs`、`src/core/save.rs`、`src/data/definitions.rs`、`src/data/registry.rs`、`src/gameplay/session_core/mod.rs`、`src/coop/components.rs`、`src/coop/net.rs`、`src/pvp/net.rs`
 - 实验性内容：包含。联机契约和部分规则模型仍会继续调整
 

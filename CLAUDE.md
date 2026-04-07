@@ -10,7 +10,7 @@
 cargo run                   # 开发运行
 cargo run --release         # 发布构建
 cargo check                 # 编译检查
-cargo test                  # 运行单元测试（24 个）
+cargo test                  # 运行单元测试（44 个）
 ```
 
 ### 本地多人联调（PowerShell）
@@ -163,6 +163,11 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 - **诅咒系统**（`src/gameplay/curse/`）：祝福祠堂选择铭文时附带的临时负面效果，持续 N 个房间后自动消除。有诅咒时不会出现新的祝福房。配置在 `curses.ron`。
 - **祝福祠堂**：原 Reward 房在 Floor 2+ 变为祝福祠堂，展示 2 个铭文+诅咒选项。复用 `AppState::RewardSelect` 的 Blessing 模式。
 - **技能槽位**：数字键 1-4 对应 HUD 底部技能栏。`SkillSlots` 组件记录解锁状态，`PlayerSkillState` 管理释放中的技能状态。
+- **事件房交互**（`src/gameplay/event_room/mod.rs`）：仿商店模式，进入事件房只显示交互提示，按 E 才激活事件。`init_event_for_room` 选事件+设标记，`event_interact_system` 按 E 激活。Esc 不解决事件，允许重新交互。
+- **Boss 传送门**（`src/gameplay/rewards/systems.rs`）：Boss 通关后 AugmentSelect → 返回 InGame → 地图中心生成 `BossPortal`，玩家按 E 推进楼层。不自动推进，给玩家收集掉落物的时间。
+- **升级回血选择**（`src/ui/levelup_select.rs`）：升级 UI 双栏布局——左栏固定回血（按1），右栏三个随机属性强化（按2/3/4）。回血量由 `heal_amount` 函数基于楼层和最大生命值计算。
+- **小怪血条**（`src/gameplay/enemy/systems.rs`）：`EnemyHealthBar` + `EnemyHealthBarFill` 世界空间 Sprite，跟随敌人位置，颜色随血量变化（绿→黄→红），Boss 排除。
+- **精英房独立逻辑**：`RoomType::Elite` 独立分支，`spawn_elite_room_enemies` 固定 1 精英（1.4x 体积）+ 2 普通，通关 100% AugmentSelect。
 
 ### 关键实现细节
 
@@ -217,7 +222,7 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 ### 质量说明
 
 - 当前实现存在编译警告（未使用代码、弃用 API），已在项目文档中记录
-- 33 个单元测试覆盖核心游戏系统
+- 44 个单元测试覆盖核心游戏系统
 - 主执行二进制名为 `block_city_adventure`
 - 窗口标题为"勇闯方块城"
 

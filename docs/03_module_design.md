@@ -1,7 +1,7 @@
 # 模块设计说明
 
-- 适用版本：当前工作树（HEAD `aa90cf3c`，tag `saved-version-20260330-161713`）
-- 最后校验：2026-03-31；`cargo check` 通过，`cargo test` 24 项通过
+- 适用版本：当前工作树（branch `claude-playground`）
+- 最后校验：2026-04-08；`cargo check` 通过，`cargo test` 44 项通过
 - 关联源码：`src/core/`、`src/data/`、`src/gameplay/`、`src/coop/`、`src/pvp/`、`src/ui/`、`src/utils/`
 - 实验性内容：包含。联机模块与部分 UI/规则层仍在持续收敛
 
@@ -140,6 +140,7 @@
 - 敌人组件、AI、攻击、死亡、Boss 模式
 - 房间进入时的刷怪逻辑
 - 精英和 Boss 的特化行为
+- 小怪头顶血条（`EnemyHealthBar` + `EnemyHealthBarFill`）
 
 关键对象：
 
@@ -150,10 +151,16 @@
 - `EnemySpawnCount`
 - `SpawnedForRoom`
 - `ClearGrace`
+- `Elite`、`EliteAffix`、`EliteAffixMarker`
+- `EnemyHealthBar`、`EnemyHealthBarFill`
 
 设计要点：
 
 - `room_entry_spawner` 是房间推进的重要枢纽
+- `RoomType::Elite` 独立分支：`spawn_elite_room_enemies` 固定 1 精英（1.4x 体积）+ 2 普通
+- 精英词缀系统：6 种词缀（Swift/Splitting/Shielded/Vampiric/Berserk/Teleporting），各有独立系统
+- 小怪血条：世界空间 Sprite 跟随敌人位置，颜色随血量变化，Boss 排除
+- Boss 死亡时同时清理 `BossSummoned` 和 `BossSubCore` 实体
 - Boss 与普通敌人共处一个模块树，维护时要区分共享逻辑与特化逻辑
 - Coop 中大量敌人逻辑仍复用这里，但只在 Host 权威侧运行
 
@@ -162,12 +169,15 @@
 
 - 单机奖励选择页
 - 奖励生成、应用和结算后跳转
+- Boss 通关传送门（`BossPortal`）生成与交互
 
 设计要点：
 
 - 当前单机奖励 UI 仍是独立页面 `RewardSelect`
 - 规则本体逐渐向 `session_core` 收敛
-- `RewardFlow` 记录当前奖励页面的上下文，例如是否进入下一层或直接胜利
+- `RewardFlow` 记录当前奖励页面的上下文，包含 `spawn_portal`/`portal_is_victory` 控制 Boss 传送门
+- Boss 通关流程：AugmentSelect → 返回 InGame → 地图中心生成传送门 → 玩家按 E 推进楼层
+- 精英房通关 100% 触发 AugmentSelect（普通房 40%）
 
 ### 4.6 `shop/`
 职责：
@@ -189,6 +199,7 @@
 
 - 当前只在 `AppState::InGame` 运行
 - Coop 中未形成完整等价运行时
+- Puzzle 完成后给予 augment 奖励（`AugmentPool::Any`），通过 `resolve_event_room_clear` 处理
 
 ### 4.8 `progression/`
 职责：
@@ -196,13 +207,43 @@
 - 楼层初始化
 - 难度系数
 - 运行统计
+- 经验升级系统（`PlayerLevel`、`XpGainEvent`、`LevelUpEvent`）
 
 现状：
 
+- XP 升级曲线：`25 + (level-1) * 10`
+- 升级时进入 `AppState::LevelUpSelect`，提供"回血或强化"双栏选择
+- `PendingLevelUps` 队列防止升级与房间清理事件冲突
 - 主要服务单机主循环
 - 其中部分概念如 `FloorNumber` 会被存档、HUD、商店和联机流程共同引用
 
-### 4.9 `effects/`
+### 4.9 `event_room/`
+职责：
+
+- 事件房交互系统（11 种事件类型：3 谜题 + 6 非战斗 + 2 战斗）
+- 仿商店模式：进入房间只显示交互提示，按 E 激活事件
+
+设计要点：
+
+- `init_event_for_room`：进入事件房时选事件+设标记，不锁房不激活
+- `sync_event_interact_prompt`：同步显示/清理"按 E 交互"提示
+- `event_interact_system`：按 E 后根据事件类型锁房/生敌人/开 UI
+- Esc 不解决事件，允许重新交互；选择效果后 `mark_event_resolved` 阻止再次交互
+- `resolve_event_room_clear`：战斗/谜题事件完成后给予 augment 奖励
+
+### 4.10 `drops/`
+职责：
+
+- 金币和经验掉落物的生成、物理、磁铁吸收、收集和消失
+
+设计要点：
+
+- Boss/精英死亡生成多个掉落物（爆金币效果）：Boss 8金+6经验，精英 4金+3经验
+- Floor 3+ 掉落数量翻倍
+- 掉落物生命周期 8 秒
+- 磁铁吸收范围 140px（可通过 PickupRange augment 扩大）
+
+### 4.11 `effects/`
 职责：
 
 - 受击闪白
