@@ -19,7 +19,7 @@ use crate::gameplay::combat::projectiles;
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::{ai, boss, spawner};
-use crate::gameplay::event_room::{ActiveEvent, EventType, reset_active_event};
+use crate::gameplay::event_room::{ActiveEvent, EventType};
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};
 use crate::gameplay::player::components::{
@@ -45,6 +45,17 @@ use super::components::*;
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct EnemyVelocity(pub Vec2);
 
+#[derive(Component)]
+pub struct EnemyHealthBar {
+    pub owner: Entity,
+    pub bar_width: f32,
+}
+
+#[derive(Component)]
+pub struct EnemyHealthBarFill {
+    pub owner: Entity,
+}
+
 pub struct EnemySystemsPlugin;
 
 impl Plugin for EnemySystemsPlugin {
@@ -56,6 +67,16 @@ impl Plugin for EnemySystemsPlugin {
             .add_systems(
                 Update,
                 room_entry_spawner.run_if(
+                    in_state(AppState::InGame).or_else(
+                        in_state(AppState::CoopGame)
+                            .and_then(is_coop_authority)
+                            .and_then(is_coop_simulation_active),
+                    ),
+                ),
+            )
+            .add_systems(
+                Update,
+                (spawn_enemy_health_bars, update_enemy_health_bars).run_if(
                     in_state(AppState::InGame).or_else(
                         in_state(AppState::CoopGame)
                             .and_then(is_coop_authority)
@@ -254,7 +275,6 @@ pub fn room_entry_spawner(
     )>,
     mut spawn_count: ResMut<EnemySpawnCount>,
     mut active_puzzle: ResMut<ActivePuzzle>,
-    mut active_event: ResMut<ActiveEvent>,
     floor: Option<Res<FloorNumber>>,
 ) {
     if spawned.0 == Some(current_room.0.0) {
@@ -278,7 +298,6 @@ pub fn room_entry_spawner(
         safe_despawn_recursive(&mut commands, entity);
     }
     reset_active_puzzle(&mut active_puzzle);
-    reset_active_event(&mut active_event);
 
     let room = layout.room(current_room.0).unwrap();
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
@@ -299,7 +318,7 @@ pub fn room_entry_spawner(
         RoomType::Start | RoomType::Reward | RoomType::Shop | RoomType::Event => {
             *room_state = RoomState::Idle;
         }
-        RoomType::Normal | RoomType::Elite => {
+        RoomType::Normal => {
             *room_state = RoomState::Locked;
             if spawn_count.current == 0 {
                 spawn_count.current = base_enemy_count;
@@ -313,14 +332,23 @@ pub fn room_entry_spawner(
                     floor_multiplier *= 0.93;
                 }
             }
-            if room_type == RoomType::Elite {
-                floor_multiplier *= 1.2;
-            }
             spawn_room_enemies(
                 &mut commands,
                 &assets,
                 &data,
                 enemy_count,
+                floor_multiplier,
+                floor_number,
+                coop_hp_mult,
+            );
+        }
+        RoomType::Elite => {
+            *room_state = RoomState::Locked;
+            floor_multiplier *= 1.3;
+            spawn_elite_room_enemies(
+                &mut commands,
+                &assets,
+                &data,
                 floor_multiplier,
                 floor_number,
                 coop_hp_mult,
@@ -428,6 +456,54 @@ pub fn spawn_room_enemies(
     }
 }
 
+fn spawn_elite_room_enemies(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    data: &GameDataRegistry,
+    floor_multiplier: f32,
+    floor_number: u32,
+    coop_hp_mult: f32,
+) {
+    let mut points = player_safe_spawn_points(spawner::get_spawn_points_for_room(), 3);
+    points.sort_by(|a, b| a.length_squared().total_cmp(&b.length_squared()));
+
+    let mut pool = spawner::choose_enemy_types(data, floor_number);
+    pool.retain(|enemy_type| *enemy_type != EnemyType::Boss);
+    let mut rng = GameRng::default();
+
+    for (index, point) in points.into_iter().take(3).enumerate() {
+        let enemy_type = spawner::pick_enemy_type(&mut rng, &pool);
+        let is_elite = index == 0;
+        if is_elite {
+            spawn_enemy_with_elite_scale(
+                commands,
+                assets,
+                data,
+                enemy_type,
+                point,
+                floor_number,
+                floor_multiplier,
+                coop_hp_mult,
+                true,
+                1.4,
+                1.0,
+            );
+        } else {
+            spawn_enemy(
+                commands,
+                assets,
+                data,
+                enemy_type,
+                point,
+                floor_number,
+                floor_multiplier,
+                coop_hp_mult,
+                false,
+            );
+        }
+    }
+}
+
 fn player_safe_spawn_points(points: Vec<Vec2>, required_count: usize) -> Vec<Vec2> {
     let player_spawn = Vec2::new(-ROOM_HALF_WIDTH * 0.6, 0.0);
     let mut safe_points = points
@@ -451,6 +527,152 @@ fn player_safe_spawn_points(points: Vec<Vec2>, required_count: usize) -> Vec<Vec
     safe_points
 }
 
+fn enemy_health_bar_size(is_elite: bool) -> Vec2 {
+    if is_elite {
+        Vec2::new(32.0, 4.0)
+    } else {
+        Vec2::new(24.0, 3.0)
+    }
+}
+
+fn enemy_health_bar_height(bar_width: f32) -> f32 {
+    if bar_width >= 32.0 { 4.0 } else { 3.0 }
+}
+
+fn enemy_health_bar_color(ratio: f32) -> Color {
+    if ratio > 0.5 {
+        Color::srgb(0.25, 0.90, 0.25)
+    } else if ratio > 0.25 {
+        Color::srgb(0.95, 0.82, 0.18)
+    } else {
+        Color::srgb(0.95, 0.18, 0.16)
+    }
+}
+
+fn enemy_health_bar_translation(owner_translation: Vec3, z: f32) -> Vec3 {
+    Vec3::new(owner_translation.x, owner_translation.y + 20.0, z)
+}
+
+fn enemy_health_bar_fill_translation(
+    owner_translation: Vec3,
+    bar_width: f32,
+    fill_width: f32,
+) -> Vec3 {
+    Vec3::new(
+        owner_translation.x - bar_width * 0.5 + fill_width * 0.5,
+        owner_translation.y + 20.0,
+        51.0,
+    )
+}
+
+fn spawn_enemy_health_bars(
+    mut commands: Commands,
+    assets: Res<crate::core::assets::GameAssets>,
+    enemies: Query<
+        (Entity, &Health, Option<&Elite>, &GlobalTransform),
+        (With<Enemy>, Without<BossArchetype>),
+    >,
+    health_bars: Query<&EnemyHealthBar>,
+) {
+    for (enemy, _health, elite, transform) in &enemies {
+        if health_bars.iter().any(|bar| bar.owner == enemy) {
+            continue;
+        }
+
+        let size = enemy_health_bar_size(elite.is_some());
+        let owner_translation = transform.translation();
+        commands.spawn((
+            SpriteBundle {
+                texture: assets.textures.white.clone(),
+                transform: Transform::from_translation(enemy_health_bar_translation(
+                    owner_translation,
+                    50.0,
+                )),
+                sprite: Sprite {
+                    color: Color::srgba(0.05, 0.05, 0.05, 0.78),
+                    custom_size: Some(size),
+                    ..default()
+                },
+                ..default()
+            },
+            EnemyHealthBar {
+                owner: enemy,
+                bar_width: size.x,
+            },
+            InGameEntity,
+            Name::new("EnemyHealthBar"),
+        ));
+
+        commands.spawn((
+            SpriteBundle {
+                texture: assets.textures.white.clone(),
+                transform: Transform::from_translation(enemy_health_bar_translation(
+                    owner_translation,
+                    51.0,
+                )),
+                sprite: Sprite {
+                    color: Color::srgb(0.25, 0.90, 0.25),
+                    custom_size: Some(size),
+                    ..default()
+                },
+                ..default()
+            },
+            EnemyHealthBar {
+                owner: enemy,
+                bar_width: size.x,
+            },
+            EnemyHealthBarFill { owner: enemy },
+            InGameEntity,
+            Name::new("EnemyHealthBarFill"),
+        ));
+    }
+}
+
+fn update_enemy_health_bars(
+    mut commands: Commands,
+    owners: Query<(&Health, &GlobalTransform), With<Enemy>>,
+    mut bars: Query<(Entity, &EnemyHealthBar, &mut Transform), Without<EnemyHealthBarFill>>,
+    mut fills: Query<(
+        Entity,
+        &EnemyHealthBar,
+        &EnemyHealthBarFill,
+        &mut Transform,
+        &mut Sprite,
+    )>,
+) {
+    for (bar_entity, bar, mut transform) in &mut bars {
+        let Ok((_health, owner_transform)) = owners.get(bar.owner) else {
+            commands.entity(bar_entity).despawn_recursive();
+            continue;
+        };
+        transform.translation = enemy_health_bar_translation(owner_transform.translation(), 50.0);
+    }
+
+    for (fill_entity, bar, fill, mut transform, mut sprite) in &mut fills {
+        let Ok((health, owner_transform)) = owners.get(fill.owner) else {
+            commands.entity(fill_entity).despawn_recursive();
+            continue;
+        };
+
+        let ratio = if health.max > 0.0 {
+            (health.current / health.max).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let fill_width = bar.bar_width * ratio;
+        sprite.custom_size = Some(Vec2::new(
+            fill_width.max(0.0),
+            enemy_health_bar_height(bar.bar_width),
+        ));
+        sprite.color = enemy_health_bar_color(ratio);
+        transform.translation = enemy_health_bar_fill_translation(
+            owner_transform.translation(),
+            bar.bar_width,
+            fill_width,
+        );
+    }
+}
+
 pub fn spawn_enemy(
     commands: &mut Commands,
     assets: &crate::core::assets::GameAssets,
@@ -461,6 +683,34 @@ pub fn spawn_enemy(
     floor_multiplier: f32,
     coop_hp_mult: f32,
     is_elite: bool,
+) -> Entity {
+    spawn_enemy_with_elite_scale(
+        commands,
+        assets,
+        data,
+        enemy_type,
+        pos,
+        floor_number,
+        floor_multiplier,
+        coop_hp_mult,
+        is_elite,
+        1.0,
+        1.3,
+    )
+}
+
+fn spawn_enemy_with_elite_scale(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    data: &GameDataRegistry,
+    enemy_type: EnemyType,
+    pos: Vec2,
+    floor_number: u32,
+    floor_multiplier: f32,
+    coop_hp_mult: f32,
+    is_elite: bool,
+    elite_transform_scale: f32,
+    elite_sprite_scale: f32,
 ) -> Entity {
     let stats_cfg = match enemy_type {
         EnemyType::MeleeChaser => &data.enemies.melee_chaser,
@@ -507,7 +757,7 @@ pub fn spawn_enemy(
         }
     };
     let sprite_size = if is_elite && enemy_type != EnemyType::Boss {
-        base_sprite_size * 1.3
+        base_sprite_size * elite_sprite_scale
     } else {
         base_sprite_size
     };
@@ -526,10 +776,19 @@ pub fn spawn_enemy(
         }
     };
 
+    let transform = if is_elite
+        && enemy_type != EnemyType::Boss
+        && (elite_transform_scale - 1.0).abs() > f32::EPSILON
+    {
+        Transform::from_xyz(pos.x, pos.y, 45.0).with_scale(Vec3::splat(elite_transform_scale))
+    } else {
+        Transform::from_translation(pos.extend(45.0))
+    };
+
     let mut entity = commands.spawn((
         SpriteBundle {
             texture: assets.textures.white.clone(),
-            transform: Transform::from_translation(pos.extend(45.0)),
+            transform,
             sprite: Sprite {
                 color,
                 custom_size: Some(Vec2::splat(sprite_size)),
@@ -589,9 +848,9 @@ pub fn spawn_enemy(
                     text: Text::from_section(
                         label,
                         TextStyle {
+                            font: assets.font.clone(),
                             font_size: 18.0,
                             color: Color::srgba(0.0, 0.0, 0.0, 0.9),
-                            ..default()
                         },
                     ),
                     transform: Transform::from_translation(Vec3::new(dx, 28.0 + dy, 9.9)),
@@ -604,9 +863,9 @@ pub fn spawn_enemy(
                     text: Text::from_section(
                         label,
                         TextStyle {
+                            font: assets.font.clone(),
                             font_size: 18.0,
                             color: label_color,
-                            ..default()
                         },
                     ),
                     transform: Transform::from_translation(Vec3::new(0.0, 28.0, 10.0)),
@@ -1546,7 +1805,11 @@ pub fn enemy_death_system(
     mut room_cleared: EventWriter<RoomClearedEvent>,
     time: Res<Time>,
     assets: Res<crate::core::assets::GameAssets>,
-    room_ctx: (Res<FloorLayout>, Res<CurrentRoom>, ResMut<RoomState>),
+    room_ctx: (
+        Option<Res<FloorLayout>>,
+        Option<Res<CurrentRoom>>,
+        Option<ResMut<RoomState>>,
+    ),
     mut player_q: ParamSet<(
         Query<
             (
@@ -1567,6 +1830,7 @@ pub fn enemy_death_system(
         Query<(), With<BossSubCore>>,
         Query<Entity, (With<Enemy>, Without<Replicated>)>,
         Query<Entity, With<BossSummoned>>,
+        Query<Entity, With<BossSubCore>>,
     ),
     mut grace: ResMut<ClearGrace>,
     mut spawn_count: ResMut<EnemySpawnCount>,
@@ -1575,7 +1839,6 @@ pub fn enemy_death_system(
     coop_config: Option<Res<CoopNetConfig>>,
     floor: Option<Res<FloorNumber>>,
 ) {
-    let (layout, current_room, mut room_state) = room_ctx;
     for ev in death_events.read() {
         if ev.team != Team::Enemy {
             continue;
@@ -1659,8 +1922,15 @@ pub fn enemy_death_system(
                     safe_despawn_recursive(&mut commands, summoned);
                 }
             }
+            for core_entity in &enemy_queries.4 {
+                safe_despawn_recursive(&mut commands, core_entity);
+            }
         }
     }
+
+    let (Some(layout), Some(current_room), Some(mut room_state)) = room_ctx else {
+        return;
+    };
 
     if matches!(*room_state, RoomState::Locked | RoomState::BossFight) {
         let room = layout.room(current_room.0).unwrap();

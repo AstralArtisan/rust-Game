@@ -1,7 +1,11 @@
 use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
+use crate::data::definitions::RewardScalingConfig;
+use crate::data::registry::GameDataRegistry;
 use crate::gameplay::player::components::*;
+use crate::gameplay::progression::floor::FloorNumber;
+use crate::gameplay::rewards::apply::heal_amount;
 use crate::states::AppState;
 use crate::ui::widgets;
 
@@ -17,6 +21,7 @@ pub struct LevelUpOption {
 pub enum LevelUpStat {
     AttackPower(f32),
     MaxHealth(f32),
+    RecoverHealth(f32),
     MoveSpeed(f32),
     CritChance(f32),
     AttackSpeed(f32),
@@ -43,7 +48,24 @@ pub fn setup_levelup_ui(
     mut commands: Commands,
     assets: Res<GameAssets>,
     choices: Res<LevelUpChoices>,
+    health_q: Query<&Health, With<Player>>,
+    floor: Option<Res<FloorNumber>>,
+    data: Option<Res<GameDataRegistry>>,
 ) {
+    let max_health = health_q
+        .get_single()
+        .map(|health| health.max)
+        .unwrap_or(100.0);
+    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+    let default_scaling;
+    let scaling = if let Some(data) = data.as_ref() {
+        &data.rewards.scaling
+    } else {
+        default_scaling = RewardScalingConfig::default_config();
+        &default_scaling
+    };
+    let heal_value = heal_amount(scaling, max_health, floor_number);
+
     commands
         .spawn((
             widgets::root_node(),
@@ -58,11 +80,15 @@ pub fn setup_levelup_ui(
                         &format!("升级！ Lv.{}", choices.new_level),
                         30.0,
                     ));
-                    panel.spawn(widgets::title_text(&assets, "选择一项属性提升", 16.0));
+                    panel.spawn(widgets::title_text(
+                        &assets,
+                        "选择回血恢复状态，或选择一项属性提升",
+                        16.0,
+                    ));
                     panel
                         .spawn(NodeBundle {
                             style: Style {
-                                column_gap: Val::Px(16.0),
+                                column_gap: Val::Px(18.0),
                                 align_items: AlignItems::FlexStart,
                                 margin: UiRect::top(Val::Px(12.0)),
                                 ..default()
@@ -70,11 +96,55 @@ pub fn setup_levelup_ui(
                             ..default()
                         })
                         .with_children(|row| {
-                            for (i, opt) in choices.options.iter().enumerate() {
-                                spawn_levelup_card(row, &assets, i, opt);
-                            }
+                            row.spawn(widgets::panel_node(Color::srgba(0.12, 0.16, 0.12, 0.95)))
+                                .with_children(|col| {
+                                    col.spawn(widgets::title_text(&assets, "回血", 24.0));
+                                    spawn_levelup_heal_card(col, &assets, heal_value);
+                                });
+
+                            row.spawn(widgets::panel_node(Color::srgba(0.12, 0.12, 0.18, 0.95)))
+                                .with_children(|col| {
+                                    col.spawn(widgets::title_text(&assets, "属性强化", 24.0));
+                                    for (i, opt) in
+                                        choices.options.iter().enumerate().skip(1).take(3)
+                                    {
+                                        spawn_levelup_card(col, &assets, i, opt);
+                                    }
+                                });
                         });
                 });
+        });
+}
+
+fn spawn_levelup_heal_card(parent: &mut ChildBuilder, assets: &GameAssets, heal_value: f32) {
+    parent
+        .spawn((
+            ButtonBundle {
+                style: Style {
+                    width: Val::Px(250.0),
+                    height: Val::Px(250.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    flex_direction: FlexDirection::Column,
+                    padding: UiRect::all(Val::Px(12.0)),
+                    row_gap: Val::Px(8.0),
+                    border: UiRect::all(Val::Px(2.0)),
+                    ..default()
+                },
+                background_color: BackgroundColor(Color::srgb(0.18, 0.32, 0.18)),
+                border_color: BorderColor(Color::srgb(0.40, 0.75, 0.40)),
+                ..default()
+            },
+            LevelUpButton { index: 0 },
+        ))
+        .with_children(|button| {
+            button.spawn(widgets::title_text(assets, "1. 回血", 24.0));
+            button.spawn(widgets::title_text(
+                assets,
+                format!("恢复 {:.0} 生命", heal_value),
+                22.0,
+            ));
+            button.spawn(widgets::body_text(assets, "稳住当前状态后继续推进", 15.0));
         });
 }
 
@@ -88,8 +158,8 @@ fn spawn_levelup_card(
         .spawn((
             ButtonBundle {
                 style: Style {
-                    width: Val::Px(200.0),
-                    min_height: Val::Px(120.0),
+                    width: Val::Px(320.0),
+                    min_height: Val::Px(84.0),
                     flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(12.0)),
                     row_gap: Val::Px(6.0),
@@ -155,6 +225,8 @@ pub fn levelup_input(
         picked = Some(1);
     } else if keys.just_pressed(KeyCode::Digit3) || keys.just_pressed(KeyCode::Numpad3) {
         picked = Some(2);
+    } else if keys.just_pressed(KeyCode::Digit4) || keys.just_pressed(KeyCode::Numpad4) {
+        picked = Some(3);
     }
 
     for (interaction, btn) in &button_q {
@@ -176,6 +248,9 @@ pub fn levelup_input(
             LevelUpStat::MaxHealth(v) => {
                 health.max += v;
                 health.current += v;
+            }
+            LevelUpStat::RecoverHealth(amount) => {
+                health.current = (health.current + amount).min(health.max);
             }
             LevelUpStat::MoveSpeed(v) => spd.0 += v,
             LevelUpStat::CritChance(v) => crit.0 = (crit.0 + v).min(0.80),

@@ -1,18 +1,22 @@
 use bevy::prelude::*;
 use bevy::utils::HashSet;
 
-use crate::core::events::{RewardChoiceGroup, RewardChosenEvent, RoomClearedEvent};
+use crate::core::assets::GameAssets;
+use crate::core::events::{
+    RewardChoiceGroup, RewardChosenEvent, RoomClearedEvent, SpawnEnemyEvent,
+};
 use crate::data::definitions::RewardScalingConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentInventory, AugmentRarity};
 use crate::gameplay::curse::CurseState;
 use crate::gameplay::enemy::systems::{ClearGrace, EnemySpawnCount, SpawnedForRoom};
-use crate::gameplay::map::InGameEntity;
+use crate::gameplay::map::generator::{build_rooms, reset_player_for_floor, spawn_current_room};
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
+use crate::gameplay::map::{InGameEntity, VisitedRooms};
 use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Health, MoveSpeed, Player,
-    RangedCooldown, RewardModifiers,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, DashState, Energy, Health, MoveSpeed,
+    Player, RangedCooldown, RewardModifiers, Velocity,
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::rewards::data::RewardType;
@@ -65,11 +69,16 @@ pub enum RewardFlowMode {
 #[derive(Resource, Debug, Default, Clone)]
 pub struct RewardFlow {
     pub mode: RewardFlowMode,
-    pub go_next_floor: bool,
-    pub go_victory: bool,
+    pub spawn_portal: bool,
+    pub portal_is_victory: bool,
     pub reward_scale: f32,
     pub selected_primary: Option<RewardType>,
     pub selected_secondary: Option<RewardType>,
+}
+
+#[derive(Component)]
+pub struct BossPortal {
+    pub is_victory: bool,
 }
 
 pub struct RewardsSystemsPlugin;
@@ -89,6 +98,10 @@ impl Plugin for RewardsSystemsPlugin {
             .add_systems(
                 Update,
                 offer_reward_in_reward_room.run_if(in_state(AppState::InGame)),
+            )
+            .add_systems(
+                Update,
+                (spawn_boss_portal, boss_portal_interact).run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 OnEnter(AppState::RewardSelect),
@@ -286,9 +299,10 @@ fn enter_reward_selection(
 
     let is_boss = room.room_type == RoomType::Boss;
 
-    // Normal rooms: no RewardSelect, only 40% chance AugmentSelect
+    // Non-boss rooms: no RewardSelect; elite rooms always offer AugmentSelect.
     if !is_boss {
-        let should_offer_augment = rng.gen_bool(0.40);
+        let is_elite_room = room.room_type == RoomType::Elite;
+        let should_offer_augment = is_elite_room || rng.gen_bool(0.40);
         if should_offer_augment {
             if let Some(registry) = data.as_deref() {
                 let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
@@ -300,47 +314,25 @@ fn enter_reward_selection(
                 }
             }
         }
-        // No RewardSelect for normal rooms — XP/gold already given on kill
+        // No RewardSelect for non-boss rooms — XP/gold already given on kill
         return;
     }
 
-    // Boss rooms: AugmentSelect (100%) → then RewardSelect (for floor transition)
-    let Some(mode) = decision.reward_mode else {
-        return;
-    };
-    flow.mode = reward_flow_mode_from_draft(mode);
-    flow.reward_scale = reward_scale_for_draft(mode);
-    set_post_reward_flags(&mut flow, decision.post_reward);
+    flow.spawn_portal = true;
+    flow.portal_is_victory = decision.post_reward == PostRewardDecision::Victory;
 
-    let mods = player_q
-        .get_single()
-        .map(|(mods, _, _)| *mods)
-        .unwrap_or_default();
-    let draft = build_reward_draft(
-        SessionMode::Solo,
-        mode,
-        &mut rng,
-        &[PlayerRuleSnapshot {
-            player_index: 0,
-            alive: true,
-            mods,
-        }],
-    );
-    apply_solo_reward_draft(&draft, &mut choices);
-
-    // Boss always offers augment first, then goes to RewardSelect
     if let Some(registry) = data.as_deref() {
         let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
         let generated = generate_augment_choices(registry, &mut rng, true, inventory);
         if !generated.is_empty() {
             augment_choices.options = generated;
-            augment_choices.return_state = Some(AppState::RewardSelect);
+            augment_choices.return_state = Some(AppState::InGame);
             next_state.set(AppState::AugmentSelect);
             return;
         }
     }
 
-    next_state.set(AppState::RewardSelect);
+    next_state.set(AppState::InGame);
 }
 
 fn handle_reward_choice_input(
@@ -430,12 +422,7 @@ fn apply_reward_choice(
         ),
         With<Player>,
     >,
-    mut commands: Commands,
-    ingame_entities: Query<(Entity, Option<&Player>), With<InGameEntity>>,
-    mut floor: Option<ResMut<FloorNumber>>,
-    mut spawned_for_room: ResMut<SpawnedForRoom>,
-    mut grace: ResMut<ClearGrace>,
-    mut spawn_count: ResMut<EnemySpawnCount>,
+    floor: Option<Res<FloorNumber>>,
     registry: Option<Res<GameDataRegistry>>,
 ) {
     if flow.mode == RewardFlowMode::Blessing {
@@ -572,37 +559,146 @@ fn apply_reward_choice(
         choices.primary.clear();
         choices.secondary.clear();
 
-        if flow.go_next_floor {
-            for (entity, player) in &ingame_entities {
-                if player.is_none() {
-                    safe_despawn_recursive(&mut commands, entity);
-                }
-            }
+        next_state.set(AppState::InGame);
+    }
+}
 
-            commands.remove_resource::<FloorLayout>();
-            commands.remove_resource::<CurrentRoom>();
-            commands.remove_resource::<RoomTransition>();
-            commands.remove_resource::<RoomState>();
+fn spawn_boss_portal(
+    mut commands: Commands,
+    mut flow: ResMut<RewardFlow>,
+    assets: Res<GameAssets>,
+    existing: Query<Entity, With<BossPortal>>,
+) {
+    if !flow.spawn_portal || !existing.is_empty() {
+        return;
+    }
+    flow.spawn_portal = false;
+    let is_victory = flow.portal_is_victory;
 
-            if let Some(floor) = floor.as_mut() {
-                floor.0 += 1;
-            }
+    commands.spawn((
+        SpriteBundle {
+            texture: assets.textures.white.clone(),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
+            sprite: Sprite {
+                color: Color::srgba(0.6, 0.2, 1.0, 0.9),
+                custom_size: Some(Vec2::splat(40.0)),
+                ..default()
+            },
+            ..default()
+        },
+        BossPortal { is_victory },
+        InGameEntity,
+        Name::new("BossPortal"),
+    ));
 
-            spawned_for_room.0 = None;
-            grace.last_room = None;
-            grace.timer = Timer::from_seconds(0.0, TimerMode::Once);
-            spawn_count.current = 0;
-            flow.go_next_floor = false;
-        }
+    commands.spawn((
+        Text2dBundle {
+            text: Text::from_section(
+                if is_victory {
+                    "按 E 通关"
+                } else {
+                    "按 E 进入下一层"
+                },
+                TextStyle {
+                    font: assets.font.clone(),
+                    font_size: 18.0,
+                    color: Color::srgb(0.9, 0.8, 1.0),
+                },
+            )
+            .with_justify(JustifyText::Center),
+            transform: Transform::from_translation(Vec3::new(0.0, 30.0, 11.0)),
+            ..default()
+        },
+        BossPortal { is_victory },
+        InGameEntity,
+        Name::new("BossPortalText"),
+    ));
+}
 
-        if flow.go_victory {
-            flow.go_victory = false;
-            flow.go_next_floor = false;
-            next_state.set(AppState::Victory);
-        } else {
-            next_state.set(AppState::InGame);
+fn boss_portal_interact(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut player_q: ParamSet<(
+        Query<&GlobalTransform, With<Player>>,
+        Query<(&mut Transform, &mut Velocity, &mut DashState), With<Player>>,
+    )>,
+    portal_q: Query<(&GlobalTransform, &BossPortal), Without<Player>>,
+    mut commands: Commands,
+    mut next_state: ResMut<NextState<AppState>>,
+    ingame_entities: Query<(Entity, Option<&Player>), With<InGameEntity>>,
+    mut floor: Option<ResMut<FloorNumber>>,
+    mut spawned_for_room: ResMut<SpawnedForRoom>,
+    mut grace: ResMut<ClearGrace>,
+    mut spawn_count: ResMut<EnemySpawnCount>,
+    mut rng: ResMut<GameRng>,
+    data: Option<Res<GameDataRegistry>>,
+    visited: Option<ResMut<VisitedRooms>>,
+    player_curse_q: Query<&CurseState, With<Player>>,
+    spawn_events: EventWriter<SpawnEnemyEvent>,
+) {
+    if !keyboard.just_pressed(KeyCode::KeyE) {
+        return;
+    }
+
+    let player_pos = {
+        let player_positions = player_q.p0();
+        let Ok(player_transform) = player_positions.get_single() else {
+            return;
+        };
+        player_transform.translation().truncate()
+    };
+
+    let mut target_portal: Option<&BossPortal> = None;
+    for (portal_transform, portal) in &portal_q {
+        if player_pos.distance(portal_transform.translation().truncate()) <= 60.0 {
+            target_portal = Some(portal);
+            break;
         }
     }
+    let Some(portal) = target_portal else {
+        return;
+    };
+
+    if portal.is_victory {
+        next_state.set(AppState::Victory);
+        return;
+    }
+
+    for (entity, player) in &ingame_entities {
+        if player.is_none() {
+            safe_despawn_recursive(&mut commands, entity);
+        }
+    }
+
+    if let Some(floor) = floor.as_mut() {
+        floor.0 += 1;
+    }
+    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+    let has_active_curse = player_curse_q
+        .get_single()
+        .map(CurseState::has_any_curse)
+        .unwrap_or(false);
+    let layout = FloorLayout {
+        rooms: build_rooms(data.as_deref(), floor_number, has_active_curse, &mut rng),
+        current: RoomId(0),
+    };
+    commands.insert_resource(RoomState::Idle);
+    commands.insert_resource(RoomTransition::default());
+    commands.insert_resource(CurrentRoom(layout.current));
+    commands.insert_resource(layout);
+
+    if let Some(mut visited) = visited {
+        visited.0.clear();
+        visited.0.insert(RoomId(0));
+    }
+    reset_player_for_floor(&mut player_q.p1());
+    spawn_current_room(&mut commands, &spawn_events);
+
+    spawned_for_room.0 = None;
+    grace.last_room = None;
+    grace.timer = Timer::from_seconds(0.0, TimerMode::Once);
+    spawn_count.current = 0;
+
+    next_state.set(AppState::InGame);
 }
 
 fn map_reward_key(
@@ -621,8 +717,8 @@ fn map_reward_key(
 }
 
 fn reset_reward_flow(flow: &mut RewardFlow) {
-    flow.go_next_floor = false;
-    flow.go_victory = false;
+    flow.spawn_portal = false;
+    flow.portal_is_victory = false;
     flow.mode = RewardFlowMode::SingleBuff;
     flow.reward_scale = 1.0;
     flow.selected_primary = None;
@@ -659,23 +755,6 @@ fn reward_scale_for_draft(mode: RewardDraftMode) -> f32 {
     match mode {
         RewardDraftMode::DualBuff => 1.50,
         _ => 1.0,
-    }
-}
-
-fn set_post_reward_flags(flow: &mut RewardFlow, post_reward: PostRewardDecision) {
-    match post_reward {
-        PostRewardDecision::ResumeRun => {
-            flow.go_next_floor = false;
-            flow.go_victory = false;
-        }
-        PostRewardDecision::NextFloor => {
-            flow.go_next_floor = true;
-            flow.go_victory = false;
-        }
-        PostRewardDecision::Victory => {
-            flow.go_next_floor = false;
-            flow.go_victory = true;
-        }
     }
 }
 

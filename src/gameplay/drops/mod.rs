@@ -130,6 +130,20 @@ pub fn spawn_drops_on_death(
             _ => 8 + (floor_number.saturating_sub(1) * 2).min(7),
         };
 
+        let base_gold_drops: u32 = match kind {
+            EnemyType::Boss => 8,
+            _ if is_elite => 4,
+            _ => 1,
+        };
+        let base_xp_drops: u32 = match kind {
+            EnemyType::Boss => 6,
+            _ if is_elite => 3,
+            _ => 1,
+        };
+        let floor_mult: u32 = if floor_number >= 3 { 2 } else { 1 };
+        let gold_drop_count = base_gold_drops * floor_mult;
+        let xp_drop_count = base_xp_drops * floor_mult;
+
         // Spawn gold drops per player (GoldBonus applied here)
         for inventory in &player_q {
             let gold_mult: f32 = match inventory
@@ -142,27 +156,27 @@ pub fn spawn_drops_on_death(
             };
             let final_gold = (reward_gold as f32 * gold_mult) as u32;
             if final_gold > 0 {
-                spawn_drop(
-                    &mut commands,
-                    &assets,
-                    &mut rng,
-                    pos,
-                    DropKind::Gold,
-                    final_gold,
-                );
+                let gold_per = (final_gold / gold_drop_count).max(1);
+                let gold_remainder = final_gold.saturating_sub(gold_per * gold_drop_count);
+                for i in 0..gold_drop_count {
+                    let value = gold_per + if i == 0 { gold_remainder } else { 0 };
+                    if value > 0 {
+                        spawn_drop(&mut commands, &assets, &mut rng, pos, DropKind::Gold, value);
+                    }
+                }
             }
         }
 
-        // Spawn single XP drop (XpBonus handled downstream)
+        // Spawn XP drops (XpBonus handled downstream)
         if xp_amount > 0 {
-            spawn_drop(
-                &mut commands,
-                &assets,
-                &mut rng,
-                pos,
-                DropKind::Xp,
-                xp_amount,
-            );
+            let xp_per = (xp_amount / xp_drop_count).max(1);
+            let xp_remainder = xp_amount.saturating_sub(xp_per * xp_drop_count);
+            for i in 0..xp_drop_count {
+                let value = xp_per + if i == 0 { xp_remainder } else { 0 };
+                if value > 0 {
+                    spawn_drop(&mut commands, &assets, &mut rng, pos, DropKind::Xp, value);
+                }
+            }
         }
     }
 }
@@ -204,7 +218,7 @@ fn spawn_drop(
             DroppedItem {
                 kind,
                 value,
-                lifetime: Timer::from_seconds(15.0, TimerMode::Once),
+                lifetime: Timer::from_seconds(8.0, TimerMode::Once),
             },
             DropVelocity(vel),
             DropBob(rng.gen_range_f32(0.0, std::f32::consts::TAU)),

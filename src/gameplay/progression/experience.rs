@@ -2,8 +2,12 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::core::events::RoomClearedEvent;
+use crate::data::definitions::RewardScalingConfig;
+use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
-use crate::gameplay::player::components::Player;
+use crate::gameplay::player::components::{Health, Player};
+use crate::gameplay::progression::floor::FloorNumber;
+use crate::gameplay::rewards::apply::heal_amount;
 use crate::states::AppState;
 use crate::ui::levelup_select::{LevelUpChoices, LevelUpOption, LevelUpStat};
 use crate::utils::rng::GameRng;
@@ -21,7 +25,7 @@ impl Default for PlayerLevel {
         Self {
             level: 1,
             xp: 0,
-            xp_to_next: 40,
+            xp_to_next: 25,
         }
     }
 }
@@ -42,7 +46,7 @@ impl PlayerLevel {
 
     /// XP needed to go from `level` to `level+1`.
     pub fn xp_threshold(level: u32) -> u32 {
-        40 + (level.saturating_sub(1)) * 15
+        25 + (level.saturating_sub(1)) * 10
     }
 }
 
@@ -101,6 +105,9 @@ pub fn handle_levelup_event(
     mut rng: ResMut<GameRng>,
     current_state: Res<State<AppState>>,
     room_cleared: EventReader<RoomClearedEvent>,
+    health_q: Query<&Health, With<Player>>,
+    floor: Option<Res<FloorNumber>>,
+    data: Option<Res<GameDataRegistry>>,
 ) {
     // Collect new level-ups into pending queue
     for ev in levelup_events.read() {
@@ -124,6 +131,19 @@ pub fn handle_levelup_event(
     };
 
     let new_level = pending.levels.remove(0);
+    let max_health = health_q
+        .get_single()
+        .map(|health| health.max)
+        .unwrap_or(100.0);
+    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+    let default_scaling;
+    let scaling = if let Some(data) = data.as_ref() {
+        &data.rewards.scaling
+    } else {
+        default_scaling = RewardScalingConfig::default_config();
+        &default_scaling
+    };
+    let heal_value = heal_amount(scaling, max_health, floor_number);
 
     let all_stats: Vec<(LevelUpStat, &str, &str)> = vec![
         (
@@ -158,17 +178,21 @@ pub fn handle_levelup_event(
     rng.shuffle(&mut indices);
     indices.truncate(3);
 
-    choices.options = indices
-        .iter()
-        .map(|&i| {
-            let (stat, label, desc) = &all_stats[i];
-            LevelUpOption {
-                label: label.to_string(),
-                description: desc.to_string(),
-                apply: *stat,
-            }
-        })
-        .collect();
+    let mut options = Vec::with_capacity(4);
+    options.push(LevelUpOption {
+        label: "回血".to_string(),
+        description: format!("恢复 {:.0} 生命\n稳住当前状态后继续推进", heal_value),
+        apply: LevelUpStat::RecoverHealth(heal_value),
+    });
+    options.extend(indices.iter().map(|&i| {
+        let (stat, label, desc) = &all_stats[i];
+        LevelUpOption {
+            label: label.to_string(),
+            description: desc.to_string(),
+            apply: *stat,
+        }
+    }));
+    choices.options = options;
     choices.return_state = Some(return_state);
     choices.new_level = new_level;
 
@@ -184,44 +208,43 @@ mod tests {
         let level = PlayerLevel::default();
         assert_eq!(level.level, 1);
         assert_eq!(level.xp, 0);
-        assert_eq!(level.xp_to_next, 40);
+        assert_eq!(level.xp_to_next, 25);
     }
 
     #[test]
     fn test_add_xp_no_levelup() {
         let mut level = PlayerLevel::default();
-        let gained = level.add_xp(30);
+        let gained = level.add_xp(20);
         assert_eq!(gained, 0);
         assert_eq!(level.level, 1);
-        assert_eq!(level.xp, 30);
+        assert_eq!(level.xp, 20);
     }
 
     #[test]
     fn test_add_xp_levelup() {
         let mut level = PlayerLevel::default();
-        let gained = level.add_xp(45);
+        let gained = level.add_xp(30);
         assert_eq!(gained, 1);
         assert_eq!(level.level, 2);
         assert_eq!(level.xp, 5);
-        assert_eq!(level.xp_to_next, 55);
+        assert_eq!(level.xp_to_next, 35);
     }
 
     #[test]
     fn test_multi_levelup() {
         let mut level = PlayerLevel::default();
-        // Level 1→2: 40 XP, Level 2→3: 55 XP, Level 3→4: 70 XP = 165 total
         let gained = level.add_xp(200);
-        assert_eq!(gained, 3);
-        assert_eq!(level.level, 4);
-        assert_eq!(level.xp, 200 - 40 - 55 - 70); // 35
-        assert_eq!(level.xp_to_next, 85);
+        assert_eq!(gained, 4);
+        assert_eq!(level.level, 5);
+        assert_eq!(level.xp, 40);
+        assert_eq!(level.xp_to_next, 65);
     }
 
     #[test]
     fn test_xp_threshold_formula() {
-        assert_eq!(PlayerLevel::xp_threshold(1), 40);
-        assert_eq!(PlayerLevel::xp_threshold(2), 55);
-        assert_eq!(PlayerLevel::xp_threshold(5), 100);
+        assert_eq!(PlayerLevel::xp_threshold(1), 25);
+        assert_eq!(PlayerLevel::xp_threshold(2), 35);
+        assert_eq!(PlayerLevel::xp_threshold(5), 65);
     }
 
     #[test]

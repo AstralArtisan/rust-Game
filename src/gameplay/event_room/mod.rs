@@ -2,6 +2,7 @@ use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
 use crate::core::events::RoomClearedEvent;
+use crate::core::input::PlayerInputState;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory, AugmentRarity};
 use crate::gameplay::curse::{CurseId, CurseState};
@@ -10,6 +11,7 @@ use crate::gameplay::enemy::spawner;
 use crate::gameplay::enemy::systems::{spawn_enemy, spawn_room_enemies};
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
+use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::player::components::{Gold, Health, Player};
 use crate::gameplay::progression::difficulty::{
     get_floor_difficulty_multiplier, get_floor_enemy_count,
@@ -26,13 +28,13 @@ impl Plugin for EventRoomPlugin {
         app.init_resource::<ActiveEvent>()
             .add_systems(
                 Update,
-                select_and_spawn_event
-                    .after(crate::gameplay::enemy::systems::room_entry_spawner)
+                (
+                    init_event_for_room
+                        .after(crate::gameplay::enemy::systems::room_entry_spawner),
+                    sync_event_interact_prompt.after(init_event_for_room),
+                    event_interact_system.after(sync_event_interact_prompt),
+                )
                     .run_if(in_state(AppState::InGame)),
-            )
-            .add_systems(
-                Update,
-                event_interact_system.run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 Update,
@@ -214,17 +216,11 @@ fn mark_event_resolved(active: &mut ActiveEvent) {
 #[derive(Component)]
 pub struct EventInteractPrompt;
 
-fn select_and_spawn_event(
-    mut commands: Commands,
-    assets: Res<GameAssets>,
-    data: Option<Res<GameDataRegistry>>,
+fn init_event_for_room(
     layout: Option<Res<FloorLayout>>,
     current_room: Option<Res<CurrentRoom>>,
-    mut room_state: ResMut<RoomState>,
     mut active: ResMut<ActiveEvent>,
-    mut active_puzzle: ResMut<puzzle::ActivePuzzle>,
     mut rng: ResMut<GameRng>,
-    floor: Option<Res<FloorNumber>>,
 ) {
     let (Some(layout), Some(current_room)) = (layout, current_room) else {
         return;
@@ -238,15 +234,132 @@ fn select_and_spawn_event(
     if active.room == Some(current_room.0) {
         return;
     }
-    if active.room != Some(current_room.0) {
-        reset_active_event(&mut active);
-        active.room = Some(current_room.0);
+
+    reset_active_event(&mut active);
+    active.room = Some(current_room.0);
+    active.event_type = Some(pick_weighted_event(&mut rng));
+    active.interaction_ready = true;
+}
+
+fn sync_event_interact_prompt(
+    mut commands: Commands,
+    assets: Option<Res<GameAssets>>,
+    layout: Option<Res<FloorLayout>>,
+    current_room: Option<Res<CurrentRoom>>,
+    active: Res<ActiveEvent>,
+    prompt_q: Query<Entity, With<EventInteractPrompt>>,
+) {
+    let should_show = layout
+        .as_deref()
+        .zip(current_room.as_deref())
+        .and_then(|(layout, current_room)| {
+            let room = layout.room(current_room.0)?;
+            Some(room.room_type == RoomType::Event && active.room == Some(current_room.0))
+        })
+        .unwrap_or(false)
+        && active.interaction_ready
+        && !active.resolved;
+
+    if !should_show {
+        for entity in &prompt_q {
+            commands.entity(entity).despawn_recursive();
+        }
+        return;
     }
 
-    let event_type = pick_weighted_event(&mut rng);
-    active.event_type = Some(event_type);
-    active.resolved = false;
+    if prompt_q.iter().next().is_some() {
+        return;
+    }
+
+    let (Some(assets), Some(event_type)) = (assets, active.event_type) else {
+        return;
+    };
+    spawn_event_interact_prompt(&mut commands, &assets, event_type);
+}
+
+fn spawn_event_interact_prompt(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    event_type: EventType,
+) {
+    commands.spawn((
+        Text2dBundle {
+            text: Text::from_section(
+                format!("【{}】\n按 E 交互", event_type.title()),
+                TextStyle {
+                    font: assets.font.clone(),
+                    font_size: 20.0,
+                    color: event_type.accent_color(),
+                },
+            )
+            .with_justify(JustifyText::Center),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
+            ..default()
+        },
+        EventInteractPrompt,
+        InGameEntity,
+        Name::new("EventInteractPrompt"),
+    ));
+}
+
+fn event_interact_system(
+    input: Res<PlayerInputState>,
+    mut active: ResMut<ActiveEvent>,
+    mut next_state: ResMut<NextState<AppState>>,
+    assets: Res<GameAssets>,
+    data: Option<Res<GameDataRegistry>>,
+    layout: Option<Res<FloorLayout>>,
+    current_room: Option<Res<CurrentRoom>>,
+    transition: Option<Res<RoomTransition>>,
+    mut room_state: ResMut<RoomState>,
+    mut active_puzzle: ResMut<puzzle::ActivePuzzle>,
+    mut rng: ResMut<GameRng>,
+    floor: Option<Res<FloorNumber>>,
+    player_q: Query<&GlobalTransform, With<Player>>,
+    prompt_q: Query<(Entity, &GlobalTransform), With<EventInteractPrompt>>,
+    mut commands: Commands,
+) {
+    if !input.interact_pressed
+        || transition
+            .as_deref()
+            .map(|value| value.active)
+            .unwrap_or(false)
+    {
+        return;
+    }
+    if !active.interaction_ready || active.resolved {
+        return;
+    }
+
+    let (Some(layout), Some(current_room)) = (layout.as_deref(), current_room.as_deref()) else {
+        return;
+    };
+    let Some(room) = layout.room(current_room.0) else {
+        return;
+    };
+    if room.room_type != RoomType::Event || active.room != Some(current_room.0) {
+        return;
+    }
+
+    let Ok(player_transform) = player_q.get_single() else {
+        return;
+    };
+    let player_pos = player_transform.translation().truncate();
+    let can_interact = prompt_q.iter().any(|(_, prompt_transform)| {
+        player_pos.distance(prompt_transform.translation().truncate()) <= 80.0
+    });
+    if !can_interact {
+        return;
+    }
+
+    for (entity, _) in &prompt_q {
+        commands.entity(entity).despawn_recursive();
+    }
     active.interaction_ready = false;
+
+    let Some(event_type) = active.event_type else {
+        return;
+    };
     active.choices.clear();
     active.choice_payloads.clear();
     active.combat_reward_ready = event_type.is_combat();
@@ -310,65 +423,9 @@ fn select_and_spawn_event(
         | EventType::Merchant => {
             configure_non_combat_event(&mut active, data.as_deref(), &mut rng);
             *room_state = RoomState::Locked;
-            active.interaction_ready = true;
-            spawn_event_interact_prompt(&mut commands, &assets, event_type);
+            next_state.set(AppState::EventRoom);
         }
     }
-}
-
-fn spawn_event_interact_prompt(
-    commands: &mut Commands,
-    assets: &GameAssets,
-    event_type: EventType,
-) {
-    commands.spawn((
-        Text2dBundle {
-            text: Text::from_section(
-                format!("【{}】\n按 E 交互", event_type.title()),
-                TextStyle {
-                    font: assets.font.clone(),
-                    font_size: 20.0,
-                    color: event_type.accent_color(),
-                },
-            )
-            .with_justify(JustifyText::Center),
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
-            ..default()
-        },
-        EventInteractPrompt,
-        InGameEntity,
-        Name::new("EventInteractPrompt"),
-    ));
-}
-
-fn event_interact_system(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut active: ResMut<ActiveEvent>,
-    mut next_state: ResMut<NextState<AppState>>,
-    player_q: Query<&GlobalTransform, With<Player>>,
-    prompt_q: Query<(Entity, &GlobalTransform), With<EventInteractPrompt>>,
-    mut commands: Commands,
-) {
-    if !active.interaction_ready || !keyboard.just_pressed(KeyCode::KeyE) {
-        return;
-    }
-
-    let Ok(player_transform) = player_q.get_single() else {
-        return;
-    };
-    let player_pos = player_transform.translation().truncate();
-    let can_interact = prompt_q.iter().any(|(_, prompt_transform)| {
-        player_pos.distance(prompt_transform.translation().truncate()) <= 80.0
-    });
-    if !can_interact {
-        return;
-    }
-
-    for (entity, _) in &prompt_q {
-        commands.entity(entity).despawn_recursive();
-    }
-    active.interaction_ready = false;
-    next_state.set(AppState::EventRoom);
 }
 
 fn tick_timed_challenge(time: Res<Time>, mut active: ResMut<ActiveEvent>) {
@@ -412,8 +469,7 @@ fn event_room_input(
     }
 
     if keyboard.just_pressed(KeyCode::Escape) {
-        *room_state = RoomState::Cleared;
-        mark_event_resolved(&mut active);
+        active.interaction_ready = true;
         next_state.set(AppState::InGame);
         return;
     }
@@ -466,14 +522,21 @@ fn resolve_event_room_clear(
             continue;
         }
 
-        if matches!(
-            active.event_type,
-            Some(EventType::TimedChallenge | EventType::EliteEncounter)
-        ) && active.combat_reward_ready
-        {
-            if let Some(augment_id) =
-                pick_random_augment_id(data.as_deref(), &mut rng, AugmentPool::EliteOnly)
-            {
+        let should_reward = match active.event_type {
+            Some(EventType::TimedChallenge | EventType::EliteEncounter) => {
+                active.combat_reward_ready
+            }
+            Some(event_type) if event_type.is_puzzle() => true,
+            _ => false,
+        };
+
+        if should_reward {
+            let pool = if active.event_type.is_some_and(EventType::is_puzzle) {
+                AugmentPool::Any
+            } else {
+                AugmentPool::EliteOnly
+            };
+            if let Some(augment_id) = pick_random_augment_id(data.as_deref(), &mut rng, pool) {
                 if let Ok(mut inventory) = player_q.get_single_mut() {
                     inventory.add(augment_id);
                 }
