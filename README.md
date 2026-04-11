@@ -1,9 +1,12 @@
 # 勇闯方块城 / Block City Adventure
 
-- 适用版本：当前工作树（HEAD `aa90cf3c`，tag `saved-version-20260330-161713`）
-- 最后校验：2026-03-31；`cargo check` 通过，`cargo test` 24 项通过
+- 适用版本：当前工作树（branch `claude-playground`）
+- 最后校验：2026-04-11；`cargo check` 通过，`cargo test` 44 项通过
+- 源码文件数：110 个 Rust 源文件
 - 关联源码：`src/main.rs`、`src/app.rs`、`src/states.rs`、`src/core/`、`src/gameplay/`、`src/coop/`、`src/pvp/`、`src/ui/`
-- 实验性内容：包含。`Coop` 与 `PVP` 仍按“原型/持续完善”维护
+- 实验性内容：包含。`Coop` 与 `PVP` 仍按”原型/持续完善”维护
+
+> [历史快照] 本文档前一版本基于 tag `saved-version-20260330-161713`（24 项测试）。以下内容已更新至当前代码状态。
 
 `勇闯方块城` 是一个基于 Rust + Bevy 的 2D 俯视角动作 Roguelike 课程项目。当前仓库已经形成“单机可玩 + 合作联机原型 + PVP 原型”的总体结构，重点不在素材堆砌，而在玩法闭环、模块拆分、配置驱动和后续扩展能力。
 
@@ -52,6 +55,7 @@ cargo test
 | --- | --- | --- |
 | 单机主循环 | 稳定 | `MainMenu -> InGame -> Reward/Shop -> Boss -> 下一层/结算` 已闭环 |
 | 战斗与成长 | 稳定 | 玩家近战/远程/冲刺、敌人 AI、Boss、多类奖励、商店、成就、存档均已接入 |
+| 增强/诅咒/技能 | 稳定 | 30 种被动增强、5 种诅咒、4 种主动技能、事件房系统 |
 | 配置驱动 | 稳定 | `assets/configs/*.ron` 驱动基础数值，`GameDataRegistry` 统一加载 |
 | 合作联机 `Coop` | 原型 | Lightyear 主机权威模拟，Host 同进程运行 server + local client |
 | 对战联机 `PVP` | 原型 | 手写 UDP 协议，独立于 `Coop` 的网络实现 |
@@ -63,7 +67,7 @@ cargo test
 - `src/states.rs`：全局状态 `AppState` 与房间状态 `RoomState`
 - `src/core/`：资源、输入、音频、事件、相机、存档、成就、本地联调
 - `src/data/`：配置定义、加载器、全局注册表
-- `src/gameplay/`：地图、玩家、战斗、敌人、奖励、商店、解谜、成长、共享规则
+- `src/gameplay/`：地图、玩家、战斗、敌人、奖励、商店、解谜、成长、共享规则、增强、铭文、诅咒、技能、掉落物、事件房
 - `src/coop/`：合作模式组件、网络协议、权威运行时、联机 UI
 - `src/pvp/`：PVP 网络、系统、UI
 - `src/ui/`：主菜单、HUD、暂停、通知、奖励页、商店页、结算页
@@ -93,8 +97,8 @@ cargo test
 
 ## 当前质量状态
 - 当前源码可通过 `cargo check`
-- 当前源码可通过 `cargo test`，共 24 个单元测试
-- 当前仍存在较多编译告警，主要集中在未使用代码、待收敛的旧接口和 `ReceivedCharacter` 弃用 API；这些问题已作为技术债记录在文档中，本次文档重写不顺带修复源码
+- 当前源码可通过 `cargo test`，共 44 个单元测试（覆盖 XP 曲线、Boss 决策、奖励规则、网络协议等）
+- 当前仍存在编译告警，主要集中在未使用代码和待清理的铭文系统残留；这些问题已作为技术债记录在 `docs/architecture_refactor_suggestions.md` 中
 
 ## 需求与历史资料
 - 需求基线：`rust_game_codex_requirements.txt`

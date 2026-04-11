@@ -1,9 +1,11 @@
 # 工程交接文档索引
 
 - 适用版本：当前工作树（branch `claude-playground`）
-- 最后校验：2026-04-08；`cargo check` 通过，`cargo test` 44 项通过
+- 最后校验：2026-04-11；`cargo check` 通过，`cargo test` 44 项通过
 - 关联源码：`README.md`、`src/`、`assets/configs/`、`docs/`
 - 实验性内容：包含。本文档会显式区分稳定模块、联机原型和历史审计材料
+
+> [历史快照] 本文档前一版本基于 tag `saved-version-20260330-161713`（24 项测试）。以下内容已更新至当前代码状态。
 
 本文档集面向工程交接与后续维护。阅读目标不是“快速宣传项目”，而是帮助维护者在最短时间内搞清楚以下问题：
 
@@ -33,6 +35,8 @@
 | [`05_iteration_history.md`](05_iteration_history.md) | 真实演化历史 | 历史事实 | 答辩、追踪设计意图 |
 | [`06_multiplayer_and_risks.md`](06_multiplayer_and_risks.md) | 联机原型说明与技术债 | 当前事实 + 风险 | 联机维护者 |
 | [`07_extension_guide.md`](07_extension_guide.md) | 新增内容时的改动路径 | 当前事实 | 功能扩展者 |
+| [`architecture_refactor_suggestions.md`](architecture_refactor_suggestions.md) | 架构修改建议 | 当前事实 | 重构规划 |
+| [`meeting_briefing.md`](meeting_briefing.md) | 组长例会汇报提纲 | 当前事实 | 汇报准备 |
 | [`coop_network_audit.md`](coop_network_audit.md) | 早期 Coop 审计记录 | 历史审计 | 仅作背景参考 |
 | [`project_overview_and_coop_review.md`](project_overview_and_coop_review.md) | 中期评审快照 | 历史评审 | 对照旧结论时参考 |
 
@@ -57,7 +61,7 @@
 ## 源码基线
 - 当前主工程名：`block_city_adventure`
 - `Cargo.toml` 关键依赖：`bevy 0.14`、`bevy_rapier2d 0.27`、`bevy_kira_audio 0.20`、`lightyear 0.17.1`
-- 当前源码文件数量：92 个 Rust 源文件
+- 当前源码文件数量：110 个 Rust 源文件
 - 当前复杂度热点：`src/coop/runtime.rs`、`src/coop/ui.rs`、`src/gameplay/enemy/systems.rs`、`src/gameplay/session_core/mod.rs`、`src/ui/hud.rs`
 
 ## 当前质量结论

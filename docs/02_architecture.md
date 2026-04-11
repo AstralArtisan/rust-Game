@@ -1,9 +1,12 @@
 # 架构总览
 
-- 适用版本：当前工作树（HEAD `aa90cf3c`，tag `saved-version-20260330-161713`）
-- 最后校验：2026-03-31；`cargo check` 通过，`cargo test` 24 项通过
+- 适用版本：当前工作树（branch `claude-playground`）
+- 最后校验：2026-04-11；`cargo check` 通过，`cargo test` 44 项通过
+- 源码文件数：110 个 Rust 源文件
 - 关联源码：`src/main.rs`、`src/app.rs`、`src/states.rs`、`src/core/`、`src/data/`、`src/gameplay/`、`src/coop/`、`src/pvp/`、`src/ui/`
 - 实验性内容：包含。单机骨架稳定，联机部分仍为原型架构
+
+> [历史快照] 本文档前一版本基于 tag `saved-version-20260330-161713`（24 项测试）。以下内容已更新至当前代码状态。
 
 ## 1. 总体设计思路
 项目采用 Bevy ECS + 插件化装配。整体思路不是把“单机”“Coop”“PVP”拆成三个完全独立程序，而是在同一套应用里：
@@ -42,17 +45,25 @@ flowchart TD
     B --> N["CoopPlugin"]
     B --> O["PvpPlugin"]
     B --> P["UiPlugin"]
+    B --> Q["AugmentPlugin ⚠️"]
+    B --> R["RunePlugin ⚠️"]
+    B --> S["CursePlugin ⚠️"]
 
     M --> M1["MapPlugin"]
     M --> M2["ProgressionPlugin"]
     M --> M3["CombatPlugin"]
     M --> M4["PlayerPlugin"]
-    M --> M5["EnemyPlugin"]
-    M --> M6["RewardsPlugin"]
-    M --> M7["EffectsPlugin"]
-    M --> M8["PuzzlePlugin"]
-    M --> M9["ShopPlugin"]
+    M --> M5["SkillsPlugin"]
+    M --> M6["EnemyPlugin"]
+    M --> M7["RewardsPlugin"]
+    M --> M8["EffectsPlugin"]
+    M --> M9["PuzzlePlugin"]
+    M --> M10["EventRoomPlugin"]
+    M --> M11["ShopPlugin"]
+    M --> M12["DropPlugin"]
 ```
+
+> ⚠️ `AugmentPlugin`、`RunePlugin`、`CursePlugin` 当前在 `GamePlugin`（`app.rs`）中注册，而非 `GameplayPlugin` 内部。这是已知的架构不一致，详见 `docs/architecture_refactor_suggestions.md`。
 
 ## 3. 状态机
 ### 3.1 全局状态 `AppState`
@@ -68,8 +79,14 @@ stateDiagram-v2
 
     InGame --> RewardSelect
     RewardSelect --> InGame
+    InGame --> AugmentSelect
+    AugmentSelect --> InGame
+    InGame --> LevelUpSelect
+    LevelUpSelect --> InGame
     InGame --> Shop
     Shop --> InGame
+    InGame --> EventRoom
+    EventRoom --> InGame
     InGame --> Paused
     Paused --> InGame
     InGame --> GameOver

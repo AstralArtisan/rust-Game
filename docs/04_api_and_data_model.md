@@ -1,7 +1,7 @@
 # 内部接口契约与数据模型
 
 - 适用版本：当前工作树（branch `claude-playground`）
-- 最后校验：2026-04-08；`cargo check` 通过，`cargo test` 44 项通过
+- 最后校验：2026-04-11；`cargo check` 通过，`cargo test` 44 项通过
 - 关联源码：`src/states.rs`、`src/core/events.rs`、`src/core/input.rs`、`src/core/save.rs`、`src/data/definitions.rs`、`src/data/registry.rs`、`src/gameplay/session_core/mod.rs`、`src/coop/components.rs`、`src/coop/net.rs`、`src/pvp/net.rs`
 - 实验性内容：包含。联机契约和部分规则模型仍会继续调整
 
@@ -54,6 +54,22 @@
 | `RoomGenConfig` | 房间生成参数 | 同上 | 地图生成 | 常驻 | 当前规模较小，后续大地图扩展会显著依赖它 |
 | `GameBalanceConfig` | 全局平衡参数，如楼层数、房间数、精英概率 | 同上 | 地图、敌人、奖励、商店、进度 | 常驻 | 这是平衡改动的主要入口 |
 | `GameDataRegistry` | 全部配置的统一容器 | `DataPlugin` | 几乎所有 gameplay 子模块 | 常驻 | 避免在系统中分别读取多个 ron 文件 |
+| `AugmentsConfig` | 增强物定义（30 种） | 同上 | 增强选择、效果系统 | 常驻 | 新增增强要同步 `AugmentId` 枚举和 `augments.ron` |
+| `RunesConfig` | 铭文定义（31 种）——待清理 | 同上 | session_core、祝福祠堂 | 常驻 | 设计已移除铭文，代码残留待清理 |
+| `CursesConfig` | 诅咒定义（5 种） | 同上 | 诅咒系统、祝福祠堂 | 常驻 | 新增诅咒要同步 `CurseId` 枚举和 `curses.ron` |
+| `AudioConfig` | 音量与 pitch 参数 | 同上 | 音频系统 | 常驻 | |
+| `EffectsConfig` | 粒子、打击暂停、屏幕闪光参数 | 同上 | 效果系统 | 常驻 | |
+
+### 4.1 增强/诅咒/技能组件契约
+
+| 接口 | 定义位置 | 语义 | 扩展注意事项 |
+| --- | --- | --- | --- |
+| `AugmentId` | `gameplay/augment/data.rs` | 30 种被动增强枚举（近战/远程/移动/通用 × 3 级稀有度） | 新增增强要同步枚举、`augments.ron`、`effects.rs` |
+| `AugmentInventory` | `gameplay/augment/data.rs` | 玩家已获得的增强列表（`Vec<AugmentId>`） | 作为 Component 挂在玩家实体上 |
+| `CurseId` | `gameplay/curse/mod.rs` | 5 种诅咒枚举（Fragile/Sluggish/Exhaustion/Exposed/Weakness） | 新增诅咒要同步枚举、`curses.ron`、乘数方法 |
+| `CurseState` | `gameplay/curse/mod.rs` | 玩家当前激活诅咒列表，提供 `tick_room()` 消退和各属性乘数查询 | 作为 Component 挂在玩家实体上 |
+| `SkillSlots` | `gameplay/player/components.rs` | 4 个技能槽位的解锁状态和绑定技能类型 | `SkillSlot::ALL` 遍历，`unlock()` 解锁 |
+| `SkillType` | `gameplay/player/components.rs` | 4 种主动技能枚举（SwordArc/MarkedHunt/LightningDash/Relic） | 新增技能要同步枚举、释放逻辑、HUD |
 
 ## 5. 存档契约
 `src/core/save.rs` 定义了当前单机存档模型。

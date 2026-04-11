@@ -1,7 +1,8 @@
 # 模块设计说明
 
 - 适用版本：当前工作树（branch `claude-playground`）
-- 最后校验：2026-04-08；`cargo check` 通过，`cargo test` 44 项通过
+- 最后校验：2026-04-11；`cargo check` 通过，`cargo test` 44 项通过
+- 源码文件数：110 个 Rust 源文件
 - 关联源码：`src/core/`、`src/data/`、`src/gameplay/`、`src/coop/`、`src/pvp/`、`src/ui/`、`src/utils/`
 - 实验性内容：包含。联机模块与部分 UI/规则层仍在持续收敛
 
@@ -257,7 +258,58 @@
 - 主要是表现层系统
 - 在 `InGame`、`CoopGame`、`PvpGame` 中都可能运行
 
-### 4.10 `session_core/`
+### 4.12 `augment/`
+职责：
+
+- 增强系统（被动能力），30 种增强分为近战/远程/移动/通用四类，三级稀有度（Common/Elite/Legendary）
+- `data.rs`：`AugmentId` 枚举（30 种）、`AugmentRarity`、`AugmentSlot`、增强元数据
+- `effects.rs`：每种增强的运行时效果实现（反弹、追踪弹、连锁闪电、荆棘、冰冻、不死鸟等）
+
+设计要点：
+
+- `AugmentPlugin` 当前在 `app.rs` 的 `GamePlugin` 中注册（已知架构不一致，应移入 `GameplayPlugin`）
+- 所有效果系统通过 `.run_if()` 同时服务单机和 Coop Host
+- 效果系统有明确的执行顺序约束（`.before()` / `.after()` 与 combat 系统协调）
+
+### 4.13 `rune/`（铭文系统——待清理）
+职责：
+
+- 铭文数据定义：`RuneId`（31 种）、`RuneSlot`（4 槽位）、`RuneTier`（3 等级）、`RuneLoadout`
+- `RunePlugin::build()` 为空壳，无运行时系统
+
+当前状态：
+
+- 设计上已决定移除铭文系统，但代码和配置（`runes.ron`）完全保留
+- 14 个源文件仍引用铭文相关类型
+- 属于 P0 清理任务，详见 `docs/architecture_refactor_suggestions.md`
+
+### 4.14 `curse/`
+职责：
+
+- 诅咒系统：5 种诅咒（Fragile/Sluggish/Exhaustion/Exposed/Weakness）
+- `CurseState` 组件记录当前激活的诅咒列表
+- 诅咒按房间计数消退（`tick_room`）
+
+设计要点：
+
+- `CursePlugin` 当前在 `app.rs` 的 `GamePlugin` 中注册（已知架构不一致）
+- `CurseState` 提供乘数查询方法（`damage_taken_mult`、`move_speed_mult` 等），供其他系统消费
+- 诅咒与祝福祠堂绑定：选择铭文时附带诅咒，有诅咒时不出现新的祝福房
+
+### 4.15 `skills/`
+职责：
+
+- 4 种主动技能：剑气斩（SwordArc）、标记猎杀（MarkedHunt）、闪电冲刺（LightningDash）、遗物主动（Relic）
+- `slots.rs`：技能槽位管理（`SkillSlots` 组件，4 槽位解锁状态）
+- `execute.rs`：技能释放逻辑
+
+设计要点：
+
+- 能量系统驱动：最大 100 能量，通过战斗行为充能（近战+8、远程+4、击杀+12）
+- 数字键 1-4 对应 HUD 底部技能栏
+- `PlayerSkillState` 管理释放中的技能状态
+
+### 4.16 `session_core/`
 职责：
 
 - 奖励草案生成

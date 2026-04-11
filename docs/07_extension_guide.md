@@ -1,7 +1,7 @@
 # 扩展与维护指南
 
 - 适用版本：当前工作树（branch `claude-playground`）
-- 最后校验：2026-04-08；结合当前模块结构、配置入口与联机实现整理
+- 最后校验：2026-04-11；结合当前模块结构、配置入口与联机实现整理
 - 关联源码：`src/gameplay/`、`src/data/`、`src/coop/`、`src/pvp/`、`src/ui/`、`assets/configs/`
 - 实验性内容：包含。联机相关扩展项需要按原型架构审慎推进
 
@@ -81,7 +81,49 @@
 - 房间类型改动会同时影响地图、敌人、商店、奖励、HUD 和联机阶段
 - 如果只在单机支持，文档里必须明确标注
 
-## 5. 新增 Boss 或 Boss 阶段
+## 5. 新增增强（Augment）
+### 5.1 典型触点
+- `src/gameplay/augment/data.rs`
+- `src/gameplay/augment/effects.rs`
+- `assets/configs/augments.ron`
+
+### 5.2 推荐步骤
+1. 在 `AugmentId` 枚举中新增变体。
+2. 在 `augments.ron` 中补充名称、描述、稀有度、槽位。
+3. 在 `effects.rs` 中实现运行时效果系统。
+4. 注意效果系统的执行顺序约束（`.before()` / `.after()` 与 combat 系统协调）。
+5. 检查增强选择 UI（`augment_select.rs`）是否能正确展示。
+
+### 5.3 常见遗漏
+- 只加了枚举和配置，没在 `effects.rs` 中实现效果
+- 忘了设置稀有度权重，导致永远不会被选中
+
+## 6. 新增诅咒（Curse）
+### 6.1 典型触点
+- `src/gameplay/curse/mod.rs`
+- `assets/configs/curses.ron`
+- 消费方：`player/systems.rs`、`combat/damage.rs` 等读取 `CurseState` 乘数的系统
+
+### 6.2 推荐步骤
+1. 在 `CurseId` 枚举中新增变体。
+2. 在 `curses.ron` 中补充名称、描述、持续房间数。
+3. 在 `CurseState` 中新增对应的乘数查询方法（如 `xxx_mult()`）。
+4. 在消费方系统中调用该乘数。
+5. 检查祝福祠堂 UI 是否能正确展示新诅咒。
+
+## 7. 新增事件房类型
+### 7.1 典型触点
+- `src/gameplay/event_room/mod.rs`
+- `src/ui/event_room.rs`
+
+### 7.2 推荐步骤
+1. 在 `EventType` 枚举中新增变体。
+2. 在 `init_event_for_room` 的事件池中加入新类型。
+3. 在 `event_interact_system` 中实现交互逻辑（锁房/生敌人/开 UI）。
+4. 在 UI 层补充选项展示和效果描述。
+5. 如果是战斗/谜题类事件，确保 `resolve_event_room_clear` 能正确结算。
+
+## 8. 新增 Boss 或 Boss 阶段
 ### 5.1 典型触点
 - `src/gameplay/enemy/components.rs`
 - `src/gameplay/enemy/boss.rs`
@@ -96,43 +138,43 @@
 4. 若需要新提示，使用 `BossPhaseChangeEvent` 和 HUD/Boss 血条。
 5. 检查单机与 Coop Host 是否都能复用。
 
-## 6. 新增 UI 页面
-### 6.1 典型触点
+## 9. 新增 UI 页面
+### 9.1 典型触点
 - `src/ui/mod.rs`
 - 新页面文件，例如 `src/ui/<page>.rs`
 - `src/states.rs`
 - 相关业务模块的状态切换逻辑
 
-### 6.2 推荐步骤
+### 9.2 推荐步骤
 1. 先决定它是否需要独立 `AppState`。
 2. 在 `UiPlugin` 中注册 `OnEnter` / `Update` / `OnExit`。
 3. 页面必须配套 cleanup。
 4. 如果它依赖 gameplay 数据，优先从资源/事件读取，不要直接写玩法状态。
 5. 如果它是 Coop 专属页面，优先考虑放在 `coop/ui.rs` 而不是通用 `ui/`。
 
-## 7. 新增配置项
-### 7.1 典型触点
+## 10. 新增配置项
+### 10.1 典型触点
 - `src/data/definitions.rs`
 - `src/data/loaders.rs`
 - `src/data/registry.rs`
 - 对应 `assets/configs/*.ron`
 
-### 7.2 推荐步骤
+### 10.2 推荐步骤
 1. 先在 `definitions.rs` 增字段。
 2. 更新 `.ron` 文件。
 3. 更新 `default_registry()` 默认值。
 4. 在消费它的 gameplay 模块中接线。
 5. 如果会影响平衡，更新文档和校验说明。
 
-## 8. 新增 Coop 阶段或联机交互
-### 8.1 典型触点
+## 11. 新增 Coop 阶段或联机交互
+### 11.1 典型触点
 - `src/coop/components.rs`
 - `src/coop/net.rs`
 - `src/coop/runtime.rs`
 - `src/coop/ui.rs`
 - 必要时 `src/gameplay/session_core/mod.rs`
 
-### 8.2 推荐步骤
+### 11.2 推荐步骤
 1. 判断它是纯状态同步，还是需要命令消息。
 2. 如果需要阶段，先扩 `CoopPhase`。
 3. 如果需要同步数据，扩 `CoopSessionState` 的对应子状态。
@@ -141,48 +183,48 @@
 6. 在 UI 层只做输入采集和状态展示。
 7. 补充本机双开验证步骤。
 
-### 8.3 原则
+### 11.3 原则
 - 不要把玩法决策直接塞进 `coop/ui.rs`
 - 不要跳过 `CoopSessionState` 私自做“本地猜测状态”
 - 如能抽象到 `session_core`，优先抽象
 
-## 9. 新增 PVP 消息或对局能力
-### 9.1 典型触点
+## 12. 新增 PVP 消息或对局能力
+### 12.1 典型触点
 - `src/pvp/net.rs`
 - `src/pvp/systems.rs`
 - `src/pvp/ui.rs`
 
-### 9.2 推荐步骤
+### 12.2 推荐步骤
 1. 先判断它属于输入、状态快照还是即时事件。
 2. 扩展 `PvpMsg` 及对应结构体。
 3. 同时修改 Host 和 Client 的收发分支。
 4. 检查本地预测是否仍成立。
 5. 确认结果页和 HUD 是否需要同步更新。
 
-## 10. 扩展后最低验证清单
-### 10.1 通用
+## 13. 扩展后最低验证清单
+### 13.1 通用
 1. `cargo check`
 2. `cargo test`
 3. 手动跑一轮 `cargo run`
 
-### 10.2 如果改了单机玩法
+### 13.2 如果改了单机玩法
 1. 主菜单进入单机
 2. 验证房间推进
 3. 验证奖励/商店/结算
 4. 验证 `F5` / `F9`
 
-### 10.3 如果改了 Coop
+### 13.3 如果改了 Coop
 1. 本机双开 Host/Client
 2. 验证连接建立
 3. 验证进入 `CoopGame`
 4. 验证相关交互阶段和断开恢复
 
-### 10.4 如果改了 PVP
+### 13.4 如果改了 PVP
 1. 本机双开
 2. 验证 `Hello/Welcome`
 3. 验证状态同步和结果页
 
-## 11. 文档同步要求
+## 14. 文档同步要求
 以下改动完成后，必须同步文档：
 
 - 新增 `AppState` 或 `RoomType`
@@ -198,7 +240,7 @@
 - `docs/04_api_and_data_model.md`
 - 如涉及联机，再更新 `docs/06_multiplayer_and_risks.md`
 
-## 12. 最后建议
+## 15. 最后建议
 - 新增功能时，优先沿着现有模块边界扩展，不要把临时逻辑堆进大文件
 - 复杂规则优先下沉到 `session_core`
 - 任何联机改动都要先确认所属体系是 Coop 还是 PVP
