@@ -11,6 +11,7 @@ use crate::core::events::RoomClearedEvent;
 use crate::gameplay::map::room::CurrentRoom;
 use crate::gameplay::map::room::RoomId;
 use crate::states::AppState;
+use crate::states::GamePhase;
 use crate::states::RoomState;
 use crate::utils::rng::GameRng;
 
@@ -26,7 +27,7 @@ impl Plugin for PuzzlePlugin {
                 trap::trap_system,
                 complete_active_puzzle_system,
             )
-                .run_if(in_state(AppState::InGame)),
+                .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
         );
     }
 }

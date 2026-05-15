@@ -10,7 +10,7 @@ use crate::core::{
 use crate::data::DataPlugin;
 use crate::gameplay::GameplayPlugin;
 use crate::pvp::PvpPlugin;
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 use crate::ui::UiPlugin;
 
 pub struct GamePlugin;
@@ -18,6 +18,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
+            .add_sub_state::<GamePhase>()
             .insert_resource({
                 let mut cfg = RapierConfiguration::new(100.0);
                 cfg.gravity = Vec2::ZERO;

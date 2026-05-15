@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::core::assets::GameAssets;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory, AugmentRarity};
 use crate::gameplay::player::components::Player;
-use crate::states::AppState;
+use crate::states::GamePhase;
 use crate::ui::widgets;
 
 /// Resource: holds the augment choices offered to the player.
@@ -11,7 +11,7 @@ use crate::ui::widgets;
 pub struct AugmentChoices {
     pub options: Vec<AugmentChoiceOption>,
     /// State to return to after selection (InGame or CoopGame).
-    pub return_state: Option<AppState>,
+    pub return_state: Option<GamePhase>,
 }
 
 #[derive(Debug, Clone)]
@@ -157,7 +157,7 @@ pub fn augment_select_input(
     keys: Res<ButtonInput<KeyCode>>,
     choices: Res<AugmentChoices>,
     mut player_q: Query<&mut AugmentInventory, With<Player>>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     button_q: Query<(&Interaction, &AugmentButton), Changed<Interaction>>,
 ) {
     let mut picked: Option<usize> = None;
@@ -188,7 +188,7 @@ pub fn augment_select_input(
         inventory.add(opt.id);
     }
 
-    let return_to = choices.return_state.unwrap_or(AppState::InGame);
+    let return_to = choices.return_state.unwrap_or(GamePhase::Playing);
     next_state.set(return_to);
 }
 

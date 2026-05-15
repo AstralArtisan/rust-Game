@@ -6,7 +6,7 @@ use crate::coop::components::LocalControlled;
 use crate::gameplay::effects::screen_shake::{ScreenShake, ScreenShakeRequest};
 use crate::gameplay::player::components::Player;
 use crate::pvp::components::PvpLocalPlayer;
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 #[derive(Component)]
 pub struct MainCamera;
@@ -19,7 +19,8 @@ impl Plugin for CameraPlugin {
             .add_systems(Startup, setup_camera)
             .add_systems(
                 Update,
-                camera_follow_player.run_if(in_state(AppState::InGame)),
+                camera_follow_player
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             )
             .add_systems(
                 Update,
@@ -31,7 +32,8 @@ impl Plugin for CameraPlugin {
             )
             .add_systems(
                 Update,
-                apply_screen_shake.run_if(in_state(AppState::InGame)),
+                apply_screen_shake
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             );
     }
 }

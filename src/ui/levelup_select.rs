@@ -6,7 +6,7 @@ use crate::data::registry::GameDataRegistry;
 use crate::gameplay::player::components::*;
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::rewards::apply::heal_amount;
-use crate::states::AppState;
+use crate::states::GamePhase;
 use crate::ui::widgets;
 
 /// One attribute option offered on level up.
@@ -32,7 +32,7 @@ pub enum LevelUpStat {
 #[derive(Resource, Debug, Clone, Default)]
 pub struct LevelUpChoices {
     pub options: Vec<LevelUpOption>,
-    pub return_state: Option<AppState>,
+    pub return_state: Option<GamePhase>,
     pub new_level: u32,
 }
 
@@ -214,7 +214,7 @@ pub fn levelup_input(
         ),
         With<Player>,
     >,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     button_q: Query<(&Interaction, &LevelUpButton), Changed<Interaction>>,
 ) {
     let mut picked: Option<usize> = None;
@@ -269,7 +269,7 @@ pub fn levelup_input(
         }
     }
 
-    let return_to = choices.return_state.unwrap_or(AppState::InGame);
+    let return_to = choices.return_state.unwrap_or(GamePhase::Playing);
     next_state.set(return_to);
 }
 

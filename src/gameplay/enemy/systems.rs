@@ -34,7 +34,7 @@ use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::puzzle::{ActivePuzzle, PuzzleEntity, reset_active_puzzle};
 use crate::gameplay::shop::ShopKiosk;
 use crate::gameplay::skills::ChargeGainEvent;
-use crate::states::{AppState, RoomState};
+use crate::states::{AppState, GamePhase, RoomState};
 use crate::utils::collision::aabb_from_transform_size;
 use crate::utils::entity::safe_despawn_recursive;
 use crate::utils::math::{clamp_in_room, direction_to};
@@ -67,41 +67,49 @@ impl Plugin for EnemySystemsPlugin {
             .add_systems(
                 Update,
                 room_entry_spawner.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
                 Update,
                 (spawn_enemy_health_bars, update_enemy_health_bars).run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
                 Update,
                 enemy_buff_decay_system.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
                 Update,
                 ai::update_enemy_ai.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
@@ -126,41 +134,49 @@ impl Plugin for EnemySystemsPlugin {
                     summoner_death_cleanup.before(enemy_death_system),
                 )
                     .run_if(
-                        in_state(AppState::InGame).or_else(
-                            in_state(AppState::CoopGame)
-                                .and_then(is_coop_authority)
-                                .and_then(is_coop_simulation_active),
-                        ),
+                        in_state(AppState::InGame)
+                            .or_else(
+                                in_state(AppState::CoopGame)
+                                    .and_then(is_coop_authority)
+                                    .and_then(is_coop_simulation_active),
+                            )
+                            .and_then(in_state(GamePhase::Playing)),
                     ),
             )
             .add_systems(
                 Update,
                 enemy_attack_system.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
                 Update,
                 boss::boss_phase_controller.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
                 Update,
                 boss::boss_attack_patterns.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
@@ -180,41 +196,49 @@ impl Plugin for EnemySystemsPlugin {
                     boss::boss_mechanic_hint_system,
                 )
                     .run_if(
-                        in_state(AppState::InGame).or_else(
-                            in_state(AppState::CoopGame)
-                                .and_then(is_coop_authority)
-                                .and_then(is_coop_simulation_active),
-                        ),
+                        in_state(AppState::InGame)
+                            .or_else(
+                                in_state(AppState::CoopGame)
+                                    .and_then(is_coop_authority)
+                                    .and_then(is_coop_simulation_active),
+                            )
+                            .and_then(in_state(GamePhase::Playing)),
                     ),
             )
             .add_systems(
                 Update,
                 boss_contact_damage_system.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
                 Update,
                 enemy_death_system.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             )
             .add_systems(
                 Update,
                 clear_enemy_attacks_on_room_clear.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             );
     }

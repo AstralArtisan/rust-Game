@@ -9,7 +9,7 @@ use crate::coop::runtime::is_coop_simulation_active;
 use crate::core::assets::GameAssets;
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, Direction, FloorLayout, RoomId, RoomType};
-use crate::states::{AppState, RoomState};
+use crate::states::{AppState, GamePhase, RoomState};
 
 pub struct DoorsPlugin;
 
@@ -18,11 +18,13 @@ impl Plugin for DoorsPlugin {
         app.add_systems(
             Update,
             (spawn_room_doors_if_missing, update_door_visuals).run_if(
-                in_state(AppState::InGame).or_else(
-                    in_state(AppState::CoopGame)
-                        .and_then(is_coop_authority)
-                        .and_then(is_coop_simulation_active),
-                ),
+                in_state(AppState::InGame)
+                    .or_else(
+                        in_state(AppState::CoopGame)
+                            .and_then(is_coop_authority)
+                            .and_then(is_coop_simulation_active),
+                    )
+                    .and_then(in_state(GamePhase::Playing)),
             ),
         );
     }

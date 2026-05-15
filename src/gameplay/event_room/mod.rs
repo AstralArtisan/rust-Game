@@ -17,7 +17,7 @@ use crate::gameplay::progression::difficulty::{
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::puzzle;
-use crate::states::{AppState, RoomState};
+use crate::states::{AppState, GamePhase, RoomState};
 use crate::utils::rng::GameRng;
 
 pub struct EventRoomPlugin;
@@ -33,20 +33,24 @@ impl Plugin for EventRoomPlugin {
                     sync_event_interact_prompt.after(init_event_for_room),
                     event_interact_system.after(sync_event_interact_prompt),
                 )
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             )
             .add_systems(
                 Update,
-                tick_timed_challenge.run_if(in_state(AppState::InGame)),
+                tick_timed_challenge
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             )
             .add_systems(
                 Update,
-                event_room_input.run_if(in_state(AppState::EventRoom)),
+                event_room_input.run_if(in_state(GamePhase::EventRoom)),
             )
             .add_systems(
                 Update,
-                resolve_event_room_clear
-                    .run_if(in_state(AppState::InGame).or_else(in_state(AppState::CoopGame))),
+                resolve_event_room_clear.run_if(
+                    in_state(AppState::InGame)
+                        .or_else(in_state(AppState::CoopGame))
+                        .and_then(in_state(GamePhase::Playing)),
+                ),
             );
     }
 }
@@ -294,7 +298,7 @@ fn spawn_event_interact_prompt(
 fn event_interact_system(
     input: Res<PlayerInputState>,
     mut active: ResMut<ActiveEvent>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     assets: Res<GameAssets>,
     data: Option<Res<GameDataRegistry>>,
     layout: Option<Res<FloorLayout>>,
@@ -356,7 +360,7 @@ fn event_interact_system(
     // guard each Esc+E would re-roll Gambler/Treasure/BloodPact rewards for
     // free until a favorable roll appeared.
     if !event_type.is_combat() && !event_type.is_puzzle() && !active.choice_payloads.is_empty() {
-        next_state.set(AppState::EventRoom);
+        next_state.set(GamePhase::EventRoom);
         return;
     }
 
@@ -422,7 +426,7 @@ fn event_interact_system(
         | EventType::Merchant => {
             configure_non_combat_event(&mut active, data.as_deref(), &mut rng);
             *room_state = RoomState::Locked;
-            next_state.set(AppState::EventRoom);
+            next_state.set(GamePhase::EventRoom);
         }
     }
 }
@@ -445,23 +449,23 @@ fn event_room_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut active: ResMut<ActiveEvent>,
     mut room_state: ResMut<RoomState>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     mut cleared: EventWriter<RoomClearedEvent>,
     mut player_q: Query<(&mut Gold, &mut Health, &mut AugmentInventory), With<Player>>,
 ) {
     let Some(room) = active.room else {
-        next_state.set(AppState::InGame);
+        next_state.set(GamePhase::Playing);
         return;
     };
 
     if active.resolved {
-        next_state.set(AppState::InGame);
+        next_state.set(GamePhase::Playing);
         return;
     }
 
     if keyboard.just_pressed(KeyCode::Escape) {
         active.interaction_ready = true;
-        next_state.set(AppState::InGame);
+        next_state.set(GamePhase::Playing);
         return;
     }
 
@@ -490,13 +494,13 @@ fn event_room_input(
         EventInputOutcome::Leave => {
             *room_state = RoomState::Cleared;
             mark_event_resolved(&mut active);
-            next_state.set(AppState::InGame);
+            next_state.set(GamePhase::Playing);
         }
         EventInputOutcome::Complete => {
             *room_state = RoomState::Cleared;
             mark_event_resolved(&mut active);
             cleared.send(RoomClearedEvent { room });
-            next_state.set(AppState::InGame);
+            next_state.set(GamePhase::Playing);
         }
     }
 }

@@ -15,7 +15,7 @@ use crate::gameplay::player::components::{
 };
 use crate::gameplay::progression::experience::PlayerLevel;
 use crate::gameplay::progression::floor::FloorNumber;
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 pub struct SavePlugin;
 
@@ -26,7 +26,7 @@ impl Plugin for SavePlugin {
             .add_systems(
                 Update,
                 apply_pending_load
-                    .run_if(in_state(AppState::InGame))
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing)))
                     .after(load_hotkey_system),
             );
     }

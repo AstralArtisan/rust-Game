@@ -15,7 +15,7 @@ pub mod widgets;
 use bevy::prelude::*;
 
 use crate::gameplay::effects::screen_flash::clear_screen_flash;
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 pub struct UiPlugin;
 
@@ -42,8 +42,7 @@ impl Plugin for UiPlugin {
             .add_systems(Update, notifications::update_notifications)
             .add_systems(OnEnter(AppState::InGame), hud::setup_hud)
             .add_systems(OnEnter(AppState::CoopGame), hud::setup_hud)
-            .add_systems(OnEnter(AppState::RewardSelect), hud::setup_hud)
-            .add_systems(OnEnter(AppState::EventRoom), event_room::setup_event_room_ui)
+            .add_systems(OnEnter(GamePhase::EventRoom), event_room::setup_event_room_ui)
             .add_systems(
                 Update,
                 (
@@ -63,74 +62,71 @@ impl Plugin for UiPlugin {
                     hud::update_stage_progress,
                 )
                     .run_if(
-                        in_state(AppState::InGame)
-                            .or_else(in_state(AppState::RewardSelect))
-                            .or_else(in_state(AppState::CoopGame)),
+                        in_state(AppState::InGame).or_else(in_state(AppState::CoopGame)),
                     ),
             )
             .add_systems(OnExit(AppState::InGame), hud::cleanup_hud)
             .add_systems(OnExit(AppState::CoopGame), hud::cleanup_hud)
-            .add_systems(OnExit(AppState::RewardSelect), hud::cleanup_hud)
-            .add_systems(OnExit(AppState::EventRoom), event_room::cleanup_event_room_ui)
+            .add_systems(OnExit(GamePhase::EventRoom), event_room::cleanup_event_room_ui)
             .add_systems(Update, pause::toggle_pause)
-            .add_systems(OnEnter(AppState::Paused), pause::setup_pause_menu)
+            .add_systems(OnEnter(GamePhase::Paused), pause::setup_pause_menu)
             .add_systems(
                 Update,
                 (
                     pause::pause_menu_keyboard_system,
                     pause::update_pause_character_panel,
                 )
-                    .run_if(in_state(AppState::Paused)),
+                    .run_if(in_state(GamePhase::Paused)),
             )
-            .add_systems(OnExit(AppState::Paused), pause::cleanup_pause_menu)
-            .add_systems(OnEnter(AppState::Shop), shop::setup_shop_ui)
+            .add_systems(OnExit(GamePhase::Paused), pause::cleanup_pause_menu)
+            .add_systems(OnEnter(GamePhase::Shop), shop::setup_shop_ui)
             .add_systems(
                 Update,
-                shop::shop_ui_input_system.run_if(in_state(AppState::Shop)),
+                shop::shop_ui_input_system.run_if(in_state(GamePhase::Shop)),
             )
             .add_systems(
                 Update,
-                shop::update_shop_ui.run_if(in_state(AppState::Shop)),
+                shop::update_shop_ui.run_if(in_state(GamePhase::Shop)),
             )
-            .add_systems(OnExit(AppState::Shop), shop::cleanup_shop_ui)
+            .add_systems(OnExit(GamePhase::Shop), shop::cleanup_shop_ui)
             // Augment select
             .init_resource::<augment_select::AugmentChoices>()
             .add_systems(
-                OnEnter(AppState::AugmentSelect),
+                OnEnter(GamePhase::AugmentSelect),
                 (augment_select::setup_augment_select_ui, clear_screen_flash),
             )
             .add_systems(
                 Update,
-                augment_select::augment_select_input.run_if(in_state(AppState::AugmentSelect)),
+                augment_select::augment_select_input.run_if(in_state(GamePhase::AugmentSelect)),
             )
             .add_systems(
-                OnExit(AppState::AugmentSelect),
+                OnExit(GamePhase::AugmentSelect),
                 augment_select::cleanup_augment_select_ui,
             )
             // Level-up select
             .init_resource::<levelup_select::LevelUpChoices>()
             .add_systems(
-                OnEnter(AppState::LevelUpSelect),
+                OnEnter(GamePhase::LevelUpSelect),
                 (levelup_select::setup_levelup_ui, clear_screen_flash),
             )
             .add_systems(
                 Update,
-                levelup_select::levelup_input.run_if(in_state(AppState::LevelUpSelect)),
+                levelup_select::levelup_input.run_if(in_state(GamePhase::LevelUpSelect)),
             )
             .add_systems(
-                OnExit(AppState::LevelUpSelect),
+                OnExit(GamePhase::LevelUpSelect),
                 levelup_select::cleanup_levelup_ui,
             )
             //
             .add_systems(
-                OnEnter(AppState::GameOver),
+                OnEnter(GamePhase::GameOver),
                 game_over::setup_game_over_screen,
             )
-            .add_systems(OnEnter(AppState::Victory), game_over::setup_victory_screen)
+            .add_systems(OnEnter(GamePhase::Victory), game_over::setup_victory_screen)
             .add_systems(
                 Update,
                 game_over::end_screen_input_system
-                    .run_if(in_state(AppState::GameOver).or_else(in_state(AppState::Victory))),
+                    .run_if(in_state(GamePhase::GameOver).or_else(in_state(GamePhase::Victory))),
             );
     }
 }

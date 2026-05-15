@@ -7,7 +7,7 @@ use crate::gameplay::combat::components::Team;
 use crate::gameplay::enemy::components::Elite;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};
 use crate::gameplay::player::components::{Combo, Gold, Player};
-use crate::states::AppState;
+use crate::states::GamePhase;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AchievementId {
@@ -61,7 +61,7 @@ impl Plugin for AchievementsPlugin {
                     track_room_clear,
                 ),
             )
-            .add_systems(OnEnter(AppState::Victory), unlock_victory);
+            .add_systems(OnEnter(GamePhase::Victory), unlock_victory);
     }
 }
 

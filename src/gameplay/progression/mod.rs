@@ -5,7 +5,7 @@ pub mod stats;
 
 use bevy::prelude::*;
 
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 pub struct ProgressionPlugin;
 
@@ -23,7 +23,7 @@ impl Plugin for ProgressionPlugin {
                     experience::process_xp_gains,
                     experience::handle_levelup_event.after(experience::process_xp_gains),
                 )
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             );
     }
 }

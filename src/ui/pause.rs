@@ -6,7 +6,7 @@ use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Gold,
     Health, MoveSpeed, Player, RangedCooldown, RangedVolleyPattern, RewardModifiers,
 };
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 use crate::ui::widgets;
 
 #[derive(Component)]
@@ -20,15 +20,18 @@ pub struct PauseCharacterText;
 
 pub fn toggle_pause(
     keyboard: Res<ButtonInput<KeyCode>>,
-    state: Res<State<AppState>>,
-    mut next: ResMut<NextState<AppState>>,
+    phase: Option<Res<State<GamePhase>>>,
+    mut next: ResMut<NextState<GamePhase>>,
 ) {
     if !keyboard.just_pressed(KeyCode::Escape) {
         return;
     }
-    match state.get() {
-        AppState::InGame => next.set(AppState::Paused),
-        AppState::Paused => next.set(AppState::InGame),
+    let Some(phase) = phase else {
+        return;
+    };
+    match phase.get() {
+        GamePhase::Playing => next.set(GamePhase::Paused),
+        GamePhase::Paused => next.set(GamePhase::Playing),
         _ => {}
     }
 }
@@ -77,16 +80,17 @@ pub fn setup_pause_menu(mut commands: Commands, assets: Res<GameAssets>) {
 
 pub fn pause_menu_keyboard_system(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next_phase: ResMut<NextState<GamePhase>>,
+    mut next_app: ResMut<NextState<AppState>>,
     mut exit: EventWriter<AppExit>,
     mut panel_q: Query<&mut Visibility, With<PauseCharacterPanel>>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
-        next.set(AppState::InGame);
+        next_phase.set(GamePhase::Playing);
         return;
     }
     if keyboard.just_pressed(KeyCode::KeyM) {
-        next.set(AppState::MainMenu);
+        next_app.set(AppState::MainMenu);
         return;
     }
     if keyboard.just_pressed(KeyCode::KeyQ) {

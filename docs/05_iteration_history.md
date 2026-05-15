@@ -899,3 +899,31 @@ Rust 程序设计课程第一次组长例会准备。需要理清项目架构以
 ### 已知问题 / 后续工作
 - Phase 2：三层状态机迁移（AppState→GamePhase→RoomPhase），并根因修复 Bug#7、RoomState 非状态问题
 - 验证：`cargo check` 通过（仅 3 个既有 audio dead-code 警告，无新增），`cargo test` 45/45 通过
+
+---
+
+## little-refactor Phase 2：AppState→GamePhase 状态机分层（2026-05-15）
+
+关键提交见 little-refactor 分支 Phase 2。
+
+### 改动内容
+- `src/states.rs`：`AppState` 瘦身为 11 个顶层态（Loading/MainMenu/InGame/Multiplayer/Coop*/Pvp*）；新增 `GamePhase`（**manual `impl SubStates`**，`SourceStates=Option<AppState>`，对 `InGame|CoopGame` 存在，默认 `Playing`），变体 `{Playing,Paused,RewardSelect,AugmentSelect,LevelUpSelect,Shop,EventRoom,GameOver,Victory}`；`RoomState` 保持 Resource 不变
+- `src/app.rs`：`add_sub_state::<GamePhase>()`
+- 10 文件覆盖层迁移：覆盖层 `AppState::X` → `GamePhase::X`（OnEnter/OnExit/in_state/NextState 参数类型），含 `pause`/`cursor`/`rewards`/`shop`/`event_room`/`progression`/`player` 死亡/`augment_select`/`levelup_select`/`game_over` 关联；`AugmentChoices`/`LevelUpChoices.return_state` 改 `Option<GamePhase>`
+- 行为保持 sweep：~17 文件 `in_state(AppState::InGame)` → `in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))`，使覆盖层（暂停/商店/升级…）正确暂停玩法，语义与迁移前完全等价
+- HUD 改为整局存活（`OnEnter/OnExit(AppState::InGame|CoopGame)`），不再随 RewardSelect 重建/清理
+
+### 目的与动机
+扁平 18 态状态机靠 AppState 切换隐式暂停玩法。三层化后覆盖层成为 `InGame/CoopGame` 的子状态，调度更精确，并为后续阶段铺路。本阶段只做第一层，控制风险。
+
+### 关键决策
+- Bevy 0.14.2 原生支持 `SubStates`；GamePhase 需同时存在于 InGame 与 CoopGame，故用 manual `SubStates` impl（derive 仅支持单源）
+- **RoomState 保持 Resource**（同帧写后读语义、BossFight 变体、coop 主机权威——属语义重设计，列 Phase 2b 延后）
+- **不动 coop CoopPhase**（与 Phase 5 重叠，coop 下 GamePhase 恒为 Playing）
+- **Bug#7 重新定位到 Phase 5**：progression/skills 进 coop 需 `is_coop_authority` 门控，Phase 2 仅行为保持改写（仍单机门控），避免 coop client desync
+- 含 PvpGame 的复合条件只对 InGame 分支加 `.and_then(GamePhase::Playing)`（PvpGame 无 GamePhase）；`core/input.rs` 输入采集为基础设施不门控（覆盖层需读输入）
+
+### 已知问题 / 后续工作
+- Phase 2b：RoomState→RoomPhase 房间流程语义重设计（可并入 Phase 5）
+- Phase 3：强化 2→3 层质变、9 终结技、事件房 17 种等内容
+- 验证：`cargo check` 通过（仅 3 个既有 audio dead-code 警告，无新增），`cargo test` 45/45 通过

@@ -8,7 +8,7 @@ use crate::core::events::DamageAppliedEvent;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{DamageKind, Team};
 use crate::gameplay::player::components::{Energy, Player};
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 pub use slots::SkillUnlockedEvent;
 
@@ -35,7 +35,7 @@ impl Plugin for SkillsPlugin {
                     execute::update_mark_indicators,
                     execute::update_homing_projectiles,
                 )
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             );
     }
 }

@@ -5,7 +5,7 @@ use bevy::prelude::*;
 
 use crate::coop::net::is_coop_authority;
 use crate::coop::runtime::is_coop_simulation_active;
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 pub struct AugmentPlugin;
 
@@ -33,11 +33,13 @@ impl Plugin for AugmentPlugin {
                     .before(crate::gameplay::player::systems::player_death_system),
             )
                 .run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
         );
     }

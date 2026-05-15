@@ -7,7 +7,7 @@ use crate::gameplay::map::VisitedRooms;
 use crate::gameplay::map::doors::Door;
 use crate::gameplay::map::room::{CurrentRoom, Direction, FloorLayout, RoomId};
 use crate::gameplay::player::components::Player;
-use crate::states::{AppState, RoomState};
+use crate::states::{AppState, GamePhase, RoomState};
 use crate::utils::easing::ease_in_out;
 use crate::utils::entity::safe_despawn_recursive;
 
@@ -17,7 +17,8 @@ impl Plugin for TransitionsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (detect_room_exit, fade_transition_system).run_if(in_state(AppState::InGame)),
+            (detect_room_exit, fade_transition_system)
+                .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
         );
     }
 }

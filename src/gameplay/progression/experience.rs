@@ -8,7 +8,7 @@ use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::player::components::{Health, Player};
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::rewards::apply::heal_amount;
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 use crate::ui::levelup_select::{LevelUpChoices, LevelUpOption, LevelUpStat};
 use crate::utils::rng::GameRng;
 
@@ -162,7 +162,7 @@ pub fn handle_levelup_event(
     mut levelup_events: EventReader<LevelUpEvent>,
     mut pending: ResMut<PendingLevelUps>,
     mut choices: ResMut<LevelUpChoices>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     mut rng: ResMut<GameRng>,
     current_state: Res<State<AppState>>,
     room_cleared: EventReader<RoomClearedEvent>,
@@ -182,11 +182,11 @@ pub fn handle_levelup_event(
         return;
     }
 
-    let return_state = match current_state.get() {
-        AppState::InGame => AppState::InGame,
-        AppState::CoopGame => AppState::CoopGame,
+    match current_state.get() {
+        AppState::InGame | AppState::CoopGame => {}
         _ => return,
-    };
+    }
+    let return_state = GamePhase::Playing;
 
     let new_level = pending.levels.remove(0);
     let max_health = health_q
@@ -206,7 +206,7 @@ pub fn handle_levelup_event(
     choices.return_state = Some(return_state);
     choices.new_level = new_level;
 
-    next_state.set(AppState::LevelUpSelect);
+    next_state.set(GamePhase::LevelUpSelect);
 }
 
 #[cfg(test)]

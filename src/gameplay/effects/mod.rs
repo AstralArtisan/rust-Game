@@ -9,7 +9,7 @@ pub mod screen_shake;
 
 use bevy::prelude::*;
 
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 pub struct EffectsPlugin;
 
@@ -43,6 +43,7 @@ impl Plugin for EffectsPlugin {
                 )
                     .run_if(
                         in_state(AppState::InGame)
+                            .and_then(in_state(GamePhase::Playing))
                             .or_else(in_state(AppState::CoopGame))
                             .or_else(in_state(AppState::PvpGame)),
                     ),

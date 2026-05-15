@@ -145,11 +145,15 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 
 ### 状态机
 
-`Loading → MainMenu → InGame ↔ RewardSelect / Shop / Paused → GameOver/Victory`
-`MainMenu → CoopMenu → CoopLobby → CoopGame`
-`MainMenu → PvpMenu  → PvpLobby  → PvpGame → PvpResult`
+little-refactor Phase 2 起为**两层**（`src/states.rs`）：
 
-**RoomState**（单局内部子状态）：`Idle → Locked（战斗/解谜进行中）→ Cleared`，`BossFight` 为特殊阶段。
+- 顶层 `AppState`：`Loading / MainMenu / InGame / MultiplayerMenu / CoopMenu / CoopLobby / CoopGame / PvpMenu / PvpLobby / PvpGame / PvpResult`
+- `GamePhase`（**manual `SubStates`**，存在于 `AppState::InGame|CoopGame`，默认 `Playing`）：`Playing / Paused / RewardSelect / AugmentSelect / LevelUpSelect / Shop / EventRoom / GameOver / Victory`。覆盖层（暂停/商店/升级/奖励/事件/结算）是 `GamePhase` 子状态，不再是顶层 `AppState`。
+- 玩法系统门控：`in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))`（覆盖层自动暂停玩法）。从覆盖层返回游戏 = `NextState<GamePhase>::set(GamePhase::Playing)`；进入/退出整局仍走 `AppState`。
+
+`MainMenu → CoopMenu → CoopLobby → CoopGame`；`MainMenu → PvpMenu → PvpLobby → PvpGame → PvpResult`。
+
+**RoomState**（仍为 Resource，非状态机；RoomState→RoomPhase 重设计列 Phase 2b）：`Idle → Locked（战斗/解谜进行中）→ Cleared`，`BossFight` 为特殊阶段。
 
 ### 关键设计决策
 

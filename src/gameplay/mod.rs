@@ -15,7 +15,7 @@ pub mod skills;
 
 use bevy::prelude::*;
 
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 pub struct GameplayPlugin;
 
@@ -37,7 +37,7 @@ impl Plugin for GameplayPlugin {
             augment::AugmentPlugin,
         ))
         .add_systems(OnEnter(AppState::MainMenu), map::cleanup_ingame_world)
-        .add_systems(OnEnter(AppState::GameOver), map::cleanup_ingame_world)
-        .add_systems(OnEnter(AppState::Victory), map::cleanup_ingame_world);
+        .add_systems(OnEnter(GamePhase::GameOver), map::cleanup_ingame_world)
+        .add_systems(OnEnter(GamePhase::Victory), map::cleanup_ingame_world);
     }
 }

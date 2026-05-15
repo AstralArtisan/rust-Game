@@ -19,7 +19,7 @@ use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::session_core::{
     PostRewardDecision, SessionMode, SessionRuleContext, on_room_cleared,
 };
-use crate::states::{AppState, RoomState};
+use crate::states::{AppState, GamePhase, RoomState};
 use crate::ui::augment_select::{AugmentChoiceOption, AugmentChoices};
 use crate::ui::levelup_select::LevelUpChoices;
 use crate::utils::entity::safe_despawn_recursive;
@@ -82,18 +82,21 @@ impl Plugin for RewardsSystemsPlugin {
             .init_resource::<GameRng>()
             .add_systems(
                 Update,
-                offer_reward_in_reward_room.run_if(in_state(AppState::InGame)),
+                offer_reward_in_reward_room
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             )
             .add_systems(
                 Update,
-                enter_reward_selection.run_if(in_state(AppState::InGame)),
+                enter_reward_selection
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             )
             .add_systems(
                 Update,
-                (spawn_boss_portal, boss_portal_interact).run_if(in_state(AppState::InGame)),
+                (spawn_boss_portal, boss_portal_interact)
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             )
             .add_systems(
-                OnEnter(AppState::RewardSelect),
+                OnEnter(GamePhase::RewardSelect),
                 crate::ui::reward_select::setup_reward_ui,
             )
             .add_systems(
@@ -103,16 +106,16 @@ impl Plugin for RewardsSystemsPlugin {
                     crate::ui::reward_select::reward_ui_input_system,
                     crate::ui::reward_select::update_reward_ui,
                 )
-                    .run_if(in_state(AppState::RewardSelect)),
+                    .run_if(in_state(GamePhase::RewardSelect)),
             )
             .add_systems(
-                OnExit(AppState::RewardSelect),
+                OnExit(GamePhase::RewardSelect),
                 crate::ui::reward_select::cleanup_reward_ui,
             )
             .add_systems(
                 Update,
                 apply_reward_choice
-                    .run_if(in_state(AppState::RewardSelect))
+                    .run_if(in_state(GamePhase::RewardSelect))
                     .after(handle_reward_choice_input)
                     .after(crate::ui::reward_select::reward_ui_input_system),
             );
@@ -127,7 +130,7 @@ fn offer_reward_in_reward_room(
     mut claims: ResMut<RewardRoomClaims>,
     mut flow: ResMut<RewardFlow>,
     mut pending_action: ResMut<RewardPendingAction>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     mut room_state: ResMut<RoomState>,
     mut rng: ResMut<GameRng>,
     player_q: Query<Option<&AugmentInventory>, With<Player>>,
@@ -172,12 +175,12 @@ fn offer_reward_in_reward_room(
     flow.room = Some(current.0);
     flow.step = RewardFlowStep::Sanctuary(draft);
     pending_action.0 = None;
-    next_state.set(AppState::RewardSelect);
+    next_state.set(GamePhase::RewardSelect);
 }
 
 fn enter_reward_selection(
     mut room_cleared: EventReader<RoomClearedEvent>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     mut flow: ResMut<RewardFlow>,
     mut pending_action: ResMut<RewardPendingAction>,
     mut rng: ResMut<GameRng>,
@@ -244,8 +247,8 @@ fn enter_reward_selection(
                 );
                 if !generated.is_empty() {
                     augment_choices.options = generated;
-                    augment_choices.return_state = Some(AppState::InGame);
-                    next_state.set(AppState::AugmentSelect);
+                    augment_choices.return_state = Some(GamePhase::Playing);
+                    next_state.set(GamePhase::AugmentSelect);
                 }
             }
         }
@@ -265,13 +268,13 @@ fn enter_reward_selection(
         );
         if !generated.is_empty() {
             augment_choices.options = generated;
-            augment_choices.return_state = Some(AppState::InGame);
-            next_state.set(AppState::AugmentSelect);
+            augment_choices.return_state = Some(GamePhase::Playing);
+            next_state.set(GamePhase::AugmentSelect);
             return;
         }
     }
 
-    next_state.set(AppState::InGame);
+    next_state.set(GamePhase::Playing);
 }
 
 fn handle_reward_choice_input(
@@ -319,7 +322,7 @@ fn handle_reward_choice_input(
 }
 
 fn apply_reward_choice(
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     mut flow: ResMut<RewardFlow>,
     mut pending_action: ResMut<RewardPendingAction>,
     mut room_state: ResMut<RoomState>,
@@ -348,7 +351,7 @@ fn apply_reward_choice(
                     &mut room_state,
                     &mut cleared,
                     &mut next_state,
-                    AppState::InGame,
+                    GamePhase::Playing,
                 );
             }
             1 => {
@@ -368,7 +371,7 @@ fn apply_reward_choice(
                         &mut room_state,
                         &mut cleared,
                         &mut next_state,
-                        AppState::InGame,
+                        GamePhase::Playing,
                     );
                 } else if is_upgrade {
                     flow.step = RewardFlowStep::UpgradePick(options);
@@ -402,7 +405,7 @@ fn apply_reward_choice(
                         &mut room_state,
                         &mut cleared,
                         &mut next_state,
-                        AppState::LevelUpSelect,
+                        GamePhase::LevelUpSelect,
                     );
                 }
             }
@@ -433,7 +436,7 @@ fn apply_reward_choice(
                     &mut room_state,
                     &mut cleared,
                     &mut next_state,
-                    AppState::InGame,
+                    GamePhase::Playing,
                 );
             }
         }
@@ -500,7 +503,7 @@ fn boss_portal_interact(
     )>,
     portal_q: Query<(&GlobalTransform, &BossPortal), Without<Player>>,
     mut commands: Commands,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
     ingame_entities: Query<(Entity, Option<&Player>), With<InGameEntity>>,
     mut floor: Option<ResMut<FloorNumber>>,
     mut spawned_for_room: ResMut<SpawnedForRoom>,
@@ -535,7 +538,7 @@ fn boss_portal_interact(
     };
 
     if portal.is_victory {
-        next_state.set(AppState::Victory);
+        next_state.set(GamePhase::Victory);
         return;
     }
 
@@ -570,7 +573,7 @@ fn boss_portal_interact(
     grace.timer = Timer::from_seconds(0.0, TimerMode::Once);
     spawn_count.current = 0;
 
-    next_state.set(AppState::InGame);
+    next_state.set(GamePhase::Playing);
 }
 
 fn build_sanctuary_draft(
@@ -708,7 +711,7 @@ fn configure_revelation_choices(
     new_level: u32,
 ) {
     choices.options = build_levelup_options(rng, scaling, max_health, floor_number);
-    choices.return_state = Some(AppState::InGame);
+    choices.return_state = Some(GamePhase::Playing);
     choices.new_level = new_level;
 }
 
@@ -721,8 +724,8 @@ fn finish_reward_room(
     flow: &mut RewardFlow,
     room_state: &mut RoomState,
     cleared: &mut EventWriter<RoomClearedEvent>,
-    next_state: &mut NextState<AppState>,
-    target: AppState,
+    next_state: &mut NextState<GamePhase>,
+    target: GamePhase,
 ) {
     if let Some(room) = flow.room.take() {
         *room_state = RoomState::Cleared;
@@ -858,7 +861,7 @@ mod tests {
             3,
         );
 
-        assert_eq!(choices.return_state, Some(AppState::InGame));
+        assert_eq!(choices.return_state, Some(GamePhase::Playing));
         assert_eq!(choices.new_level, 3);
         assert_eq!(choices.options.len(), 4);
     }

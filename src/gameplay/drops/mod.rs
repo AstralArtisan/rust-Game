@@ -13,7 +13,7 @@ use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::components::{Gold, Player};
 use crate::gameplay::progression::experience::XpGainEvent;
 use crate::gameplay::progression::floor::FloorNumber;
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 use crate::utils::entity::safe_despawn_recursive;
 use crate::utils::rng::GameRng;
 
@@ -34,11 +34,13 @@ impl Plugin for DropPlugin {
                 update_pickup_texts,
             )
                 .run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
         );
     }

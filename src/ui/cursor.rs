@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::constants::UI_Z;
 use crate::core::{assets::GameAssets, input::PlayerInputState};
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 const CURSOR_SIZE: f32 = 28.0;
 const CROSSHAIR_SIZE: f32 = 34.0;
@@ -64,12 +64,17 @@ pub fn ensure_cursor_visuals(
     }
 }
 
-pub fn sync_window_cursor_visibility(state: Res<State<AppState>>, mut windows: Query<&mut Window>) {
+pub fn sync_window_cursor_visibility(
+    state: Res<State<AppState>>,
+    phase: Option<Res<State<GamePhase>>>,
+    mut windows: Query<&mut Window>,
+) {
     let Ok(mut window) = windows.get_single_mut() else {
         return;
     };
 
-    let should_hide_system_cursor = uses_custom_cursor(*state.get());
+    let should_hide_system_cursor =
+        uses_custom_cursor(*state.get(), phase.as_ref().map(|p| *p.get()));
     if window.cursor.visible == should_hide_system_cursor {
         window.cursor.visible = !should_hide_system_cursor;
     }
@@ -77,6 +82,7 @@ pub fn sync_window_cursor_visibility(state: Res<State<AppState>>, mut windows: Q
 
 pub fn update_custom_cursor(
     state: Res<State<AppState>>,
+    phase: Option<Res<State<GamePhase>>>,
     windows: Query<&Window>,
     mut cursor_q: Query<(&mut Style, &mut Visibility), With<GameCursorUi>>,
 ) {
@@ -87,7 +93,7 @@ pub fn update_custom_cursor(
         return;
     };
 
-    if !uses_custom_cursor(*state.get()) {
+    if !uses_custom_cursor(*state.get(), phase.as_ref().map(|p| *p.get())) {
         *visibility = Visibility::Hidden;
         return;
     }
@@ -104,6 +110,7 @@ pub fn update_custom_cursor(
 
 pub fn update_crosshair(
     state: Res<State<AppState>>,
+    phase: Option<Res<State<GamePhase>>>,
     time: Res<Time>,
     input: Res<PlayerInputState>,
     mut crosshair_q: Query<(&mut Transform, &mut Sprite, &mut Visibility), With<AimCrosshair>>,
@@ -112,7 +119,9 @@ pub fn update_crosshair(
         return;
     };
 
-    if *state.get() != AppState::InGame {
+    if *state.get() != AppState::InGame
+        || phase.as_ref().map(|p| *p.get()) != Some(GamePhase::Playing)
+    {
         *visibility = Visibility::Hidden;
         return;
     }
@@ -135,9 +144,10 @@ pub fn update_crosshair(
     *visibility = Visibility::Visible;
 }
 
-fn uses_custom_cursor(state: AppState) -> bool {
-    matches!(
-        state,
-        AppState::InGame | AppState::Paused | AppState::RewardSelect
-    )
+fn uses_custom_cursor(app: AppState, phase: Option<GamePhase>) -> bool {
+    app == AppState::InGame
+        && matches!(
+            phase,
+            Some(GamePhase::Playing | GamePhase::Paused | GamePhase::RewardSelect)
+        )
 }

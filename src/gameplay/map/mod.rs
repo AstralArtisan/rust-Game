@@ -11,7 +11,7 @@ use crate::coop::net::is_coop_authority;
 use crate::coop::runtime::is_coop_simulation_active;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId};
 use crate::gameplay::map::transitions::RoomTransition;
-use crate::states::{AppState, RoomState};
+use crate::states::{AppState, GamePhase, RoomState};
 use crate::utils::entity::safe_despawn_recursive;
 
 pub struct MapPlugin;
@@ -32,11 +32,13 @@ impl Plugin for MapPlugin {
             .add_systems(
                 Update,
                 track_visited_rooms.run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
             );
     }

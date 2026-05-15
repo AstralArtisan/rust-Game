@@ -19,7 +19,7 @@ use crate::gameplay::session_core::{
     apply_shop_purchase, build_shop_draft, next_refresh_cost as shared_next_refresh_cost,
     refresh_shop_draft,
 };
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 use crate::utils::rng::GameRng;
 
 pub struct ShopPlugin;
@@ -38,11 +38,11 @@ impl Plugin for ShopPlugin {
                     maybe_enter_shop_state,
                     open_shop_hotkey,
                 )
-                    .run_if(in_state(AppState::InGame)),
+                    .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             )
             .add_systems(
                 Update,
-                handle_shop_purchase_input.run_if(in_state(AppState::Shop)),
+                handle_shop_purchase_input.run_if(in_state(GamePhase::Shop)),
             );
     }
 }
@@ -194,7 +194,7 @@ pub fn maybe_enter_shop_state(
     mut seen: ResMut<ShopSeenRooms>,
     mut offers: ResMut<ShopOffers>,
     mut cache: ResMut<ShopOfferCache>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<NextState<GamePhase>>,
     data: Option<Res<GameDataRegistry>>,
     mut rng: ResMut<GameRng>,
     floor: Option<Res<FloorNumber>>,
@@ -238,14 +238,14 @@ pub fn maybe_enter_shop_state(
         floor_number,
         mods,
     );
-    next.set(AppState::Shop);
+    next.set(GamePhase::Shop);
 }
 
 pub fn open_shop_hotkey(
     input: Res<PlayerInputState>,
     mut offers: ResMut<ShopOffers>,
     mut cache: ResMut<ShopOfferCache>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<NextState<GamePhase>>,
     data: Option<Res<GameDataRegistry>>,
     mut rng: ResMut<GameRng>,
     floor: Option<Res<FloorNumber>>,
@@ -283,7 +283,7 @@ pub fn open_shop_hotkey(
         floor_number,
         mods,
     );
-    next.set(AppState::Shop);
+    next.set(GamePhase::Shop);
 }
 
 fn generate_shop_offers(
@@ -394,7 +394,7 @@ pub fn handle_shop_purchase_input(
     floor: Option<Res<FloorNumber>>,
     data: Option<Res<GameDataRegistry>>,
     mut rng: ResMut<GameRng>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<NextState<GamePhase>>,
     mut shop_purchase: EventWriter<ShopPurchaseEvent>,
     mut player_q: Query<
         (
@@ -417,7 +417,7 @@ pub fn handle_shop_purchase_input(
     // successful purchase, trapping a player who has no gold or wants to
     // leave. Offers/cache are preserved so re-entering shows the same state.
     if keyboard.just_pressed(KeyCode::Escape) {
-        next.set(AppState::InGame);
+        next.set(GamePhase::Playing);
         return;
     }
 
@@ -523,7 +523,7 @@ pub fn handle_shop_purchase_input(
     }
 
     shop_purchase.send(ShopPurchaseEvent);
-    next.set(AppState::InGame);
+    next.set(GamePhase::Playing);
 }
 
 fn build_shop_lines_from_draft(

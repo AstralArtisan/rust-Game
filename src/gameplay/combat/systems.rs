@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::coop::net::is_coop_authority;
 use crate::coop::runtime::is_coop_simulation_active;
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 use super::{damage, hitbox, projectiles};
 
@@ -23,11 +23,13 @@ impl Plugin for CombatSystemsPlugin {
                 hitbox::despawn_expired_hitboxes,
             )
                 .run_if(
-                    in_state(AppState::InGame).or_else(
-                        in_state(AppState::CoopGame)
-                            .and_then(is_coop_authority)
-                            .and_then(is_coop_simulation_active),
-                    ),
+                    in_state(AppState::InGame)
+                        .or_else(
+                            in_state(AppState::CoopGame)
+                                .and_then(is_coop_authority)
+                                .and_then(is_coop_simulation_active),
+                        )
+                        .and_then(in_state(GamePhase::Playing)),
                 ),
         );
     }

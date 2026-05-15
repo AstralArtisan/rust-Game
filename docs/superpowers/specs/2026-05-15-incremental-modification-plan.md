@@ -46,7 +46,7 @@ based_on: docs/superpowers/specs/2026-04-29-full-refactor-implementation-plan.md
 4. **奖励房 Back/Esc 软锁** `src/gameplay/rewards/systems.rs:398-413` — Back 重建圣所但 `flow.step` 仍 `Sanctuary`，可无限重选不结算、不发 `RoomClearedEvent`。修正 Back 语义，保唯一收敛出口。
 5. **圣所空池软锁** `src/gameplay/rewards/systems.rs:567-581` — 无可升级且无觉醒项时 UI 仍显示"觉醒"但选择无效 → 卡死。空池给保底。
 6. **商店无 Esc / 双购 / 楼层重置残留** `src/gameplay/shop/mod.rs:390-519`(无 Esc 退出)、`:518`(同帧双输入双扣)、`:83-102`(楼层重置不强制回 InGame)。加 Esc 退出、输入去抖、楼层重置状态收敛。
-7. **progression/skills 不在 coop 运行** `src/gameplay/progression/mod.rs:26`、`src/gameplay/skills/mod.rs:38` — `.run_if(in_state(AppState::InGame))` 排除 CoopGame。Phase 2 状态机迁移根治；Phase 1 可先放宽为 InGame||CoopGame 止血。
+7. **progression/skills 不在 coop 运行** `src/gameplay/progression/mod.rs:26`、`src/gameplay/skills/mod.rs:38` — `.run_if(in_state(AppState::InGame))` 排除 CoopGame。**已重新定位到 Phase 5**：正确启用需 coop 主机权威门控（`is_coop_authority`），朴素放宽会让 coop client 跑单机楼层/升级并与 coop runtime 冲突 desync；Phase 2 仅做行为保持改写（保持单机门控），根治随 Phase 5 coop 成长统一一起做。
 8. **RoomState 不是状态** `src/states.rs:28-35` — 普通 Resource，无 OnEnter/OnExit、Cleared 不锁门。Phase 2 迁 `RoomPhase` SubState 根治；Phase 1 先补关键 cleanup/锁门防重入。
 9. **强化封顶 2 层** `src/gameplay/augment/data.rs:77` — `.min(2)`，spec 要 3 层质变。Phase 3 处理（列此备查）。
 
@@ -55,19 +55,32 @@ based_on: docs/superpowers/specs/2026-04-29-full-refactor-implementation-plan.md
 | 阶段 | 内容 | 性质 |
 |---|---|---|
 | **Phase 1** | Bug 1-8 修复 + 不合理设计纠正（撤销升级/目录重排、统一矛盾口径） | 修 bug，状态机无关项就地修 |
-| **Phase 2** | 三层状态机：AppState 瘦身 → `GamePhase` SubState(源 InGame+CoopGame)、`RoomState`→`RoomPhase` SubState(源 Playing)；progression/skills 解除 InGame 限制 | 基础架构迁移 |
+| **Phase 2**（已细化） | **仅 AppState→GamePhase 一层**：AppState 瘦身，覆盖层移入 `GamePhase`（manual SubStates，源 InGame\|CoopGame）。`in_state(AppState::InGame)` 网关做**行为保持式**改写为 `in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))`，使覆盖层正确暂停玩法且语义与现状完全等价。**RoomState 保持 Resource 不变**；**不动 coop CoopPhase** | 基础架构迁移 |
+| **Phase 2b（延后）** | RoomState→RoomPhase 房间流程语义重设计（同帧写后读、BossFight 变体、coop 主机权威），可并入 Phase 5 | 语义重设计 |
 | **Phase 3** | 单机内容对齐 spec：强化 2→3 层+质变；9 终结技；事件房→17；圣所对称三选一；商店三区；+Lobber 与 charger/bomber/shielder 重做；Boss 削弱项；掉落/经济；XP 曲线 | 内容扩充 |
 | **Phase 4** | 难度缩放、NG+ 5 级+难度档、存档 UI、成就/图鉴/设置界面 | 内容扩充 |
 | **Phase 5** | **coop 完全重写**：拆 god 文件为 coop/ 子模块；成长并入单机共享路径（删 CoopRewardMode）；合作缩放；事件房在 coop 保留 | 架构重写（就地） |
 | **Phase 6** | PVP 模块化（net/arena/visuals/ui 拆分），规则保持轻量原型 | 小幅 |
 | **Phase 7（延后）** | 像素美术、UI 精细化、视觉特效 | 末期，先功能后美术 |
 
-风险缓解：Phase 1 只选**状态机无关** bug 就地修；耦合项（#7 #8）最小止血，Phase 2 根治，避免返工。
+风险缓解：Phase 1 只选**状态机无关** bug 就地修；#8（RoomState）延后 Phase 2b；#7（progression/skills coop）重新定位 Phase 5（需 coop 主机权威门控）。
 
 ## 四、各系统修改规格（现状 → 目标 → 改法 → 影响文件）
 
-### 4.1 三层状态机（Phase 2）
-现状：扁平 `AppState`(~18 变体，`src/states.rs:4-26`)+`RoomState`(Resource)。目标：`AppState`{Loading,MainMenu,InGame,Coop*,Pvp*}；`GamePhase`(SubState 源 InGame|CoopGame){Playing,Paused,LevelUp,AugmentSelect,RewardSelect,Shop,EventRoom,BossChest,GameOver,Victory}；`RoomPhase`(SubState 源 Playing){Entering,Active,Cleared,Exiting}。改法：`#[derive(SubStates)]`+`add_sub_state`；降级覆盖层为 GamePhase；全仓 `in_state` 调整层级；progression/skills 改 `in_state(GamePhase::Playing)` 自然覆盖 coop。影响：`src/states.rs`、`src/app.rs`、`src/gameplay/mod.rs`、所有 `in_state/OnEnter/OnExit`、`src/core/save.rs`、`src/coop/*`、`src/ui/*`。
+### 4.1 三层状态机（Phase 2，已细化为仅第一层）
+现状：扁平 `AppState`(19 变体，`src/states.rs:4-26`)+`RoomState`(Resource，4 变体含 BossFight)。
+
+**Phase 2 实际范围**：只做 AppState→GamePhase。
+- `AppState` 留：Loading, MainMenu, InGame, MultiplayerMenu, CoopMenu, CoopLobby, CoopGame, PvpMenu, PvpLobby, PvpGame, PvpResult。
+- `GamePhase`：**manual `impl SubStates`**（`type SourceStates = Option<AppState>`，`should_exist` 对 `Some(InGame)|Some(CoopGame)` 返回 `Some(Playing)`，否则 `None`），变体 = 现有覆盖层同名 `{Playing(default), Paused, RewardSelect, AugmentSelect, LevelUpSelect, Shop, EventRoom, GameOver, Victory}`（沿用原名以最小化迁移；`BossChest` 等 Phase 3 内容到时再加，避免空壳变体）。
+- 注册：`app.add_sub_state::<GamePhase>()`（manual impl + `States` + `FreelyMutableState`）。
+- 迁移要点：`in_state(AppState::Shop)` → `in_state(GamePhase::Shop)`；写覆盖层的系统 `NextState<AppState>`→`NextState<GamePhase>`；**"从覆盖层返回游戏"语义** `set(AppState::InGame)` → `set(GamePhase::Playing)`，而"从菜单进入游戏" `set(AppState::InGame)` 保持不变——需按每处意图判断，非纯 find-replace。
+- progression/skills 与其余玩法 `in_state(AppState::InGame)` 一律做**行为保持式**改写 `in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))`（仍单机门控，覆盖层正确暂停玩法，coop 不变）。Bug#7（progression/skills 进 coop）**不在 Phase 2**，重新定位 Phase 5。
+- 含 PvpGame/menu 的复合 run 条件只对 InGame 分支加 `.and_then(GamePhase::Playing)`（PvpGame 下无 GamePhase）；`core/input.rs` 输入采集是基础设施，覆盖层也需读输入，**不门控**。
+
+**不在 Phase 2**：`RoomState` 保持 Resource 原样（语义重设计风险，见 Phase 2b）；coop `CoopPhase` 不动，coop 下 GamePhase 维持 `Playing`，coop 模态仍走 CoopPhase（统一留 Phase 5）。
+
+影响：`src/states.rs`、`src/app.rs`、`src/gameplay/mod.rs`、所有 `in_state/OnEnter/OnExit` 覆盖层引用、`src/core/save.rs`、`src/ui/*`、`src/gameplay/{progression,skills,event_room,rewards,shop,...}`。RoomState 相关引用与 coop CoopPhase 不动。
 
 ### 4.2 伤害管线（Phase 3）
 现状散在 `player/combat.rs`、`enemy/systems.rs`、`enemy/boss.rs`。目标 spec §3.3 五阶段 Event 链（immunity→shield→modifier→apply→post）。改法：现有 combat 内抽 System 链（不新建 combat/ 目录），强化/Boss 修正以组件标记参与 modifier，去 if-else 硬编码。

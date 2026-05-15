@@ -15,7 +15,7 @@ use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::progression::experience::PlayerLevel;
 use crate::gameplay::session_core::{DeathDecision, SessionMode, evaluate_death};
-use crate::states::{AppState, RoomState};
+use crate::states::{GamePhase, RoomState};
 use crate::utils::math::{clamp_in_room, clamp_length};
 
 use super::animation::PlayerAnim;
@@ -245,12 +245,12 @@ pub fn player_invincibility_system(
 pub fn player_death_system(
     mut death_events: EventReader<DeathEvent>,
     player_q: Query<Entity, (With<Player>, Without<Replicated>)>,
-    mut next_state: ResMut<NextState<AppState>>,
+    mut next_state: ResMut<NextState<GamePhase>>,
 ) {
     for ev in death_events.read() {
         if player_q.iter().any(|player_e| ev.entity == player_e) {
             if evaluate_death(SessionMode::Solo, 0) == DeathDecision::GameOver {
-                next_state.set(AppState::GameOver);
+                next_state.set(GamePhase::GameOver);
             }
             return;
         }
