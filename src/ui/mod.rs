@@ -43,6 +43,7 @@ impl Plugin for UiPlugin {
             .add_systems(OnEnter(AppState::InGame), hud::setup_hud)
             .add_systems(OnEnter(AppState::CoopGame), hud::setup_hud)
             .add_systems(OnEnter(AppState::RewardSelect), hud::setup_hud)
+            .add_systems(OnEnter(AppState::EventRoom), event_room::setup_event_room_ui)
             .add_systems(
                 Update,
                 (
@@ -50,7 +51,6 @@ impl Plugin for UiPlugin {
                     hud::update_health_text,
                     hud::update_experience_bar,
                     hud::update_experience_text,
-                    hud::update_rune_and_curse_ui,
                     hud::update_gold_text,
                     hud::update_energy_text,
                     hud::update_dash_cooldown_ui,
@@ -71,6 +71,7 @@ impl Plugin for UiPlugin {
             .add_systems(OnExit(AppState::InGame), hud::cleanup_hud)
             .add_systems(OnExit(AppState::CoopGame), hud::cleanup_hud)
             .add_systems(OnExit(AppState::RewardSelect), hud::cleanup_hud)
+            .add_systems(OnExit(AppState::EventRoom), event_room::cleanup_event_room_ui)
             .add_systems(Update, pause::toggle_pause)
             .add_systems(OnEnter(AppState::Paused), pause::setup_pause_menu)
             .add_systems(

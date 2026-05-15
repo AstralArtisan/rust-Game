@@ -8,31 +8,36 @@ use crate::data::definitions::*;
 use crate::data::registry::GameDataRegistry;
 
 pub fn load_all_configs(mut commands: Commands) {
-    let registry = match try_load_all() {
-        Ok(r) => r,
-        Err(err) => {
-            warn!("Failed to load configs from assets/configs/*.ron, using defaults: {err:?}");
-            default_registry()
-        }
+    // Per-file fallback: a single malformed RON only reverts that one config to
+    // its built-in default, not the entire registry. The failing file is named
+    // in the warning so it can be located.
+    let defaults = default_registry();
+    let registry = GameDataRegistry {
+        player: load_or_default("assets/configs/player.ron", defaults.player),
+        enemies: load_or_default("assets/configs/enemies.ron", defaults.enemies),
+        bosses: load_or_default("assets/configs/boss.ron", defaults.bosses),
+        rewards: load_or_default("assets/configs/rewards.ron", defaults.rewards),
+        rooms: load_or_default("assets/configs/rooms.ron", defaults.rooms),
+        balance: load_or_default("assets/configs/game_balance.ron", defaults.balance),
+        augments: load_or_default("assets/configs/augments.ron", defaults.augments),
+        audio: load_or_default("assets/configs/audio.ron", defaults.audio),
+        effects: load_or_default("assets/configs/effects.ron", defaults.effects),
     };
     commands.insert_resource(registry);
 }
 
-fn try_load_all() -> Result<GameDataRegistry> {
-    Ok(GameDataRegistry {
-        player: load_ron("assets/configs/player.ron")?,
-        enemies: load_ron("assets/configs/enemies.ron")?,
-        bosses: load_ron("assets/configs/boss.ron")?,
-        rewards: load_ron("assets/configs/rewards.ron")?,
-        runes: load_ron("assets/configs/runes.ron")?,
-        curses: load_ron("assets/configs/curses.ron")?,
-        rooms: load_ron("assets/configs/rooms.ron")?,
-        balance: load_ron("assets/configs/game_balance.ron")?,
-        augments: load_ron("assets/configs/augments.ron")
-            .unwrap_or(AugmentsConfig { augments: vec![] }),
-        audio: load_ron("assets/configs/audio.ron").unwrap_or_default(),
-        effects: load_ron("assets/configs/effects.ron").unwrap_or_default(),
-    })
+fn load_or_default<T: serde::de::DeserializeOwned>(path: impl AsRef<Path>, fallback: T) -> T {
+    let path = path.as_ref();
+    match load_ron::<T>(path) {
+        Ok(value) => value,
+        Err(err) => {
+            warn!(
+                "config load failed for {}; using built-in default for this file only: {err:?}",
+                path.display()
+            );
+            fallback
+        }
+    }
 }
 
 pub fn load_ron<T: serde::de::DeserializeOwned>(path: impl AsRef<Path>) -> Result<T> {
@@ -186,8 +191,6 @@ fn default_registry() -> GameDataRegistry {
             rewards: vec![],
             scaling: RewardScalingConfig::default_config(),
         },
-        runes: RunesConfig { runes: vec![] },
-        curses: CursesConfig { curses: vec![] },
         rooms: RoomGenConfig {
             room_sequence: vec![],
         },
@@ -203,6 +206,7 @@ fn default_registry() -> GameDataRegistry {
             elite_hp_mult: 2.0,
             elite_damage_mult: 1.55,
             elite_gold_bonus: 5,
+            use_sprite_textures: true,
         },
         augments: AugmentsConfig { augments: vec![] },
         audio: AudioConfig::default(),

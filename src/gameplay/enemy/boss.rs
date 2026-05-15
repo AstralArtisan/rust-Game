@@ -17,9 +17,10 @@ use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
 use crate::gameplay::enemy::components::{
     BossArchetype, BossCoreShield, BossCycleState, BossDecoy, BossDirectionalDefense,
     BossPatternTimer, BossPhase, BossSubCore, BossSummoned, EnemyKind, EnemyStats, EnemyType,
-    GuardianShieldIndicator, ShadowTrail, TeamMarker, TideHunterPhase, TideHunterState,
+    GuardianShieldIndicator, ShadowTrail, TideHunterPhase, TideHunterState,
 };
 use crate::gameplay::map::InGameEntity;
+use crate::gameplay::player::components::TeamMarker;
 use crate::gameplay::player::components::{DashState, Health, Player, Velocity};
 use crate::ui::tutorial::{TutorialFlags, TutorialNotification};
 use crate::utils::math::direction_to;

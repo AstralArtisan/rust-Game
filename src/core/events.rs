@@ -4,7 +4,6 @@ use bevy::prelude::*;
 
 use crate::gameplay::combat::components::{DamageKind, Team};
 use crate::gameplay::map::room::RoomId;
-use crate::gameplay::rewards::data::RewardType;
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct DamageEvent {
@@ -39,19 +38,6 @@ pub struct DeathEvent {
 #[derive(Event, Debug, Clone, Copy)]
 pub struct RoomClearedEvent {
     pub room: RoomId,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RewardChoiceGroup {
-    Heal,
-    Primary,
-    Secondary,
-}
-
-#[derive(Event, Debug, Clone, Copy)]
-pub struct RewardChosenEvent {
-    pub reward: RewardType,
-    pub group: RewardChoiceGroup,
 }
 
 #[allow(dead_code)]
@@ -115,7 +101,6 @@ impl Plugin for EventsPlugin {
             .add_event::<DamageAppliedEvent>()
             .add_event::<DeathEvent>()
             .add_event::<RoomClearedEvent>()
-            .add_event::<RewardChosenEvent>()
             .add_event::<DoorOpenEvent>()
             .add_event::<SpawnEnemyEvent>()
             .add_event::<BossPhaseChangeEvent>()

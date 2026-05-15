@@ -1,198 +1,146 @@
 # 架构修改建议
 
-> 基于 2026-04-11 代码审查，记录当前架构中发现的问题和重构建议。
-> 这些问题不影响运行，但会增加维护成本，建议后续迭代中逐步修复。
+> 基于 2026-04-11 的代码现状，记录已经完成的架构收口，以及仍然
+> 存在的后续技术债。
 
 ---
 
-## 问题 1: 铭文系统（Rune）残留代码未清理
+## 已完成
 
-**严重程度**：高——设计已移除铭文，但代码和配置完全保留
+### 1. 旧 `Rune / Blessing / Curse` 单机链路已移除
+
+- 已删除 `gameplay/rune/` 模块与 `assets/configs/runes.ron`
+- 已删除单机 `Curse` 模块与 `assets/configs/curses.ron`
+- `GameDataRegistry` 不再包含 `runes` / `curses`
+- 玩家实体不再挂载 `RuneLoadout` / `CurseState`
+- 单机奖励房不再进入旧祝福祠堂，而是改为“圣所房”
+- HUD 不再显示诅咒状态
+- 商店不再提供移除诅咒工具
+- 事件房已删除 `CurseAltar`
+
+结论：单机成长路线现在统一为 `经验升级 + 强化组合`。
+
+### 2. 插件注册位置已归位
+
+- `AugmentPlugin` 已移入 `GameplayPlugin`
+- 顶层 `GamePlugin` 不再直接注册旧的 `RunePlugin` / `CursePlugin`
+
+### 3. EventRoom UI 已从顶层收回
+
+- 事件房 UI 的 `OnEnter/OnExit` 注册已移入 `UiPlugin`
+- `app.rs` 不再直接挂事件房 UI 系统
+
+### 4. `TeamMarker` 重复定义已收口
+
+- 删除了敌方那份未使用的重复定义
+- 当前只保留玩家侧有效定义
+
+---
+
+## 当前事实
+
+### 1. 单机奖励房的定位
+
+`Reward` 房已重做为低频、安全、无战斗的“圣所房”：
+
+- 所有楼层都可出现
+- 每层最多 1 个
+- 进入后直接进入 `RewardSelect`
+- 提供 3 项固定服务：`疗愈`、`淬炼/觉醒`、`启示`
+
+这使奖励房和 `Shop`、`Event`、普通战斗房形成了明确分工：
+
+- `Shop`：消费节点
+- `Event`：风险交换节点
+- `Reward`：安全整备节点
+
+### 2. 单机与 Coop 的奖励架构已显式分叉
+
+当前项目中：
+
+- 单机主线已经是 `XP -> LevelUpSelect` + `AugmentSelect` + `圣所房`
+- `Coop` 仍保留独立的旧奖励阶段、旧商店语义和旧选择模型
+
+这不是 bug，而是当前明确存在的架构分叉。
+
+---
+
+## 剩余技术债
+
+### 问题 1：Coop 奖励体系仍未与单机统一
+
+**严重程度**：高
 
 **现象**：
-项目中仍有 14 个源文件和 1 个配置文件引用铭文系统：
 
-| 文件 | 残留内容 |
-|------|----------|
-| `src/gameplay/rune/mod.rs` | RunePlugin（空壳 Plugin） |
-| `src/gameplay/rune/data.rs` | RuneId（31 种）、RuneSlot、RuneTier、RuneLoadout 完整定义 |
-| `src/gameplay/session_core/mod.rs` | BlessingOffer 引用 RuneId/RuneSlot/RuneTier，祝福祠堂逻辑 |
-| `src/gameplay/rewards/systems.rs` | 祝福祠堂生成逻辑引用铭文 |
-| `src/gameplay/player/systems.rs` | 玩家生成时初始化 RuneLoadout 组件 |
-| `src/data/definitions.rs` | RunesConfig 结构定义 |
-| `src/data/loaders.rs` | 加载 runes.ron 的逻辑 |
-| `src/data/registry.rs` | GameDataRegistry 包含 `runes: RunesConfig` 字段 |
-| `src/ui/reward_select.rs` | 祝福选择 UI 引用铭文数据 |
-| `src/ui/hud.rs` | HUD 引用铭文 |
-| `src/app.rs` | 注册 RunePlugin |
-| `src/gameplay/mod.rs` | 声明 `pub mod rune` |
-| `src/gameplay/augment/data.rs` | 可能有交叉引用 |
-| `assets/configs/runes.ron` | 31 个铭文的完整配置文件 |
+- 单机已切到 `经验升级 + 强化组合 + 圣所房`
+- `Coop` 仍使用独立的 `CoopRewardMode / CoopRewardOption / CoopShopItem`
+- `session_core` 已明显偏向单机商店与 Boss 结算，不再承担完整单双机共享奖励草案
+
+**影响**：
+
+- 后续调整成长体验时，需要同时改两套规则
+- 文档层和代码层都存在“奖励语义并不统一”的事实
 
 **建议**：
-1. 删除 `src/gameplay/rune/` 整个目录
-2. 删除 `assets/configs/runes.ron`
-3. 从 `GameDataRegistry` 移除 `runes` 字段
-4. 从 `data/definitions.rs` 移除 `RunesConfig`
-5. 从 `data/loaders.rs` 移除铭文加载逻辑
-6. 清理 `session_core`、`rewards/systems.rs`、`player/systems.rs`、UI 中的铭文引用
-7. 从 `app.rs` 移除 `RunePlugin` 注册
-8. 重新审视祝福祠堂逻辑——如果铭文移除后祝福祠堂也不再需要，一并清理
 
-**注意**：这是一个涉及 14 个文件的清理任务，建议单独开一个分支处理，完成后跑 `cargo check` + `cargo test` 验证。
+后续单开一轮，将 `Coop` 的奖励/商店阶段逐步对齐到单机新架构，至少先统一：
 
----
+1. 奖励来源语义
+2. 商店商品语义
+3. 关卡推进后的成长反馈
 
-## 问题 2: 插件注册位置不一致
+### 问题 2：`session_core` 仍承担过多职责
 
 **严重程度**：中
 
 **现象**：
-`AugmentPlugin`、`RunePlugin`、`CursePlugin` 在 `src/app.rs:51-55` 的 `GamePlugin` 中注册：
 
-```rust
-// app.rs — GamePlugin::build()
-.add_plugins((
-    crate::gameplay::augment::AugmentPlugin,
-    crate::gameplay::rune::RunePlugin,
-    crate::gameplay::curse::CursePlugin,
-));
-```
-
-而它们是 `gameplay/` 的子模块，其他同级模块（MapPlugin、PlayerPlugin、CombatPlugin 等）都在 `gameplay/mod.rs` 的 `GameplayPlugin` 中注册。
+- 当前 `session_core` 已大幅收窄，但仍同时承载：
+  - Boss 清房结算决策
+  - 死亡判定
+  - 商店草案生成
+  - 商店购买应用
 
 **影响**：
-- 破坏了层级一致性：gameplay 子模块跳过 GameplayPlugin 直接挂在顶层
-- 新维护者看 `GameplayPlugin` 时会以为这三个模块没有被注册
-- 后续如果要统一管理 gameplay 插件的启停，这三个会被遗漏
+
+- 规则层仍然偏“大文件集中式”
+- 继续扩展时容易再次膨胀
 
 **建议**：
-将这三个插件移入 `gameplay/mod.rs` 的 `GameplayPlugin::build()` 中：
 
-```rust
-// gameplay/mod.rs
-impl Plugin for GameplayPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_plugins((
-            map::MapPlugin,
-            progression::ProgressionPlugin,
-            combat::CombatPlugin,
-            player::PlayerPlugin,
-            skills::SkillsPlugin,
-            enemy::EnemyPlugin,
-            rewards::RewardsPlugin,
-            effects::EffectsPlugin,
-            puzzle::PuzzlePlugin,
-            event_room::EventRoomPlugin,
-            shop::ShopPlugin,
-            drops::DropPlugin,
-            augment::AugmentPlugin,  // 从 app.rs 移入
-            curse::CursePlugin,      // 从 app.rs 移入
-        ))
-        // ...
-    }
-}
-```
+后续如果继续扩商店或奖励房，优先拆成：
 
----
+- `rules`
+- `shop`
+- `death`
 
-## 问题 3: EventRoom UI 系统泄漏到顶层
+三个更小的子文件。
+
+### 问题 3：文档层仍有较多历史快照描述
 
 **严重程度**：中
 
 **现象**：
-`app.rs:44-49` 直接注册了事件房 UI 的 setup/cleanup 系统：
 
-```rust
-// app.rs — GamePlugin::build()
-.add_systems(OnEnter(AppState::EventRoom), ui::event_room::setup_event_room_ui)
-.add_systems(OnExit(AppState::EventRoom), ui::event_room::cleanup_event_room_ui)
-```
-
-**影响**：
-- 事件房有自己的 `EventRoomPlugin`，这两个系统应该在那里注册
-- 散落在 `GamePlugin` 中增加了理解成本
+- 部分文档仍描述旧铭文/诅咒/祝福祠堂
+- 部分文档仍把单机和 Coop 的奖励体系写成统一语义
 
 **建议**：
-将这两个系统移入 `EventRoomPlugin::build()` 或 `UiPlugin::build()` 中，从 `app.rs` 删除。
+
+继续清理文档中的历史快照，优先同步：
+
+1. 架构图
+2. 模块说明
+3. 数据模型说明
+4. 扩展指南
 
 ---
 
-## 问题 4: TeamMarker 重复定义
+## 优先级
 
-**严重程度**：低
-
-**现象**：
-两个文件各自定义了相同的 `TeamMarker`：
-- `src/gameplay/player/components.rs:600` — `pub struct TeamMarker(pub Team);`
-- `src/gameplay/enemy/components.rs:106` — `pub struct TeamMarker(pub Team);`
-
-两处都标了 `#[allow(dead_code)]`。
-
-**影响**：
-- 两个同名但不同类型（不同模块路径），容易混淆
-- 如果未来需要统一使用 TeamMarker，会产生歧义
-
-**建议**：
-统一到 `src/gameplay/combat/components.rs` 中（Team 枚举已在此定义），删除 player 和 enemy 中的重复定义。如果确认未使用，直接删除两处。
-
----
-
-## 问题 5: 大量模块级 `#![allow(dead_code)]`
-
-**严重程度**：低
-
-**现象**：
-以下文件在模块顶部使用了 `#![allow(dead_code)]`，抑制整个模块的未使用代码警告：
-- `src/gameplay/session_core/mod.rs`
-- `src/gameplay/player/components.rs`（部分项）
-- `src/gameplay/enemy/components.rs`
-- `src/core/events.rs`
-- `src/data/registry.rs`
-
-**影响**：
-- 掩盖了真正未使用的代码（比如铭文相关的残留）
-- 新增代码如果未被使用，也不会收到编译器警告
-
-**建议**：
-1. 逐步将 `#![allow(dead_code)]` 替换为精确的 `#[allow(dead_code)]` 标注到具体项
-2. 对于确实未使用的代码，评估是否应该删除
-3. 优先处理 `session_core/mod.rs`——它是规则核心，不应该有大量死代码
-
----
-
-## 问题 6: session_core 单文件过大
-
-**严重程度**：低
-
-**现象**：
-`src/gameplay/session_core/mod.rs` 约 1200 行，包含：
-- 规则数据结构定义（SessionRuleContext、RewardDraft、ShopDraft 等）
-- 决策函数（on_room_enter、on_room_cleared、on_death 等）
-- 商店逻辑（generate_shop、apply_shop_purchase 等）
-- 祝福/铭文逻辑（generate_blessing_offers 等）
-- 全部单元测试（约 400 行）
-
-**建议**：
-拆分为多个文件：
-```
-session_core/
-├── mod.rs        → 重导出 + SessionRuleContext
-├── types.rs      → 数据结构定义
-├── rules.rs      → 房间/死亡/奖励决策函数
-├── shop.rs       → 商店生成和购买逻辑
-└── tests.rs      → 单元测试
-```
-
----
-
-## 执行优先级
-
-| 优先级 | 问题 | 理由 |
-|--------|------|------|
-| P0 | 铭文残留清理 | 设计已移除但代码完全保留，是最大的代码/设计不一致 |
-| P1 | 插件注册位置 | 简单移动，立即改善架构一致性 |
-| P1 | EventRoom UI 泄漏 | 同上 |
-| P2 | TeamMarker 重复 | 小改动，顺手修 |
-| P2 | dead_code 清理 | 配合铭文清理一起做 |
-| P3 | session_core 拆分 | 工作量较大，可在后续迭代中进行 |
+| 优先级 | 项目 | 理由 |
+| --- | --- | --- |
+| P1 | 文档收口 | 避免继续误导后续维护 |
+| P1 | Coop 奖励分叉标债 | 当前最大真实架构分叉 |
+| P2 | `session_core` 再拆分 | 提前防止规则层再次膨胀 |

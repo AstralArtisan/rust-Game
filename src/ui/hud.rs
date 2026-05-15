@@ -7,7 +7,6 @@ use crate::coop::components::{CoopSessionState, LocalControlled};
 use crate::coop::net::{CoopNetConfig, NetMode};
 use crate::core::assets::GameAssets;
 use crate::data::registry::GameDataRegistry;
-use crate::gameplay::curse::CurseState;
 use crate::gameplay::enemy::components::Enemy;
 use crate::gameplay::enemy::components::{EnemyKind, EnemyType};
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
@@ -58,9 +57,6 @@ pub struct SkillSlotKey(pub SkillSlot);
 
 #[derive(Component)]
 pub struct FloorText;
-
-#[derive(Component)]
-pub struct CurseStatusText;
 
 #[derive(Component)]
 pub struct ExperienceFill;
@@ -171,10 +167,6 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                 col.spawn((
                     widgets::title_text(&assets, "HP: 100 / 100", 15.0),
                     HealthText,
-                ));
-                col.spawn((
-                    widgets::body_text(&assets, "诅咒：无", 13.0),
-                    CurseStatusText,
                 ));
                 // Experience bar
                 col.spawn((widgets::title_text(&assets, "Lv.1", 16.0), LevelText));
@@ -495,50 +487,6 @@ pub fn update_experience_text(
     }
     if let Ok(mut text) = level_q.get_single_mut() {
         text.sections[0].value = format!("Lv.{}", lvl.level);
-    }
-}
-
-pub fn update_rune_and_curse_ui(
-    data: Option<Res<GameDataRegistry>>,
-    player_q: Query<Option<&CurseState>, (With<Player>, With<LocalControlled>)>,
-    mut curse_text_q: Query<&mut Text, With<CurseStatusText>>,
-) {
-    let Ok(curse_state) = player_q.get_single() else {
-        return;
-    };
-
-    let Ok(mut curse_text) = curse_text_q.get_single_mut() else {
-        return;
-    };
-    let active = curse_state
-        .map(|state| {
-            state
-                .active
-                .iter()
-                .map(|curse| {
-                    let title = data
-                        .as_deref()
-                        .and_then(|registry| {
-                            registry
-                                .curses
-                                .curses
-                                .iter()
-                                .find(|config| config.id == curse.curse)
-                        })
-                        .map(|config| config.title.as_str())
-                        .unwrap_or("未知");
-                    format!("{title} ({})", curse.rooms_remaining)
-                })
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    if active.is_empty() {
-        curse_text.sections[0].value = "诅咒：无".to_string();
-        curse_text.sections[0].style.color = Color::srgb(0.74, 0.78, 0.86);
-    } else {
-        curse_text.sections[0].value = format!("诅咒：{}", active.join(" · "));
-        curse_text.sections[0].style.color = Color::srgb(0.96, 0.48, 0.48);
     }
 }
 

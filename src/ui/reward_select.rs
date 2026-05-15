@@ -1,18 +1,10 @@
 use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
-use crate::core::events::{RewardChoiceGroup, RewardChosenEvent};
-use crate::data::definitions::RewardScalingConfig;
-use crate::data::registry::GameDataRegistry;
-use crate::gameplay::player::components::{Health, Player, RewardModifiers};
-use crate::gameplay::progression::floor::FloorNumber;
-use crate::gameplay::rewards::apply::heal_amount;
-use crate::gameplay::rewards::data::RewardType;
+use crate::gameplay::augment::data::AugmentRarity;
 use crate::gameplay::rewards::systems::{
-    BlessingFlow, BlessingPendingAction, BlessingUiAction, RewardChoices, RewardFlow,
-    RewardFlowMode,
+    RewardFlow, RewardFlowStep, RewardPendingAction, RewardRoomAugmentService, RewardUiAction,
 };
-use crate::gameplay::rune::data::{RuneSlot, RuneTier};
 use crate::ui::widgets;
 use crate::utils::entity::safe_despawn_recursive;
 
@@ -20,57 +12,31 @@ use crate::utils::entity::safe_despawn_recursive;
 pub struct RewardUi;
 
 #[derive(Component, Debug, Clone, Copy)]
-pub struct RewardButton {
-    pub reward: RewardType,
-    pub group: RewardChoiceGroup,
-}
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct BlessingButton {
+pub struct RewardActionButton {
     pub index: usize,
 }
 
 #[derive(Component)]
-pub struct BlessingLeaveButton;
+pub struct RewardBackButton;
 
 pub fn setup_reward_ui(
     mut commands: Commands,
     assets: Res<GameAssets>,
-    choices: Res<RewardChoices>,
-    blessing_flow: Res<BlessingFlow>,
     flow: Res<RewardFlow>,
-    floor: Option<Res<FloorNumber>>,
-    registry: Option<Res<GameDataRegistry>>,
-    player_q: Query<(&RewardModifiers, &Health), With<Player>>,
 ) {
-    let (mods, health) = player_q
-        .get_single()
-        .map(|(mods, health)| (*mods, *health))
-        .unwrap_or((
-            RewardModifiers::default(),
-            Health {
-                current: 100.0,
-                max: 100.0,
-            },
-        ));
-
-    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let scaling = registry
-        .as_ref()
-        .map(|d| d.rewards.scaling.clone())
-        .unwrap_or_else(RewardScalingConfig::default_config);
-    let heal_value = heal_amount(&scaling, health.max, floor_number);
-
     commands
         .spawn((widgets::root_node(), RewardUi, Name::new("RewardRoot")))
         .with_children(|root| {
-            root.spawn(widgets::panel_node(Color::srgba(0.02, 0.02, 0.03, 0.92)))
-                .with_children(|panel| match flow.mode {
-                    RewardFlowMode::Blessing => {
-                        panel.spawn(widgets::title_text(&assets, "祝福祠堂", 30.0));
+            root.spawn(widgets::panel_node(Color::srgba(0.04, 0.04, 0.06, 0.94)))
+                .with_children(|panel| match &flow.step {
+                    RewardFlowStep::Inactive => {
+                        panel.spawn(widgets::title_text(&assets, "圣所", 30.0));
+                    }
+                    RewardFlowStep::Sanctuary(draft) => {
+                        panel.spawn(widgets::title_text(&assets, "圣所", 30.0));
                         panel.spawn(widgets::title_text(
                             &assets,
-                            "按 1 / 2 接受祝福与诅咒，或按 Esc 离开",
+                            "选择一项整备服务，完成后继续前进",
                             16.0,
                         ));
                         panel
@@ -78,282 +44,120 @@ pub fn setup_reward_ui(
                                 style: Style {
                                     column_gap: Val::Px(18.0),
                                     align_items: AlignItems::FlexStart,
+                                    margin: UiRect::top(Val::Px(12.0)),
                                     ..default()
                                 },
                                 ..default()
                             })
                             .with_children(|row| {
-                                for (index, offer) in
-                                    blessing_flow.offers.iter().take(2).enumerate()
-                                {
-                                    spawn_blessing_card(row, &assets, index, offer);
-                                }
-                            });
-                        panel
-                            .spawn((
-                                ButtonBundle {
-                                    style: Style {
-                                        width: Val::Px(280.0),
-                                        height: Val::Px(48.0),
-                                        justify_content: JustifyContent::Center,
-                                        align_items: AlignItems::Center,
-                                        margin: UiRect::top(Val::Px(6.0)),
-                                        ..default()
-                                    },
-                                    background_color: BackgroundColor(Color::srgb(
-                                        0.38, 0.18, 0.18,
-                                    )),
-                                    ..default()
-                                },
-                                BlessingLeaveButton,
-                            ))
-                            .with_children(|button| {
-                                button.spawn(widgets::title_text(&assets, "[Esc] 离开", 18.0));
-                            });
-                    }
-                    RewardFlowMode::SingleBuff => {
-                        panel.spawn(widgets::title_text(&assets, "选择一项强化", 30.0));
-                        panel.spawn(widgets::title_text(
-                            &assets,
-                            "按 1 / 2 / 3，或直接点击按钮",
-                            16.0,
-                        ));
-                        spawn_reward_column(
-                            panel,
-                            &assets,
-                            None,
-                            &choices.primary,
-                            RewardChoiceGroup::Primary,
-                            1,
-                            mods,
-                            health,
-                        );
-                    }
-                    RewardFlowMode::HealOrBuff => {
-                        panel.spawn(widgets::title_text(&assets, "普通通关奖励", 30.0));
-                        panel.spawn(widgets::title_text(
-                            &assets,
-                            "左侧选择休息，或在右侧 3 个强化中选择 1 个",
-                            16.0,
-                        ));
-                        panel
-                            .spawn(NodeBundle {
-                                style: Style {
-                                    column_gap: Val::Px(18.0),
-                                    align_items: AlignItems::FlexStart,
-                                    ..default()
-                                },
-                                ..default()
-                            })
-                            .with_children(|row| {
-                                row.spawn(widgets::panel_node(Color::srgba(
-                                    0.12, 0.16, 0.12, 0.95,
-                                )))
-                                .with_children(|col| {
-                                    col.spawn(widgets::title_text(&assets, "休息", 24.0));
-                                    col.spawn((
-                                        ButtonBundle {
-                                            style: Style {
-                                                width: Val::Px(250.0),
-                                                height: Val::Px(250.0),
-                                                justify_content: JustifyContent::Center,
-                                                align_items: AlignItems::Center,
-                                                flex_direction: FlexDirection::Column,
-                                                row_gap: Val::Px(8.0),
-                                                ..default()
-                                            },
-                                            background_color: BackgroundColor(Color::srgb(
-                                                0.18, 0.32, 0.18,
-                                            )),
-                                            ..default()
-                                        },
-                                        RewardButton {
-                                            reward: RewardType::RecoverHealth,
-                                            group: RewardChoiceGroup::Heal,
-                                        },
-                                    ))
-                                    .with_children(|button| {
-                                        button.spawn(widgets::title_text(&assets, "1. 回血", 24.0));
-                                        button.spawn(widgets::title_text(
-                                            &assets,
-                                            format!("恢复 {:.0} 生命", heal_value),
-                                            22.0,
-                                        ));
-                                        button.spawn(widgets::body_text(
-                                            &assets,
-                                            "稳住当前状态后继续推进",
-                                            15.0,
-                                        ));
-                                    });
-                                });
+                                spawn_service_card(
+                                    row,
+                                    &assets,
+                                    0,
+                                    "疗愈",
+                                    "回满生命与能量",
+                                    "稳住状态，适合在高压后重整节奏。",
+                                );
 
-                                row.spawn(widgets::panel_node(Color::srgba(
-                                    0.12, 0.12, 0.18, 0.95,
-                                )))
-                                .with_children(|col| {
-                                    col.spawn(widgets::title_text(&assets, "强化", 24.0));
-                                    spawn_reward_column(
-                                        col,
-                                        &assets,
-                                        None,
-                                        &choices.primary,
-                                        RewardChoiceGroup::Primary,
-                                        2,
-                                        mods,
-                                        health,
-                                    );
-                                });
+                                match &draft.augment_service {
+                                    RewardRoomAugmentService::Upgrade(options) => {
+                                        let preview = preview_titles(options);
+                                        spawn_service_card(
+                                            row,
+                                            &assets,
+                                            1,
+                                            "淬炼",
+                                            format!("从 {} 个可升级强化里选择 1 个", options.len()),
+                                            if preview.is_empty() {
+                                                "将一个 1 级强化提升到 2 级。".to_string()
+                                            } else {
+                                                format!("可升级：{preview}")
+                                            },
+                                        );
+                                    }
+                                    RewardRoomAugmentService::Awakening(options) => {
+                                        let preview = preview_titles(options);
+                                        spawn_service_card(
+                                            row,
+                                            &assets,
+                                            1,
+                                            "觉醒",
+                                            "从 2 个精英/传说强化中选择 1 个",
+                                            if preview.is_empty() {
+                                                "当前没有可淬炼强化，改为提供高稀有强化。".to_string()
+                                            } else {
+                                                format!("候选：{preview}")
+                                            },
+                                        );
+                                    }
+                                }
+
+                                spawn_service_card(
+                                    row,
+                                    &assets,
+                                    2,
+                                    "启示",
+                                    "获得一次额外升级选择",
+                                    "立刻提升 1 级，并进入升级选择。",
+                                );
                             });
                     }
-                    RewardFlowMode::DualBuff => {
-                        panel.spawn(widgets::title_text(&assets, "Boss 通关强化", 30.0));
+                    RewardFlowStep::UpgradePick(options) => {
+                        panel.spawn(widgets::title_text(&assets, "淬炼", 30.0));
                         panel.spawn(widgets::title_text(
                             &assets,
-                            "已自动恢复生命。左侧选择 1 个，右侧再选择 1 个",
+                            "选择一个 1 级强化提升到 2 级，Esc 返回圣所选项",
                             16.0,
                         ));
-                        panel
-                            .spawn(NodeBundle {
-                                style: Style {
-                                    column_gap: Val::Px(18.0),
-                                    align_items: AlignItems::FlexStart,
-                                    ..default()
-                                },
-                                ..default()
-                            })
-                            .with_children(|row| {
-                                row.spawn(widgets::panel_node(Color::srgba(
-                                    0.12, 0.14, 0.22, 0.95,
-                                )))
-                                .with_children(|col| {
-                                    col.spawn(widgets::title_text(&assets, "强化 1", 24.0));
-                                    spawn_reward_column(
-                                        col,
-                                        &assets,
-                                        flow.selected_primary,
-                                        &choices.primary,
-                                        RewardChoiceGroup::Primary,
-                                        1,
-                                        mods,
-                                        health,
-                                    );
-                                });
-                                row.spawn(widgets::panel_node(Color::srgba(
-                                    0.18, 0.14, 0.22, 0.95,
-                                )))
-                                .with_children(|col| {
-                                    col.spawn(widgets::title_text(&assets, "强化 2", 24.0));
-                                    spawn_reward_column(
-                                        col,
-                                        &assets,
-                                        flow.selected_secondary,
-                                        &choices.secondary,
-                                        RewardChoiceGroup::Secondary,
-                                        4,
-                                        mods,
-                                        health,
-                                    );
-                                });
-                            });
+                        spawn_augment_choice_row(panel, &assets, options);
+                        spawn_back_button(panel, &assets);
+                    }
+                    RewardFlowStep::AwakeningPick(options) => {
+                        panel.spawn(widgets::title_text(&assets, "觉醒", 30.0));
+                        panel.spawn(widgets::title_text(
+                            &assets,
+                            "从高稀有强化中选择 1 个，Esc 返回圣所选项",
+                            16.0,
+                        ));
+                        spawn_augment_choice_row(panel, &assets, options);
+                        spawn_back_button(panel, &assets);
                     }
                 });
         });
 }
 
-pub fn update_reward_ui(
-    flow: Res<RewardFlow>,
-    mut button_q: Query<(&RewardButton, &mut BackgroundColor), With<Button>>,
-) {
-    for (button, mut color) in &mut button_q {
-        let selected = match button.group {
-            RewardChoiceGroup::Heal => false,
-            RewardChoiceGroup::Primary => flow.selected_primary == Some(button.reward),
-            RewardChoiceGroup::Secondary => flow.selected_secondary == Some(button.reward),
-        };
-        let disabled = match button.group {
-            RewardChoiceGroup::Heal => false,
-            RewardChoiceGroup::Primary => flow.selected_primary.is_some() && !selected,
-            RewardChoiceGroup::Secondary => flow.selected_secondary.is_some() && !selected,
-        };
-
-        color.0 = if selected {
-            Color::srgb(0.25, 0.52, 0.26)
-        } else if disabled {
-            Color::srgb(0.12, 0.12, 0.14)
-        } else {
-            base_button_color(button.group)
-        };
-    }
-}
+pub fn update_reward_ui() {}
 
 pub fn reward_ui_input_system(
     mut interaction_q: Query<
         (
             &Interaction,
-            Option<&RewardButton>,
-            Option<&BlessingButton>,
-            Option<&BlessingLeaveButton>,
+            Option<&RewardActionButton>,
+            Option<&RewardBackButton>,
             &mut BackgroundColor,
         ),
         (Changed<Interaction>, With<Button>),
     >,
-    flow: Res<RewardFlow>,
-    mut chosen: EventWriter<RewardChosenEvent>,
-    mut blessing_pending: ResMut<BlessingPendingAction>,
+    mut pending_action: ResMut<RewardPendingAction>,
 ) {
-    for (interaction, reward_button, blessing_button, leave_button, mut color) in &mut interaction_q
-    {
-        if flow.mode == RewardFlowMode::Blessing {
-            if let Some(button) = blessing_button {
-                match *interaction {
-                    Interaction::Hovered => {
-                        color.0 = Color::srgb(0.24, 0.28, 0.38);
-                    }
-                    Interaction::None => {
-                        color.0 = Color::srgb(0.18, 0.22, 0.30);
-                    }
-                    Interaction::Pressed => {
-                        blessing_pending.0 = Some(BlessingUiAction::Select(button.index));
-                    }
-                }
-            } else if leave_button.is_some() {
-                match *interaction {
-                    Interaction::Hovered => {
-                        color.0 = Color::srgb(0.48, 0.22, 0.22);
-                    }
-                    Interaction::None => {
-                        color.0 = Color::srgb(0.38, 0.18, 0.18);
-                    }
-                    Interaction::Pressed => {
-                        blessing_pending.0 = Some(BlessingUiAction::Leave);
-                    }
-                }
-            }
-            continue;
-        }
-
-        let Some(button) = reward_button else {
-            continue;
-        };
+    for (interaction, action_button, back_button, mut color) in &mut interaction_q {
         match *interaction {
             Interaction::Hovered => {
-                if !group_locked(&flow, button.group) {
-                    color.0 = hover_button_color(button.group);
-                }
+                color.0 = Color::srgb(0.28, 0.32, 0.44);
             }
             Interaction::None => {
-                if !group_locked(&flow, button.group) {
-                    color.0 = base_button_color(button.group);
-                }
+                color.0 = if back_button.is_some() {
+                    Color::srgb(0.28, 0.18, 0.18)
+                } else {
+                    Color::srgb(0.18, 0.22, 0.30)
+                };
             }
             Interaction::Pressed => {
-                if group_locked(&flow, button.group) {
-                    continue;
+                if let Some(button) = action_button {
+                    pending_action.0 = Some(RewardUiAction::Select(button.index));
+                } else if back_button.is_some() {
+                    pending_action.0 = Some(RewardUiAction::Back);
                 }
-                chosen.send(RewardChosenEvent {
-                    reward: button.reward,
-                    group: button.group,
-                });
             }
         }
     }
@@ -365,138 +169,20 @@ pub fn cleanup_reward_ui(mut commands: Commands, q: Query<Entity, With<RewardUi>
     }
 }
 
-fn reward_copy(
-    reward: RewardType,
-    mods: RewardModifiers,
-    health: Health,
-) -> (String, String, Option<String>) {
-    match reward {
-        RewardType::RecoverHealth => (
-            "恢复生命".to_string(),
-            if health.current + 1.0 < health.max {
-                "立即恢复一截生命，稳住当前节奏。".to_string()
-            } else {
-                "生命状态稳定时，可优先选择成长型增益。".to_string()
-            },
-            None,
-        ),
-        RewardType::EnhanceMeleeWeapon => (
-            "近战精通".to_string(),
-            "强化近战伤害与范围，2/4/6 解锁吸血 / 裂伤 / 剑风。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::IncreaseAttackSpeed => (
-            "攻速强化".to_string(),
-            "缩短近战和远程的出手间隔，但有明确上限。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::IncreaseAttackPower => (
-            "攻击强化".to_string(),
-            "稳定提高近战与远程的基础伤害。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::IncreaseMaxHealth => (
-            "生命强化".to_string(),
-            "提高生命上限，并顺带回一截血。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::ReduceDashCooldown => (
-            "冲刺强化".to_string(),
-            "让冲刺恢复更快，走位容错更高。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::LifeStealOnKill => (
-            "击杀回血".to_string(),
-            "击杀敌人时恢复生命，适合续航推进。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::IncreaseCritChance => (
-            "暴击强化".to_string(),
-            "提高爆发能力，让输出更有上限。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::IncreaseMoveSpeed => (
-            "移速强化".to_string(),
-            "提高走位速度，拉扯和躲弹都会更轻松。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::DashDamageTrail => (
-            "冲刺残影".to_string(),
-            "冲刺时留下伤害轨迹，补足贴身时的压制力。".to_string(),
-            reward_progress(mods, reward),
-        ),
-        RewardType::EnhanceRangedWeapon => (
-            "远程改装".to_string(),
-            "强化远程伤害、节奏与弹道表现。".to_string(),
-            reward_progress(mods, reward),
-        ),
-    }
-}
-
-fn spawn_reward_column(
-    parent: &mut ChildBuilder,
-    assets: &GameAssets,
-    selected: Option<RewardType>,
-    choices: &[RewardType],
-    group: RewardChoiceGroup,
-    start_index: usize,
-    mods: RewardModifiers,
-    health: Health,
-) {
-    for (i, reward) in choices.iter().enumerate() {
-        let (title, description, progress) = reward_copy(*reward, mods, health);
-        let label_index = start_index + i;
-        parent
-            .spawn((
-                ButtonBundle {
-                    style: Style {
-                        width: Val::Px(360.0),
-                        height: Val::Px(104.0),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        flex_direction: FlexDirection::Column,
-                        row_gap: Val::Px(6.0),
-                        margin: UiRect::bottom(Val::Px(8.0)),
-                        ..default()
-                    },
-                    background_color: BackgroundColor(if selected == Some(*reward) {
-                        Color::srgb(0.25, 0.52, 0.26)
-                    } else {
-                        base_button_color(group)
-                    }),
-                    ..default()
-                },
-                RewardButton {
-                    reward: *reward,
-                    group,
-                },
-            ))
-            .with_children(|button| {
-                button.spawn(widgets::title_text(
-                    assets,
-                    format!("{}. {}", label_index, title),
-                    20.0,
-                ));
-                button.spawn(widgets::title_text(assets, description, 14.0));
-                if let Some(progress) = progress {
-                    button.spawn(widgets::body_text(assets, progress, 13.0));
-                }
-            });
-    }
-}
-
-fn spawn_blessing_card(
+fn spawn_service_card(
     parent: &mut ChildBuilder,
     assets: &GameAssets,
     index: usize,
-    offer: &crate::gameplay::session_core::BlessingOffer,
+    title: impl Into<String>,
+    subtitle: impl Into<String>,
+    description: impl Into<String>,
 ) {
     parent
         .spawn((
             ButtonBundle {
                 style: Style {
-                    width: Val::Px(340.0),
-                    min_height: Val::Px(320.0),
+                    width: Val::Px(240.0),
+                    min_height: Val::Px(220.0),
                     padding: UiRect::all(Val::Px(14.0)),
                     flex_direction: FlexDirection::Column,
                     justify_content: JustifyContent::FlexStart,
@@ -507,108 +193,118 @@ fn spawn_blessing_card(
                 background_color: BackgroundColor(Color::srgb(0.18, 0.22, 0.30)),
                 ..default()
             },
-            BlessingButton { index },
+            RewardActionButton { index },
         ))
         .with_children(|button| {
             button.spawn(widgets::title_text(
                 assets,
-                format!("[{}] {}", index + 1, offer.rune_title),
-                22.0,
+                format!("[{}] {}", index + 1, title.into()),
+                24.0,
             ));
-            button.spawn(widgets::body_text(
-                assets,
-                format!(
-                    "{} | {}",
-                    rune_slot_label(offer.rune_slot),
-                    rune_tier_label(offer.rune_tier)
-                ),
-                13.0,
-            ));
-            button.spawn(widgets::body_text(assets, &offer.rune_description, 15.0));
-            if !offer.rune_drawback.is_empty() {
-                button.spawn(colored_text(
-                    assets,
-                    format!("取舍：{}", offer.rune_drawback),
-                    14.0,
-                    Color::srgb(0.92, 0.42, 0.42),
-                ));
-            }
-            button.spawn(colored_text(
-                assets,
-                format!("诅咒：{}", offer.curse_title),
-                16.0,
-                Color::srgb(0.96, 0.52, 0.52),
-            ));
-            button.spawn(widgets::body_text(assets, &offer.curse_description, 14.0));
-            button.spawn(colored_text(
-                assets,
-                format!("持续 {} 房间", offer.curse_duration),
-                14.0,
-                Color::srgb(0.96, 0.52, 0.52),
-            ));
+            button.spawn(widgets::title_text(assets, subtitle.into(), 15.0));
+            button.spawn(widgets::body_text(assets, description.into(), 14.0));
         });
 }
 
-fn colored_text(
+fn spawn_augment_choice_row(
+    parent: &mut ChildBuilder,
     assets: &GameAssets,
-    text: impl Into<String>,
-    size: f32,
-    color: Color,
-) -> TextBundle {
-    TextBundle::from_section(
-        text,
-        TextStyle {
-            font: assets.font.clone(),
-            font_size: size,
-            color,
-        },
-    )
+    options: &[crate::ui::augment_select::AugmentChoiceOption],
+) {
+    parent
+        .spawn(NodeBundle {
+            style: Style {
+                column_gap: Val::Px(18.0),
+                align_items: AlignItems::FlexStart,
+                margin: UiRect::top(Val::Px(12.0)),
+                ..default()
+            },
+            ..default()
+        })
+        .with_children(|row| {
+            for (index, option) in options.iter().enumerate() {
+                row.spawn((
+                    ButtonBundle {
+                        style: Style {
+                            width: Val::Px(260.0),
+                            min_height: Val::Px(220.0),
+                            padding: UiRect::all(Val::Px(14.0)),
+                            flex_direction: FlexDirection::Column,
+                            justify_content: JustifyContent::FlexStart,
+                            align_items: AlignItems::FlexStart,
+                            row_gap: Val::Px(8.0),
+                            border: UiRect::all(Val::Px(2.0)),
+                            ..default()
+                        },
+                        background_color: BackgroundColor(Color::srgb(0.18, 0.22, 0.30)),
+                        border_color: BorderColor(rarity_color(option.rarity)),
+                        ..default()
+                    },
+                    RewardActionButton { index },
+                ))
+                .with_children(|button| {
+                    button.spawn(widgets::title_text(
+                        assets,
+                        format!("[{}] {}", index + 1, option.title),
+                        22.0,
+                    ));
+                    button.spawn(widgets::body_text(
+                        assets,
+                        format!(
+                            "{}{}",
+                            rarity_label(option.rarity),
+                            if option.is_upgrade { " · 升级后效果" } else { "" }
+                        ),
+                        14.0,
+                    ));
+                    button.spawn(widgets::body_text(assets, &option.description, 15.0));
+                });
+            }
+        });
 }
 
-fn rune_slot_label(slot: RuneSlot) -> &'static str {
-    match slot {
-        RuneSlot::Melee => "近战",
-        RuneSlot::Ranged => "远程",
-        RuneSlot::Dash => "冲刺",
-        RuneSlot::Finisher => "终结技",
+fn spawn_back_button(parent: &mut ChildBuilder, assets: &GameAssets) {
+    parent
+        .spawn((
+            ButtonBundle {
+                style: Style {
+                    width: Val::Px(220.0),
+                    height: Val::Px(46.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    margin: UiRect::top(Val::Px(12.0)),
+                    ..default()
+                },
+                background_color: BackgroundColor(Color::srgb(0.28, 0.18, 0.18)),
+                ..default()
+            },
+            RewardBackButton,
+        ))
+        .with_children(|button| {
+            button.spawn(widgets::title_text(&assets, "[Esc] 返回", 18.0));
+        });
+}
+
+fn rarity_color(rarity: AugmentRarity) -> Color {
+    match rarity {
+        AugmentRarity::Common => Color::srgb(0.75, 0.78, 0.82),
+        AugmentRarity::Elite => Color::srgb(0.35, 0.55, 0.95),
+        AugmentRarity::Legendary => Color::srgb(0.95, 0.75, 0.20),
     }
 }
 
-fn rune_tier_label(tier: RuneTier) -> &'static str {
-    match tier {
-        RuneTier::Common => "普通",
-        RuneTier::Elite => "精英",
-        RuneTier::Legendary => "传说",
+fn rarity_label(rarity: AugmentRarity) -> &'static str {
+    match rarity {
+        AugmentRarity::Common => "普通",
+        AugmentRarity::Elite => "精英",
+        AugmentRarity::Legendary => "传说",
     }
 }
 
-fn group_locked(flow: &RewardFlow, group: RewardChoiceGroup) -> bool {
-    match group {
-        RewardChoiceGroup::Heal => false,
-        RewardChoiceGroup::Primary => flow.selected_primary.is_some(),
-        RewardChoiceGroup::Secondary => flow.selected_secondary.is_some(),
-    }
-}
-
-fn base_button_color(group: RewardChoiceGroup) -> Color {
-    match group {
-        RewardChoiceGroup::Heal => Color::srgb(0.18, 0.32, 0.18),
-        RewardChoiceGroup::Primary => Color::srgb(0.18, 0.22, 0.30),
-        RewardChoiceGroup::Secondary => Color::srgb(0.26, 0.20, 0.30),
-    }
-}
-
-fn hover_button_color(group: RewardChoiceGroup) -> Color {
-    match group {
-        RewardChoiceGroup::Heal => Color::srgb(0.24, 0.40, 0.24),
-        RewardChoiceGroup::Primary => Color::srgb(0.24, 0.28, 0.38),
-        RewardChoiceGroup::Secondary => Color::srgb(0.34, 0.26, 0.38),
-    }
-}
-
-fn reward_progress(mods: RewardModifiers, reward: RewardType) -> Option<String> {
-    let (current, max) = mods.reward_level(reward)?;
-    let filled = "■".repeat(current as usize);
-    let empty = "□".repeat(max.saturating_sub(current) as usize);
-    Some(format!("进度：{}{} {}/{}", filled, empty, current, max))
+fn preview_titles(options: &[crate::ui::augment_select::AugmentChoiceOption]) -> String {
+    options
+        .iter()
+        .map(|option| option.title.as_str())
+        .collect::<Vec<_>>()
+        .join(" / ")
 }

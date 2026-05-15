@@ -80,7 +80,13 @@ pub fn spawn_drops_on_death(
     mut rng: ResMut<GameRng>,
     data: Res<GameDataRegistry>,
     floor: Option<Res<FloorNumber>>,
-    enemy_q: Query<(&GlobalTransform, &EnemyKind, Option<&Elite>), Without<Replicated>>,
+    enemy_q: Query<
+        (&GlobalTransform, &EnemyKind, Option<&Elite>),
+        (
+            Without<Replicated>,
+            Without<crate::gameplay::enemy::components::SplitSpawn>,
+        ),
+    >,
     sub_core_q: Query<(), With<BossSubCore>>,
     player_q: Query<Option<&AugmentInventory>, (With<Player>, Without<Replicated>)>,
 ) {
@@ -104,16 +110,16 @@ pub fn spawn_drops_on_death(
         // Gold calculation (same as old enemy_death_system)
         let base_gold: u32 = match kind {
             EnemyType::Boss => match floor_number {
-                1 => 30,
+                1 => 35,
                 2 => 45,
-                3 => 58,
-                _ => 70,
+                3 => 50,
+                _ => 55,
             },
             _ => match floor_number {
                 1 => 8,
-                2 => 10,
-                3 => 13,
-                _ => 16,
+                2 => 9,
+                3 => 10,
+                _ => 11,
             },
         };
         let reward_gold = base_gold
@@ -125,9 +131,9 @@ pub fn spawn_drops_on_death(
 
         // XP calculation (raw, XpBonus applied in experience.rs)
         let xp_amount: u32 = match kind {
-            EnemyType::Boss => 100 + (floor_number.saturating_sub(1) * 30).min(100),
-            _ if is_elite => 35 + (floor_number.saturating_sub(1) * 8).min(25),
-            _ => 8 + (floor_number.saturating_sub(1) * 2).min(7),
+            EnemyType::Boss => 120 + (floor_number.saturating_sub(1) * 15).min(45),
+            _ if is_elite => 40 + (floor_number.saturating_sub(1) * 5).min(15),
+            _ => 10 + (floor_number.saturating_sub(1) * 1).min(3),
         };
 
         let base_gold_drops: u32 = match kind {
@@ -141,8 +147,17 @@ pub fn spawn_drops_on_death(
             _ => 1,
         };
         let floor_mult: u32 = if floor_number >= 3 { 2 } else { 1 };
-        let gold_drop_count = base_gold_drops * floor_mult;
-        let xp_drop_count = base_xp_drops * floor_mult;
+        let is_boss_or_elite = matches!(kind, EnemyType::Boss) || is_elite;
+        let gold_drop_count = if is_boss_or_elite {
+            base_gold_drops * floor_mult
+        } else {
+            base_gold_drops
+        };
+        let xp_drop_count = if is_boss_or_elite {
+            base_xp_drops * floor_mult
+        } else {
+            base_xp_drops
+        };
 
         // Spawn gold drops per player (GoldBonus applied here)
         for inventory in &player_q {

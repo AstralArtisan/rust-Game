@@ -35,7 +35,6 @@
 | `DamageAppliedEvent` | 伤害已落地，用于表现与统计 | `combat::damage` | 成就、伤害数字、表现层 | 适合接表现与统计，不适合再回写玩法逻辑 |
 | `DeathEvent` | 实体死亡 | `combat::damage`、敌人/玩家死亡逻辑 | 成就、结算、清房逻辑 | 新增死亡后效果优先挂这里 |
 | `RoomClearedEvent` | 房间目标已完成 | 敌人系统、解谜系统 | 奖励、成就、房门、流程推进 | 单机和 Coop 都高度依赖该事件语义 |
-| `RewardChosenEvent` | 玩家已确认奖励 | 奖励系统 | 统计、通知、可能的外部日志 | 当前主要在单机奖励流中使用 |
 | `DoorOpenEvent` | 房门打开 | 房间推进 | 表现层或未来音效 | 当前使用相对有限 |
 | `SpawnEnemyEvent` | 请求刷新房间敌人 | 房间/脚本逻辑 | 敌人系统 | 当前使用有限，可作为后续脚本化入口 |
 | `BossPhaseChangeEvent` | Boss 阶段变化 | Boss 控制器 | HUD、特效、音频 | 适合扩展阶段提示和镜头反馈 |
@@ -55,19 +54,15 @@
 | `GameBalanceConfig` | 全局平衡参数，如楼层数、房间数、精英概率 | 同上 | 地图、敌人、奖励、商店、进度 | 常驻 | 这是平衡改动的主要入口 |
 | `GameDataRegistry` | 全部配置的统一容器 | `DataPlugin` | 几乎所有 gameplay 子模块 | 常驻 | 避免在系统中分别读取多个 ron 文件 |
 | `AugmentsConfig` | 增强物定义（30 种） | 同上 | 增强选择、效果系统 | 常驻 | 新增增强要同步 `AugmentId` 枚举和 `augments.ron` |
-| `RunesConfig` | 铭文定义（31 种）——待清理 | 同上 | session_core、祝福祠堂 | 常驻 | 设计已移除铭文，代码残留待清理 |
-| `CursesConfig` | 诅咒定义（5 种） | 同上 | 诅咒系统、祝福祠堂 | 常驻 | 新增诅咒要同步 `CurseId` 枚举和 `curses.ron` |
 | `AudioConfig` | 音量与 pitch 参数 | 同上 | 音频系统 | 常驻 | |
 | `EffectsConfig` | 粒子、打击暂停、屏幕闪光参数 | 同上 | 效果系统 | 常驻 | |
 
-### 4.1 增强/诅咒/技能组件契约
+### 4.1 增强/技能组件契约
 
 | 接口 | 定义位置 | 语义 | 扩展注意事项 |
 | --- | --- | --- | --- |
 | `AugmentId` | `gameplay/augment/data.rs` | 30 种被动增强枚举（近战/远程/移动/通用 × 3 级稀有度） | 新增增强要同步枚举、`augments.ron`、`effects.rs` |
 | `AugmentInventory` | `gameplay/augment/data.rs` | 玩家已获得的增强列表（`Vec<AugmentId>`） | 作为 Component 挂在玩家实体上 |
-| `CurseId` | `gameplay/curse/mod.rs` | 5 种诅咒枚举（Fragile/Sluggish/Exhaustion/Exposed/Weakness） | 新增诅咒要同步枚举、`curses.ron`、乘数方法 |
-| `CurseState` | `gameplay/curse/mod.rs` | 玩家当前激活诅咒列表，提供 `tick_room()` 消退和各属性乘数查询 | 作为 Component 挂在玩家实体上 |
 | `SkillSlots` | `gameplay/player/components.rs` | 4 个技能槽位的解锁状态和绑定技能类型 | `SkillSlot::ALL` 遍历，`unlock()` 解锁 |
 | `SkillType` | `gameplay/player/components.rs` | 4 种主动技能枚举（SwordArc/MarkedHunt/LightningDash/Relic） | 新增技能要同步枚举、释放逻辑、HUD |
 
@@ -100,13 +95,11 @@
 | 接口 | 定义 | 生产者 | 消费者 | 生命周期 | 扩展注意事项 |
 | --- | --- | --- | --- | --- | --- |
 | `SessionMode` | `Solo` / `Coop` | 单机奖励、Coop 运行时 | 规则决策函数 | 临时值 | 任何规则都应先分清模式 |
-| `SessionRuleContext` | 当前模式、楼层、总楼层、房间类型、Boss 是否直接胜利等上下文 | 单机奖励流、Coop 运行时 | `on_room_enter`、`on_room_cleared` | 临时值 | 新规则上下文优先加在这里，而不是散落参数 |
-| `RewardDraftMode` | 奖励草案模式：单 buff、治疗或 buff、双列 buff、幸存者模式 | 规则函数 | 单机奖励页、Coop 奖励 UI | 临时值 | 单机与 Coop 要共用语义 |
-| `RewardDraft` / `PlayerRewardDraft` | 奖励候选集合 | `build_reward_draft` | 单机奖励流、Coop 会话 | 临时值 | 适合继续增加测试 |
-| `RewardSelection` | 最终选择结果 | UI / 运行时 | `apply_reward_selection` | 临时值 | 保持为纯规则输入，不直接耦合 UI |
+| `SessionRuleContext` | 当前模式、楼层、总楼层、房间类型、Boss 是否直接胜利等上下文 | 单机 Boss 结算、Coop 运行时 | `on_room_cleared` | 临时值 | 新规则上下文优先加在这里，而不是散落参数 |
 | `ShopDraft` / `ShopOfferDraft` | 商店候选集合 | `build_shop_draft` / `refresh_shop_draft` | 单机商店、Coop 商店 | 临时值 | 如果后续商店升级，应先统一这里的语义 |
 | `SharedShopItem` | 共享商店物品枚举 | 规则层 | 单机商店、Coop 商店 | 常量枚举 | 不要让单机和 Coop 使用不同价目语义 |
 | `DeathDecision` | 死亡后是继续、GameOver 还是 MatchOver | `evaluate_death` | 单机/Coop 流程 | 临时值 | 适合继续扩展多人死亡判定 |
+| `RewardFlow` | 单机圣所房奖励页上下文与 Boss 传送门状态 | 单机奖励系统 | `RewardSelect` UI、Boss 传送门 | 单局资源 | 当前只服务单机；Coop 仍保留独立奖励状态 |
 
 ## 7. Coop 契约
 Coop 的接口分成三类：网络配置、输入/命令、会话状态。

@@ -3,7 +3,6 @@ use bevy::prelude::*;
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::core::events::SpawnEnemyEvent;
 use crate::data::registry::GameDataRegistry;
-use crate::gameplay::curse::CurseState;
 use crate::gameplay::map::room::{
     CurrentRoom, Direction, FloorLayout, RoomBounds, RoomConnections, RoomData, RoomId, RoomType,
 };
@@ -32,7 +31,6 @@ pub fn generate_and_spawn_floor(
     existing_transition: Option<Res<RoomTransition>>,
     visited: Option<ResMut<VisitedRooms>>,
     mut player_q: Query<(&mut Transform, &mut Velocity, &mut DashState), With<Player>>,
-    player_curse_q: Query<&CurseState, With<Player>>,
 ) {
     if let Some(layout) = existing_layout.as_deref() {
         if existing_current.is_none() {
@@ -51,11 +49,7 @@ pub fn generate_and_spawn_floor(
     commands.insert_resource(RoomTransition::default());
 
     let floor_number = floor.as_deref().map(|floor| floor.0).unwrap_or(1);
-    let has_active_curse = player_curse_q
-        .get_single()
-        .map(CurseState::has_any_curse)
-        .unwrap_or(false);
-    let rooms = build_rooms(data.as_deref(), floor_number, has_active_curse, &mut rng);
+    let rooms = build_rooms(data.as_deref(), floor_number, &mut rng);
 
     let layout = FloorLayout {
         rooms,
@@ -79,7 +73,6 @@ pub fn spawn_current_room(commands: &mut Commands, _spawn_ev: &EventWriter<Spawn
 pub(crate) fn build_rooms(
     data: Option<&GameDataRegistry>,
     floor: u32,
-    has_active_curse: bool,
     rng: &mut GameRng,
 ) -> Vec<RoomData> {
     let generated = if let Some(data) = data {
@@ -102,22 +95,17 @@ pub(crate) fn build_rooms(
         branching_rooms(7, floor, rng)
     };
 
-    enforce_reward_room_rules(generated, floor, has_active_curse)
+    enforce_reward_room_rules(generated)
 }
 
-fn enforce_reward_room_rules(
-    mut rooms: Vec<RoomData>,
-    floor: u32,
-    has_active_curse: bool,
-) -> Vec<RoomData> {
-    let rewards_allowed = floor > 1 && !has_active_curse;
+fn enforce_reward_room_rules(mut rooms: Vec<RoomData>) -> Vec<RoomData> {
     let mut reward_kept = false;
 
     for room in &mut rooms {
         if room.room_type != RoomType::Reward {
             continue;
         }
-        if !rewards_allowed || reward_kept {
+        if reward_kept {
             room.room_type = RoomType::Normal;
             room.mystery = false;
         } else {
@@ -355,6 +343,38 @@ fn make_room(
         bounds: RoomBounds {
             half_size: Vec2::new(ROOM_HALF_WIDTH, ROOM_HALF_HEIGHT),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_room(id: u32, room_type: RoomType) -> RoomData {
+        make_room(RoomId(id), room_type, false, Vec::new())
+    }
+
+    #[test]
+    fn reward_room_weight_is_available_on_floor_one() {
+        assert_eq!(room_weight(RoomType::Reward, 2, 1), 1);
+    }
+
+    #[test]
+    fn reward_room_rules_keep_at_most_one_reward_room() {
+        let rooms = vec![
+            dummy_room(0, RoomType::Start),
+            dummy_room(1, RoomType::Reward),
+            dummy_room(2, RoomType::Normal),
+            dummy_room(3, RoomType::Reward),
+            dummy_room(4, RoomType::Reward),
+        ];
+
+        let rewards = enforce_reward_room_rules(rooms)
+            .into_iter()
+            .filter(|room| room.room_type == RoomType::Reward)
+            .count();
+
+        assert_eq!(rewards, 1);
     }
 }
 

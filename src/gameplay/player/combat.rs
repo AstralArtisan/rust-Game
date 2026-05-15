@@ -24,7 +24,7 @@ const BASE_RANGED_PROJECTILE_SPEED: f32 = 720.0;
 const TRIPLE_SPREAD_ANGLE: f32 = 0.24;
 const NOVA_PROJECTILE_COUNT: usize = 8;
 const RANGED_BURST_DELAY_S: f32 = 0.06;
-const EXTRA_PROJECTILE_SPREAD_ANGLE: f32 = 0.15;
+const EXTRA_PROJECTILE_STAGGER_S: f32 = 0.08;
 const EXTRA_PROJECTILE_DAMAGE_MULT: f32 = 0.60;
 const MELEE_HITBOX_LIFETIME_S: f32 = 0.09;
 const MELEE_SLASH_EFFECT_LIFETIME_S: f32 = 0.18;
@@ -705,23 +705,19 @@ fn spawn_extra_projectiles_for_burst(
     inventory: Option<&AugmentInventory>,
 ) {
     for extra_index in 0..extra_projectiles {
-        let angle = if extra_projectiles == 1 || extra_index > 0 {
-            EXTRA_PROJECTILE_SPREAD_ANGLE
-        } else {
-            -EXTRA_PROJECTILE_SPREAD_ANGLE
-        };
-        let shot_dir = Mat2::from_angle(angle).mul_vec2(dir);
+        // Same direction, staggered delay so player can see each shot
+        let extra_delay = delay_s + (extra_index as f32 + 1.0) * EXTRA_PROJECTILE_STAGGER_S;
         queue_or_spawn_ranged_projectile(
             commands,
             assets,
             owner,
             pos,
-            shot_dir,
+            dir,
             projectile_speed,
             damage * EXTRA_PROJECTILE_DAMAGE_MULT,
             crit_chance,
             crit_multiplier,
-            delay_s,
+            extra_delay,
             pierce_remaining,
             inventory,
         );

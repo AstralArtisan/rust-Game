@@ -2,79 +2,70 @@ use bevy::prelude::*;
 use bevy::utils::HashSet;
 
 use crate::core::assets::GameAssets;
-use crate::core::events::{
-    RewardChoiceGroup, RewardChosenEvent, RoomClearedEvent, SpawnEnemyEvent,
-};
-use crate::data::definitions::RewardScalingConfig;
+use crate::core::events::{RoomClearedEvent, SpawnEnemyEvent};
+use crate::data::definitions::{AugmentConfig, RewardScalingConfig};
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentInventory, AugmentRarity};
-use crate::gameplay::curse::CurseState;
 use crate::gameplay::enemy::systems::{ClearGrace, EnemySpawnCount, SpawnedForRoom};
 use crate::gameplay::map::generator::{build_rooms, reset_player_for_floor, spawn_current_room};
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::map::{InGameEntity, VisitedRooms};
 use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, DashState, Energy, Health, MoveSpeed,
-    Player, RangedCooldown, RewardModifiers, Velocity,
+    DashState, Energy, Health, Player, RewardModifiers, Velocity,
 };
+use crate::gameplay::progression::experience::{PlayerLevel, build_levelup_options};
 use crate::gameplay::progression::floor::FloorNumber;
-use crate::gameplay::rewards::data::RewardType;
-use crate::gameplay::rune::data::RuneLoadout;
 use crate::gameplay::session_core::{
-    BlessingOffer, PlayerRuleEffects, PlayerRuleSnapshot, PostRewardDecision, RewardDraft,
-    RewardDraftMode, RewardOptionDraft, RewardSelection, SessionMode, SessionRuleContext,
-    apply_reward_selection as apply_shared_reward_selection, build_reward_draft,
-    generate_blessing_choices, on_room_cleared, on_room_enter,
+    PostRewardDecision, SessionMode, SessionRuleContext, on_room_cleared,
 };
 use crate::states::{AppState, RoomState};
 use crate::ui::augment_select::{AugmentChoiceOption, AugmentChoices};
+use crate::ui::levelup_select::LevelUpChoices;
 use crate::utils::entity::safe_despawn_recursive;
 use crate::utils::rng::GameRng;
-
-#[derive(Resource, Debug, Default, Clone)]
-pub struct RewardChoices {
-    pub primary: Vec<RewardType>,
-    pub secondary: Vec<RewardType>,
-}
 
 #[derive(Resource, Debug, Default, Clone)]
 pub struct RewardRoomClaims {
     pub rooms: HashSet<RoomId>,
 }
 
-#[derive(Resource, Debug, Default, Clone)]
-pub struct BlessingFlow {
-    pub offers: Vec<BlessingOffer>,
+#[derive(Debug, Clone)]
+pub enum RewardRoomAugmentService {
+    Upgrade(Vec<AugmentChoiceOption>),
+    Awakening(Vec<AugmentChoiceOption>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BlessingUiAction {
-    Select(usize),
-    Leave,
+#[derive(Debug, Clone)]
+pub struct SanctuaryDraft {
+    pub augment_service: RewardRoomAugmentService,
 }
 
-#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct BlessingPendingAction(pub Option<BlessingUiAction>);
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub enum RewardFlowMode {
+#[derive(Debug, Clone, Default)]
+pub enum RewardFlowStep {
     #[default]
-    SingleBuff,
-    HealOrBuff,
-    DualBuff,
-    Blessing,
+    Inactive,
+    Sanctuary(SanctuaryDraft),
+    UpgradePick(Vec<AugmentChoiceOption>),
+    AwakeningPick(Vec<AugmentChoiceOption>),
 }
 
 #[derive(Resource, Debug, Default, Clone)]
 pub struct RewardFlow {
-    pub mode: RewardFlowMode,
+    pub room: Option<RoomId>,
+    pub step: RewardFlowStep,
     pub spawn_portal: bool,
     pub portal_is_victory: bool,
-    pub reward_scale: f32,
-    pub selected_primary: Option<RewardType>,
-    pub selected_secondary: Option<RewardType>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RewardUiAction {
+    Select(usize),
+    Back,
+}
+
+#[derive(Resource, Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct RewardPendingAction(pub Option<RewardUiAction>);
 
 #[derive(Component)]
 pub struct BossPortal {
@@ -85,19 +76,17 @@ pub struct RewardsSystemsPlugin;
 
 impl Plugin for RewardsSystemsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<RewardChoices>()
-            .init_resource::<RewardRoomClaims>()
-            .init_resource::<BlessingFlow>()
-            .init_resource::<BlessingPendingAction>()
+        app.init_resource::<RewardRoomClaims>()
+            .init_resource::<RewardPendingAction>()
             .init_resource::<RewardFlow>()
             .init_resource::<GameRng>()
             .add_systems(
                 Update,
-                enter_reward_selection.run_if(in_state(AppState::InGame)),
+                offer_reward_in_reward_room.run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 Update,
-                offer_reward_in_reward_room.run_if(in_state(AppState::InGame)),
+                enter_reward_selection.run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 Update,
@@ -134,16 +123,14 @@ fn offer_reward_in_reward_room(
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
     data: Option<Res<GameDataRegistry>>,
-    floor: Option<Res<FloorNumber>>,
     transition: Option<Res<RoomTransition>>,
     mut claims: ResMut<RewardRoomClaims>,
-    mut choices: ResMut<RewardChoices>,
-    mut blessing_flow: ResMut<BlessingFlow>,
-    mut blessing_pending: ResMut<BlessingPendingAction>,
-    mut rng: ResMut<GameRng>,
     mut flow: ResMut<RewardFlow>,
+    mut pending_action: ResMut<RewardPendingAction>,
     mut next_state: ResMut<NextState<AppState>>,
-    player_q: Query<(&RuneLoadout, &CurseState), With<Player>>,
+    mut room_state: ResMut<RoomState>,
+    mut rng: ResMut<GameRng>,
+    player_q: Query<Option<&AugmentInventory>, With<Player>>,
 ) {
     if transition
         .as_deref()
@@ -173,78 +160,27 @@ fn offer_reward_in_reward_room(
         return;
     }
 
-    reset_reward_flow(&mut flow);
-    reset_blessing_flow(&mut blessing_flow, &mut blessing_pending);
-    choices.primary.clear();
-    choices.secondary.clear();
-    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let (rune_loadout, has_active_curse) = player_q
-        .get_single()
-        .map(|(loadout, curses)| (loadout.clone(), curses.has_any_curse()))
-        .unwrap_or((RuneLoadout::default(), false));
-    let mode = on_room_enter(
-        SessionRuleContext {
-            mode: SessionMode::Solo,
-            floor: floor_number,
-            total_floors: data
-                .as_deref()
-                .map(|registry| registry.balance.total_floors.max(1))
-                .unwrap_or(4),
-            boss_gives_victory: data
-                .as_deref()
-                .map(|registry| registry.balance.boss_room_gives_victory)
-                .unwrap_or(false),
-            room_type: room.room_type,
-        },
-        true,
-        has_active_curse,
-    )
-    .reward_mode;
-    let Some(mode) = mode else {
-        return;
-    };
+    let inventory = player_q.get_single().ok().flatten();
+    let draft = data
+        .as_deref()
+        .map(|registry| build_sanctuary_draft(registry.augments.augments.as_slice(), &mut rng, inventory))
+        .unwrap_or_else(|| SanctuaryDraft {
+            augment_service: RewardRoomAugmentService::Awakening(Vec::new()),
+        });
 
-    flow.mode = reward_flow_mode_from_draft(mode);
-    flow.reward_scale = reward_scale_for_draft(mode);
-
-    if mode == RewardDraftMode::Blessing {
-        let Some(data) = data.as_deref() else {
-            return;
-        };
-        blessing_flow.offers = generate_blessing_choices(
-            &mut rng,
-            floor_number,
-            &rune_loadout,
-            &data.runes,
-            &data.curses,
-        );
-        if blessing_flow.offers.is_empty() {
-            return;
-        }
-    } else {
-        let draft = build_reward_draft(
-            SessionMode::Solo,
-            mode,
-            &mut rng,
-            &[PlayerRuleSnapshot {
-                player_index: 0,
-                alive: true,
-                mods: RewardModifiers::default(),
-            }],
-        );
-        apply_solo_reward_draft(&draft, &mut choices);
-    }
+    *room_state = RoomState::Locked;
+    flow.room = Some(current.0);
+    flow.step = RewardFlowStep::Sanctuary(draft);
+    pending_action.0 = None;
     next_state.set(AppState::RewardSelect);
 }
 
 fn enter_reward_selection(
     mut room_cleared: EventReader<RoomClearedEvent>,
     mut next_state: ResMut<NextState<AppState>>,
-    mut choices: ResMut<RewardChoices>,
-    mut blessing_flow: ResMut<BlessingFlow>,
-    mut blessing_pending: ResMut<BlessingPendingAction>,
-    mut rng: ResMut<GameRng>,
     mut flow: ResMut<RewardFlow>,
+    mut pending_action: ResMut<RewardPendingAction>,
+    mut rng: ResMut<GameRng>,
     mut augment_choices: ResMut<AugmentChoices>,
     data: Option<Res<GameDataRegistry>>,
     layout: Option<Res<FloorLayout>>,
@@ -256,10 +192,7 @@ fn enter_reward_selection(
         return;
     };
 
-    reset_reward_flow(&mut flow);
-    reset_blessing_flow(&mut blessing_flow, &mut blessing_pending);
-    choices.primary.clear();
-    choices.secondary.clear();
+    pending_action.0 = None;
 
     let (Some(layout), Some(current)) = (layout.as_deref(), current.as_deref()) else {
         return;
@@ -289,7 +222,6 @@ fn enter_reward_selection(
         room_type: room.room_type,
     });
 
-    // Apply healing if any (Boss rooms heal 80%)
     if decision.heal_alive_fraction > 0.0 {
         if let Ok((_, mut health, _)) = player_q.get_single_mut() {
             let heal = health.max * decision.heal_alive_fraction;
@@ -298,15 +230,18 @@ fn enter_reward_selection(
     }
 
     let is_boss = room.room_type == RoomType::Boss;
-
-    // Non-boss rooms: no RewardSelect; elite rooms always offer AugmentSelect.
     if !is_boss {
         let is_elite_room = room.room_type == RoomType::Elite;
         let should_offer_augment = is_elite_room || rng.gen_bool(0.40);
         if should_offer_augment {
             if let Some(registry) = data.as_deref() {
                 let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
-                let generated = generate_augment_choices(registry, &mut rng, false, inventory);
+                let generated = generate_augment_choices(
+                    registry.augments.augments.as_slice(),
+                    &mut rng,
+                    false,
+                    inventory,
+                );
                 if !generated.is_empty() {
                     augment_choices.options = generated;
                     augment_choices.return_state = Some(AppState::InGame);
@@ -314,7 +249,6 @@ fn enter_reward_selection(
                 }
             }
         }
-        // No RewardSelect for non-boss rooms — XP/gold already given on kill
         return;
     }
 
@@ -323,7 +257,12 @@ fn enter_reward_selection(
 
     if let Some(registry) = data.as_deref() {
         let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
-        let generated = generate_augment_choices(registry, &mut rng, true, inventory);
+        let generated = generate_augment_choices(
+            registry.augments.augments.as_slice(),
+            &mut rng,
+            true,
+            inventory,
+        );
         if !generated.is_empty() {
             augment_choices.options = generated;
             augment_choices.return_state = Some(AppState::InGame);
@@ -337,229 +276,167 @@ fn enter_reward_selection(
 
 fn handle_reward_choice_input(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut events: EventWriter<RewardChosenEvent>,
-    choices: Res<RewardChoices>,
     flow: Res<RewardFlow>,
-    mut blessing_pending: ResMut<BlessingPendingAction>,
+    mut pending_action: ResMut<RewardPendingAction>,
 ) {
-    if flow.mode == RewardFlowMode::Blessing {
-        if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) {
-            blessing_pending.0 = Some(BlessingUiAction::Select(0));
-        } else if keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2)
-        {
-            blessing_pending.0 = Some(BlessingUiAction::Select(1));
-        } else if keyboard.just_pressed(KeyCode::Escape) {
-            blessing_pending.0 = Some(BlessingUiAction::Leave);
-        }
-        return;
-    }
-
-    let mapped = match flow.mode {
-        RewardFlowMode::SingleBuff => map_reward_key(
-            &keyboard,
-            RewardChoiceGroup::Primary,
-            &choices.primary,
-            [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3],
-            [KeyCode::Numpad1, KeyCode::Numpad2, KeyCode::Numpad3],
-        ),
-        RewardFlowMode::HealOrBuff => {
+    match &flow.step {
+        RewardFlowStep::Inactive => {}
+        RewardFlowStep::Sanctuary(_) => {
             if keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1) {
-                Some((RewardChoiceGroup::Heal, RewardType::RecoverHealth))
-            } else {
-                map_reward_key(
-                    &keyboard,
-                    RewardChoiceGroup::Primary,
-                    &choices.primary,
-                    [KeyCode::Digit2, KeyCode::Digit3, KeyCode::Digit4],
-                    [KeyCode::Numpad2, KeyCode::Numpad3, KeyCode::Numpad4],
-                )
+                pending_action.0 = Some(RewardUiAction::Select(0));
+            } else if keyboard.just_pressed(KeyCode::Digit2)
+                || keyboard.just_pressed(KeyCode::Numpad2)
+            {
+                pending_action.0 = Some(RewardUiAction::Select(1));
+            } else if keyboard.just_pressed(KeyCode::Digit3)
+                || keyboard.just_pressed(KeyCode::Numpad3)
+            {
+                pending_action.0 = Some(RewardUiAction::Select(2));
             }
         }
-        RewardFlowMode::DualBuff => map_reward_key(
-            &keyboard,
-            RewardChoiceGroup::Primary,
-            &choices.primary,
-            [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3],
-            [KeyCode::Numpad1, KeyCode::Numpad2, KeyCode::Numpad3],
-        )
-        .or_else(|| {
-            map_reward_key(
-                &keyboard,
-                RewardChoiceGroup::Secondary,
-                &choices.secondary,
-                [KeyCode::Digit4, KeyCode::Digit5, KeyCode::Digit6],
-                [KeyCode::Numpad4, KeyCode::Numpad5, KeyCode::Numpad6],
-            )
-        }),
-        RewardFlowMode::Blessing => None,
-    };
-
-    if let Some((group, reward)) = mapped {
-        events.send(RewardChosenEvent { reward, group });
+        RewardFlowStep::UpgradePick(options) | RewardFlowStep::AwakeningPick(options) => {
+            if keyboard.just_pressed(KeyCode::Escape) {
+                pending_action.0 = Some(RewardUiAction::Back);
+                return;
+            }
+            if !options.is_empty()
+                && (keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1))
+            {
+                pending_action.0 = Some(RewardUiAction::Select(0));
+            } else if options.len() >= 2
+                && (keyboard.just_pressed(KeyCode::Digit2)
+                    || keyboard.just_pressed(KeyCode::Numpad2))
+            {
+                pending_action.0 = Some(RewardUiAction::Select(1));
+            } else if options.len() >= 3
+                && (keyboard.just_pressed(KeyCode::Digit3)
+                    || keyboard.just_pressed(KeyCode::Numpad3))
+            {
+                pending_action.0 = Some(RewardUiAction::Select(2));
+            }
+        }
     }
 }
 
 fn apply_reward_choice(
-    mut chosen: EventReader<RewardChosenEvent>,
     mut next_state: ResMut<NextState<AppState>>,
     mut flow: ResMut<RewardFlow>,
-    mut choices: ResMut<RewardChoices>,
-    mut blessing_flow: ResMut<BlessingFlow>,
-    mut blessing_pending: ResMut<BlessingPendingAction>,
-    mut player_q: Query<
-        (
-            &mut RewardModifiers,
-            &mut Health,
-            &mut Energy,
-            &mut MoveSpeed,
-            &mut DashCooldown,
-            &mut RangedCooldown,
-            &mut CritChance,
-            &mut AttackCooldown,
-            &mut AttackPower,
-            &mut RuneLoadout,
-            &mut CurseState,
-        ),
-        With<Player>,
-    >,
+    mut pending_action: ResMut<RewardPendingAction>,
+    mut room_state: ResMut<RoomState>,
+    mut cleared: EventWriter<RoomClearedEvent>,
+    mut levelup_choices: ResMut<LevelUpChoices>,
     floor: Option<Res<FloorNumber>>,
-    registry: Option<Res<GameDataRegistry>>,
+    data: Option<Res<GameDataRegistry>>,
+    mut rng: ResMut<GameRng>,
+    mut player_q: Query<(&mut Health, &mut Energy, &mut AugmentInventory, &mut PlayerLevel), With<Player>>,
 ) {
-    if flow.mode == RewardFlowMode::Blessing {
-        let Some(action) = blessing_pending.0.take() else {
-            return;
-        };
+    let Some(action) = pending_action.0.take() else {
+        return;
+    };
 
-        if let BlessingUiAction::Select(index) = action {
-            if let Some(offer) = blessing_flow.offers.get(index).cloned() {
-                if let Ok((
-                    _mods,
-                    _health,
-                    _energy,
-                    _move_speed,
-                    _dash_cd,
-                    _ranged_cd,
-                    _crit,
-                    _atk_cd,
-                    _attack_power,
-                    mut rune_loadout,
-                    mut curse_state,
-                )) = player_q.get_single_mut()
-                {
-                    rune_loadout.equip(offer.rune_slot, offer.rune_id);
-                    curse_state.add_curse(offer.curse_id, offer.curse_duration);
+    let step = flow.step.clone();
+    match (step, action) {
+        (RewardFlowStep::Inactive, _) => {}
+        (RewardFlowStep::Sanctuary(_), RewardUiAction::Back) => {}
+        (RewardFlowStep::Sanctuary(sanctuary), RewardUiAction::Select(index)) => match index {
+            0 => {
+                if let Ok((mut health, mut energy, _, _)) = player_q.get_single_mut() {
+                    full_restore(&mut health, &mut energy);
+                }
+                finish_reward_room(
+                    &mut flow,
+                    &mut room_state,
+                    &mut cleared,
+                    &mut next_state,
+                    AppState::InGame,
+                );
+            }
+            1 => {
+                let (options, is_upgrade) = match sanctuary.augment_service {
+                    RewardRoomAugmentService::Upgrade(options) => (options, true),
+                    RewardRoomAugmentService::Awakening(options) => (options, false),
+                };
+                if options.is_empty() {
+                    // Degenerate state (augments config empty/broken, or every
+                    // elite/legendary already owned): never leave the forge
+                    // option as a silent dead button. Resolve the room so the
+                    // run continues. Phase 3 (§4.6) replaces this with a
+                    // guaranteed legendary grant.
+                    warn!("圣所强化锻造无可用选项，安全收敛奖励房");
+                    finish_reward_room(
+                        &mut flow,
+                        &mut room_state,
+                        &mut cleared,
+                        &mut next_state,
+                        AppState::InGame,
+                    );
+                } else if is_upgrade {
+                    flow.step = RewardFlowStep::UpgradePick(options);
                 } else {
-                    warn!("blessing chosen but no player entity was found");
+                    flow.step = RewardFlowStep::AwakeningPick(options);
                 }
             }
-        }
+            2 => {
+                let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+                let default_scaling;
+                let scaling = if let Some(data) = data.as_ref() {
+                    &data.rewards.scaling
+                } else {
+                    default_scaling = RewardScalingConfig::default_config();
+                    &default_scaling
+                };
 
-        reset_reward_flow(&mut flow);
-        reset_blessing_flow(&mut blessing_flow, &mut blessing_pending);
-        choices.primary.clear();
-        choices.secondary.clear();
-        next_state.set(AppState::InGame);
-        return;
-    }
-
-    for ev in chosen.read() {
-        let choice_valid = match flow.mode {
-            RewardFlowMode::SingleBuff => ev.group == RewardChoiceGroup::Primary,
-            RewardFlowMode::HealOrBuff => {
-                ev.group == RewardChoiceGroup::Heal || ev.group == RewardChoiceGroup::Primary
+                if let Ok((health, _energy, _inventory, mut level)) = player_q.get_single_mut() {
+                    level.level += 1;
+                    level.xp_to_next = PlayerLevel::xp_threshold(level.level);
+                    configure_revelation_choices(
+                        &mut levelup_choices,
+                        &mut rng,
+                        scaling,
+                        health.max,
+                        floor_number,
+                        level.level,
+                    );
+                    finish_reward_room(
+                        &mut flow,
+                        &mut room_state,
+                        &mut cleared,
+                        &mut next_state,
+                        AppState::LevelUpSelect,
+                    );
+                }
             }
-            RewardFlowMode::DualBuff => match ev.group {
-                RewardChoiceGroup::Primary => flow.selected_primary.is_none(),
-                RewardChoiceGroup::Secondary => flow.selected_secondary.is_none(),
-                RewardChoiceGroup::Heal => false,
-            },
-            RewardFlowMode::Blessing => false,
-        };
-        if !choice_valid {
-            continue;
+            _ => {}
+        },
+        (RewardFlowStep::UpgradePick(options), RewardUiAction::Back) => {
+            // Return to the sanctuary preserving the SAME options. Never
+            // rebuild via RNG here, otherwise Esc-then-reselect would let the
+            // player re-roll the forge/awakening offers for free.
+            flow.step = RewardFlowStep::Sanctuary(SanctuaryDraft {
+                augment_service: RewardRoomAugmentService::Upgrade(options),
+            });
         }
-
-        let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-        if let Ok((
-            mut mods,
-            mut health,
-            mut energy,
-            mut move_speed,
-            mut dash_cd,
-            mut ranged_cd,
-            mut crit,
-            mut atk_cd,
-            mut attack_power,
-            _rune_loadout,
-            _curse_state,
-        )) = player_q.get_single_mut()
-        {
-            let selection = RewardSelection {
-                mode: reward_draft_mode_from_flow(flow.mode),
-                primary: match ev.group {
-                    RewardChoiceGroup::Heal | RewardChoiceGroup::Primary => {
-                        Some(reward_option_from_choice(ev.reward, ev.group))
-                    }
-                    RewardChoiceGroup::Secondary => None,
-                },
-                secondary: match ev.group {
-                    RewardChoiceGroup::Secondary => {
-                        Some(reward_option_from_choice(ev.reward, ev.group))
-                    }
-                    _ => None,
-                },
+        (RewardFlowStep::AwakeningPick(options), RewardUiAction::Back) => {
+            flow.step = RewardFlowStep::Sanctuary(SanctuaryDraft {
+                augment_service: RewardRoomAugmentService::Awakening(options),
+            });
+        }
+        (RewardFlowStep::UpgradePick(options), RewardUiAction::Select(index))
+        | (RewardFlowStep::AwakeningPick(options), RewardUiAction::Select(index)) => {
+            let Some(choice) = options.get(index) else {
+                return;
             };
-            let mut effects = PlayerRuleEffects {
-                health: &mut health,
-                energy: &mut energy,
-                move_speed: &mut move_speed,
-                attack_power: &mut attack_power,
-                crit: &mut crit,
-                dash_cooldown: &mut dash_cd,
-                attack_cooldown: &mut atk_cd,
-                ranged_cooldown: &mut ranged_cd,
-                mods: &mut mods,
-            };
-            let scaling = registry
-                .as_ref()
-                .map(|d| d.rewards.scaling.clone())
-                .unwrap_or_else(RewardScalingConfig::default_config);
-            let _ = apply_shared_reward_selection(
-                selection,
-                floor_number,
-                &mut effects,
-                PostRewardDecision::ResumeRun,
-                &scaling,
-            );
-        } else {
-            warn!("reward chosen but no player entity was found");
+            if let Ok((_, _, mut inventory, _)) = player_q.get_single_mut() {
+                inventory.add(choice.id);
+                finish_reward_room(
+                    &mut flow,
+                    &mut room_state,
+                    &mut cleared,
+                    &mut next_state,
+                    AppState::InGame,
+                );
+            }
         }
-
-        match flow.mode {
-            RewardFlowMode::SingleBuff | RewardFlowMode::HealOrBuff => {}
-            RewardFlowMode::DualBuff => match ev.group {
-                RewardChoiceGroup::Primary => flow.selected_primary = Some(ev.reward),
-                RewardChoiceGroup::Secondary => flow.selected_secondary = Some(ev.reward),
-                RewardChoiceGroup::Heal => {}
-            },
-            RewardFlowMode::Blessing => {}
-        }
-
-        if flow.mode == RewardFlowMode::DualBuff
-            && (flow.selected_primary.is_none() || flow.selected_secondary.is_none())
-        {
-            continue;
-        }
-
-        flow.mode = RewardFlowMode::SingleBuff;
-        flow.reward_scale = 1.0;
-        flow.selected_primary = None;
-        flow.selected_secondary = None;
-        reset_blessing_flow(&mut blessing_flow, &mut blessing_pending);
-        choices.primary.clear();
-        choices.secondary.clear();
-
-        next_state.set(AppState::InGame);
     }
 }
 
@@ -632,7 +509,6 @@ fn boss_portal_interact(
     mut rng: ResMut<GameRng>,
     data: Option<Res<GameDataRegistry>>,
     visited: Option<ResMut<VisitedRooms>>,
-    player_curse_q: Query<&CurseState, With<Player>>,
     spawn_events: EventWriter<SpawnEnemyEvent>,
 ) {
     if !keyboard.just_pressed(KeyCode::KeyE) {
@@ -673,12 +549,8 @@ fn boss_portal_interact(
         floor.0 += 1;
     }
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let has_active_curse = player_curse_q
-        .get_single()
-        .map(CurseState::has_any_curse)
-        .unwrap_or(false);
     let layout = FloorLayout {
-        rooms: build_rooms(data.as_deref(), floor_number, has_active_curse, &mut rng),
+        rooms: build_rooms(data.as_deref(), floor_number, &mut rng),
         current: RoomId(0),
     };
     commands.insert_resource(RoomState::Idle);
@@ -701,119 +573,105 @@ fn boss_portal_interact(
     next_state.set(AppState::InGame);
 }
 
-fn map_reward_key(
-    keyboard: &ButtonInput<KeyCode>,
-    group: RewardChoiceGroup,
-    choices: &[RewardType],
-    digits: [KeyCode; 3],
-    numpads: [KeyCode; 3],
-) -> Option<(RewardChoiceGroup, RewardType)> {
-    for (idx, reward) in choices.iter().copied().enumerate() {
-        if keyboard.just_pressed(digits[idx]) || keyboard.just_pressed(numpads[idx]) {
-            return Some((group, reward));
-        }
-    }
-    None
-}
-
-fn reset_reward_flow(flow: &mut RewardFlow) {
-    flow.spawn_portal = false;
-    flow.portal_is_victory = false;
-    flow.mode = RewardFlowMode::SingleBuff;
-    flow.reward_scale = 1.0;
-    flow.selected_primary = None;
-    flow.selected_secondary = None;
-}
-
-fn reset_blessing_flow(
-    blessing_flow: &mut BlessingFlow,
-    blessing_pending: &mut BlessingPendingAction,
-) {
-    blessing_flow.offers.clear();
-    blessing_pending.0 = None;
-}
-
-fn reward_flow_mode_from_draft(mode: RewardDraftMode) -> RewardFlowMode {
-    match mode {
-        RewardDraftMode::SingleBuff | RewardDraftMode::LoneSurvivor => RewardFlowMode::SingleBuff,
-        RewardDraftMode::HealOrBuff => RewardFlowMode::HealOrBuff,
-        RewardDraftMode::DualBuff => RewardFlowMode::DualBuff,
-        RewardDraftMode::Blessing => RewardFlowMode::Blessing,
-    }
-}
-
-fn reward_draft_mode_from_flow(mode: RewardFlowMode) -> RewardDraftMode {
-    match mode {
-        RewardFlowMode::SingleBuff => RewardDraftMode::SingleBuff,
-        RewardFlowMode::HealOrBuff => RewardDraftMode::HealOrBuff,
-        RewardFlowMode::DualBuff => RewardDraftMode::DualBuff,
-        RewardFlowMode::Blessing => RewardDraftMode::Blessing,
-    }
-}
-
-fn reward_scale_for_draft(mode: RewardDraftMode) -> f32 {
-    match mode {
-        RewardDraftMode::DualBuff => 1.50,
-        _ => 1.0,
-    }
-}
-
-fn apply_solo_reward_draft(draft: &RewardDraft, choices: &mut RewardChoices) {
-    let Some(player) = draft.players.first() else {
-        choices.primary.clear();
-        choices.secondary.clear();
-        return;
-    };
-    choices.primary = player
-        .primary_options
-        .iter()
-        .filter_map(|option| match option {
-            RewardOptionDraft::Buff(reward) => Some(*reward),
-            _ => None,
-        })
-        .collect();
-    choices.secondary = player
-        .secondary_options
-        .iter()
-        .filter_map(|option| match option {
-            RewardOptionDraft::Buff(reward) => Some(*reward),
-            _ => None,
-        })
-        .collect();
-}
-
-fn reward_option_from_choice(reward: RewardType, group: RewardChoiceGroup) -> RewardOptionDraft {
-    if group == RewardChoiceGroup::Heal || reward == RewardType::RecoverHealth {
-        RewardOptionDraft::Rest
+fn build_sanctuary_draft(
+    augments: &[AugmentConfig],
+    rng: &mut GameRng,
+    inventory: Option<&AugmentInventory>,
+) -> SanctuaryDraft {
+    let upgrade_options = inventory
+        .map(|inventory| build_upgrade_candidates(augments, inventory))
+        .unwrap_or_default();
+    let augment_service = if upgrade_options.is_empty() {
+        RewardRoomAugmentService::Awakening(build_awakening_choices(augments, rng, inventory))
     } else {
-        RewardOptionDraft::Buff(reward)
-    }
+        RewardRoomAugmentService::Upgrade(upgrade_options)
+    };
+
+    SanctuaryDraft { augment_service }
 }
 
-/// Generate 3 augment choices from the registry, filtered by rarity pool.
-/// Boss rooms offer Elite+Legendary; normal rooms offer Common(+small Elite chance).
+fn build_upgrade_candidates(
+    augments: &[AugmentConfig],
+    inventory: &AugmentInventory,
+) -> Vec<AugmentChoiceOption> {
+    inventory
+        .augments
+        .iter()
+        .filter(|held| held.stacks == 1)
+        .filter_map(|held| {
+            augments
+                .iter()
+                .find(|augment| augment.id == held.id)
+                .map(|augment| AugmentChoiceOption {
+                    id: augment.id,
+                    title: augment.title.clone(),
+                    description: augment.upgraded_description.clone(),
+                    rarity: augment.rarity,
+                    is_upgrade: true,
+                })
+        })
+        .take(3)
+        .collect()
+}
+
+fn build_awakening_choices(
+    augments: &[AugmentConfig],
+    rng: &mut GameRng,
+    inventory: Option<&AugmentInventory>,
+) -> Vec<AugmentChoiceOption> {
+    let owned = inventory
+        .map(|inventory| {
+            inventory
+                .augments
+                .iter()
+                .map(|held| held.id)
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
+
+    let mut pool = augments
+        .iter()
+        .filter(|augment| matches!(augment.rarity, AugmentRarity::Elite | AugmentRarity::Legendary))
+        .filter(|augment| !owned.contains(&augment.id))
+        .collect::<Vec<_>>();
+    if pool.is_empty() {
+        pool = augments
+            .iter()
+            .filter(|augment| matches!(augment.rarity, AugmentRarity::Elite | AugmentRarity::Legendary))
+            .collect::<Vec<_>>();
+    }
+    rng.shuffle(&mut pool);
+    pool.into_iter()
+        .take(2)
+        .map(|augment| AugmentChoiceOption {
+            id: augment.id,
+            title: augment.title.clone(),
+            description: augment.description.clone(),
+            rarity: augment.rarity,
+            is_upgrade: false,
+        })
+        .collect()
+}
+
 fn generate_augment_choices(
-    registry: &GameDataRegistry,
+    augments: &[AugmentConfig],
     rng: &mut GameRng,
     is_boss: bool,
     inventory: Option<&AugmentInventory>,
 ) -> Vec<AugmentChoiceOption> {
-    let pool: Vec<_> = registry
-        .augments
-        .augments
+    let pool: Vec<_> = augments
         .iter()
-        .filter(|a| {
+        .filter(|augment| {
             if is_boss {
-                matches!(a.rarity, AugmentRarity::Elite | AugmentRarity::Legendary)
+                matches!(augment.rarity, AugmentRarity::Elite | AugmentRarity::Legendary)
             } else {
-                // Normal rooms: mostly common, 20% chance to include elite
-                matches!(a.rarity, AugmentRarity::Common | AugmentRarity::Elite)
+                matches!(augment.rarity, AugmentRarity::Common | AugmentRarity::Elite)
             }
         })
         .collect();
 
     if pool.is_empty() {
-        return vec![];
+        return Vec::new();
     }
 
     let mut indices: Vec<usize> = (0..pool.len()).collect();
@@ -823,20 +681,185 @@ fn generate_augment_choices(
     indices
         .iter()
         .map(|&i| {
-            let a = &pool[i];
-            let is_upgrade = inventory.map(|inv| inv.has(a.id)).unwrap_or(false);
-            let desc = if is_upgrade {
-                &a.upgraded_description
+            let augment = pool[i];
+            let is_upgrade = inventory.map(|inv| inv.has(augment.id)).unwrap_or(false);
+            let description = if is_upgrade {
+                &augment.upgraded_description
             } else {
-                &a.description
+                &augment.description
             };
             AugmentChoiceOption {
-                id: a.id,
-                title: a.title.clone(),
-                description: desc.clone(),
-                rarity: a.rarity,
+                id: augment.id,
+                title: augment.title.clone(),
+                description: description.clone(),
+                rarity: augment.rarity,
                 is_upgrade,
             }
         })
         .collect()
+}
+
+fn configure_revelation_choices(
+    choices: &mut LevelUpChoices,
+    rng: &mut GameRng,
+    scaling: &RewardScalingConfig,
+    max_health: f32,
+    floor_number: u32,
+    new_level: u32,
+) {
+    choices.options = build_levelup_options(rng, scaling, max_health, floor_number);
+    choices.return_state = Some(AppState::InGame);
+    choices.new_level = new_level;
+}
+
+fn full_restore(health: &mut Health, energy: &mut Energy) {
+    health.current = health.max;
+    energy.current = energy.max;
+}
+
+fn finish_reward_room(
+    flow: &mut RewardFlow,
+    room_state: &mut RoomState,
+    cleared: &mut EventWriter<RoomClearedEvent>,
+    next_state: &mut NextState<AppState>,
+    target: AppState,
+) {
+    if let Some(room) = flow.room.take() {
+        *room_state = RoomState::Cleared;
+        cleared.send(RoomClearedEvent { room });
+    }
+    flow.step = RewardFlowStep::Inactive;
+    next_state.set(target);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::definitions::AugmentConfig;
+    use crate::gameplay::augment::data::{AugmentCategory, AugmentId, HeldAugment};
+
+    fn seeded_rng(seed: u64) -> GameRng {
+        let mut rng = GameRng::default();
+        rng.reseed(seed);
+        rng
+    }
+
+    fn sample_augment(
+        id: AugmentId,
+        rarity: AugmentRarity,
+        title: &str,
+        description: &str,
+        upgraded_description: &str,
+    ) -> AugmentConfig {
+        AugmentConfig {
+            id,
+            category: AugmentCategory::General,
+            rarity,
+            title: title.to_string(),
+            description: description.to_string(),
+            upgraded_description: upgraded_description.to_string(),
+            shop_cost: 0,
+        }
+    }
+
+    fn sample_augments() -> Vec<AugmentConfig> {
+        vec![
+            sample_augment(
+                AugmentId::GoldBonus,
+                AugmentRarity::Common,
+                "金币加成",
+                "金币更多",
+                "金币更多更多",
+            ),
+            sample_augment(
+                AugmentId::Thorns,
+                AugmentRarity::Elite,
+                "荆棘",
+                "受伤反伤",
+                "反伤更强",
+            ),
+            sample_augment(
+                AugmentId::Phoenix,
+                AugmentRarity::Legendary,
+                "不死鸟",
+                "死亡复活",
+                "复活更强",
+            ),
+        ]
+    }
+
+    #[test]
+    fn heal_service_restores_health_and_energy() {
+        let mut health = Health {
+            current: 24.0,
+            max: 100.0,
+        };
+        let mut energy = Energy {
+            current: 10.0,
+            max: 80.0,
+        };
+
+        full_restore(&mut health, &mut energy);
+
+        assert_eq!(health.current, 100.0);
+        assert_eq!(energy.current, 80.0);
+    }
+
+    #[test]
+    fn upgrade_service_only_lists_single_stack_augments() {
+        let mut inventory = AugmentInventory::default();
+        inventory.augments = vec![
+            HeldAugment {
+                id: AugmentId::GoldBonus,
+                stacks: 1,
+            },
+            HeldAugment {
+                id: AugmentId::Thorns,
+                stacks: 2,
+            },
+        ];
+
+        let options = build_upgrade_candidates(&sample_augments(), &inventory);
+
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].id, AugmentId::GoldBonus);
+        assert!(options[0].is_upgrade);
+    }
+
+    #[test]
+    fn sanctuary_falls_back_to_awakening_when_no_upgrade_exists() {
+        let mut rng = seeded_rng(9);
+        let inventory = AugmentInventory::default();
+
+        let draft = build_sanctuary_draft(&sample_augments(), &mut rng, Some(&inventory));
+
+        match draft.augment_service {
+            RewardRoomAugmentService::Awakening(options) => {
+                assert_eq!(options.len(), 2);
+                assert!(options.iter().all(|option| {
+                    matches!(option.rarity, AugmentRarity::Elite | AugmentRarity::Legendary)
+                }));
+            }
+            RewardRoomAugmentService::Upgrade(_) => panic!("expected awakening fallback"),
+        }
+    }
+
+    #[test]
+    fn revelation_choices_return_to_ingame() {
+        let mut rng = seeded_rng(11);
+        let mut choices = LevelUpChoices::default();
+
+        configure_revelation_choices(
+            &mut choices,
+            &mut rng,
+            &RewardScalingConfig::default_config(),
+            100.0,
+            1,
+            3,
+        );
+
+        assert_eq!(choices.return_state, Some(AppState::InGame));
+        assert_eq!(choices.new_level, 3);
+        assert_eq!(choices.options.len(), 4);
+    }
 }

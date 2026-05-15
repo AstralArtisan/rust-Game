@@ -168,15 +168,16 @@
 ### 4.5 `rewards/`
 职责：
 
-- 单机奖励选择页
-- 奖励生成、应用和结算后跳转
+- 单机奖励房（圣所房）选择页
+- 奖励房服务生成、应用和结算后跳转
 - Boss 通关传送门（`BossPortal`）生成与交互
 
 设计要点：
 
-- 当前单机奖励 UI 仍是独立页面 `RewardSelect`
-- 规则本体逐渐向 `session_core` 收敛
-- `RewardFlow` 记录当前奖励页面的上下文，包含 `spawn_portal`/`portal_is_victory` 控制 Boss 传送门
+- 当前单机 `RewardSelect` 只服务 `Reward` 房，不再承载旧的祝福祠堂或属性三选一
+- `Reward` 房已重做为低频、安全、无战斗的“圣所房”
+- 圣所房固定提供 3 项服务：`疗愈`、`淬炼/觉醒`、`启示`
+- `RewardFlow` 记录当前圣所页的上下文，以及 `spawn_portal`/`portal_is_victory` 控制 Boss 传送门
 - Boss 通关流程：AugmentSelect → 返回 InGame → 地图中心生成传送门 → 玩家按 E 推进楼层
 - 精英房通关 100% 触发 AugmentSelect（普通房 40%）
 
@@ -212,7 +213,11 @@
 
 现状：
 
-- XP 升级曲线：`25 + (level-1) * 10`
+- XP 升级曲线：
+  - `Lv1 -> Lv2`: 30
+  - `Lv2 -> Lv3`: 45
+  - `Lv3 -> Lv4`: 60
+  - `Lv4+`: 在前一段基础上继续递增
 - 升级时进入 `AppState::LevelUpSelect`，提供"回血或强化"双栏选择
 - `PendingLevelUps` 队列防止升级与房间清理事件冲突
 - 主要服务单机主循环
@@ -267,36 +272,18 @@
 
 设计要点：
 
-- `AugmentPlugin` 当前在 `app.rs` 的 `GamePlugin` 中注册（已知架构不一致，应移入 `GameplayPlugin`）
+- `AugmentPlugin` 已归入 `GameplayPlugin`
 - 所有效果系统通过 `.run_if()` 同时服务单机和 Coop Host
 - 效果系统有明确的执行顺序约束（`.before()` / `.after()` 与 combat 系统协调）
 
-### 4.13 `rune/`（铭文系统——待清理）
-职责：
+### 4.13 `rune/` / `curse/`（历史快照）
 
-- 铭文数据定义：`RuneId`（31 种）、`RuneSlot`（4 槽位）、`RuneTier`（3 等级）、`RuneLoadout`
-- `RunePlugin::build()` 为空壳，无运行时系统
+- 这两套模块已从当前单机架构中移除
+- 历史设计曾让 `Reward` 房承载“祝福祠堂 -> 铭文 + 诅咒”链路
+- 当前单机已统一到 `经验升级 + 强化组合 + 圣所房`
+- `Coop` 仍保留独立奖励语义，但不再依赖 rune / curse 数据模型
 
-当前状态：
-
-- 设计上已决定移除铭文系统，但代码和配置（`runes.ron`）完全保留
-- 14 个源文件仍引用铭文相关类型
-- 属于 P0 清理任务，详见 `docs/architecture_refactor_suggestions.md`
-
-### 4.14 `curse/`
-职责：
-
-- 诅咒系统：5 种诅咒（Fragile/Sluggish/Exhaustion/Exposed/Weakness）
-- `CurseState` 组件记录当前激活的诅咒列表
-- 诅咒按房间计数消退（`tick_room`）
-
-设计要点：
-
-- `CursePlugin` 当前在 `app.rs` 的 `GamePlugin` 中注册（已知架构不一致）
-- `CurseState` 提供乘数查询方法（`damage_taken_mult`、`move_speed_mult` 等），供其他系统消费
-- 诅咒与祝福祠堂绑定：选择铭文时附带诅咒，有诅咒时不出现新的祝福房
-
-### 4.15 `skills/`
+### 4.14 `skills/`
 职责：
 
 - 4 种主动技能：剑气斩（SwordArc）、标记猎杀（MarkedHunt）、闪电冲刺（LightningDash）、遗物主动（Relic）
@@ -309,19 +296,19 @@
 - 数字键 1-4 对应 HUD 底部技能栏
 - `PlayerSkillState` 管理释放中的技能状态
 
-### 4.16 `session_core/`
+### 4.15 `session_core/`
 职责：
 
-- 奖励草案生成
 - 商店草案生成
-- 房间进入/清空后的规则决策
+- Boss 房间清空后的规则决策
 - 死亡后的结算决策
 
 为什么关键：
 
 - 它是目前“玩法规则抽象化”最明显的模块
 - 大部分单元测试都围绕这一层展开
-- 它让单机与 Coop 可以共享奖励/商店/死亡判定曲线，而不是复制逻辑
+- 它仍让单机与 Coop 共享商店/死亡判定曲线
+- 单机奖励房已改由 `rewards/` 直接管理，`Coop` 奖励阶段仍保留独立分支
 
 ## 5. `coop/`：合作联机模块
 ### 5.1 子模块职责

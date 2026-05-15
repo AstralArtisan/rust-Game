@@ -1,9 +1,0 @@
-(
-  curses: [
-    ( id: Fragile, title: "脆弱", description: "受到伤害+25%", duration: 3 ),
-    ( id: Sluggish, title: "迟缓", description: "移速-20%", duration: 3 ),
-    ( id: Exhaustion, title: "枯竭", description: "能量获取-40%", duration: 3 ),
-    ( id: Exposed, title: "暴露", description: "冲刺冷却+50%", duration: 2 ),
-    ( id: Weakness, title: "虚弱", description: "造成伤害-20%", duration: 3 ),
-  ],
-)

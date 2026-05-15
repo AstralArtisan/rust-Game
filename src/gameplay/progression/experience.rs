@@ -25,7 +25,7 @@ impl Default for PlayerLevel {
         Self {
             level: 1,
             xp: 0,
-            xp_to_next: 25,
+            xp_to_next: 30,
         }
     }
 }
@@ -46,7 +46,11 @@ impl PlayerLevel {
 
     /// XP needed to go from `level` to `level+1`.
     pub fn xp_threshold(level: u32) -> u32 {
-        25 + (level.saturating_sub(1)) * 10
+        if level <= 3 {
+            30 + (level.saturating_sub(1)) * 15
+        } else {
+            30 + (level.saturating_sub(1)) * 15 + (level.saturating_sub(3)) * 8
+        }
     }
 }
 
@@ -95,56 +99,13 @@ pub struct PendingLevelUps {
     pub levels: Vec<u32>,
 }
 
-/// System: when a LevelUpEvent fires, generate 3 random stat options and enter LevelUpSelect.
-/// Defers if a RoomClearedEvent is pending in the same frame (Boss kill gives XP + room clear).
-pub fn handle_levelup_event(
-    mut levelup_events: EventReader<LevelUpEvent>,
-    mut pending: ResMut<PendingLevelUps>,
-    mut choices: ResMut<LevelUpChoices>,
-    mut next_state: ResMut<NextState<AppState>>,
-    mut rng: ResMut<GameRng>,
-    current_state: Res<State<AppState>>,
-    room_cleared: EventReader<RoomClearedEvent>,
-    health_q: Query<&Health, With<Player>>,
-    floor: Option<Res<FloorNumber>>,
-    data: Option<Res<GameDataRegistry>>,
-) {
-    // Collect new level-ups into pending queue
-    for ev in levelup_events.read() {
-        pending.levels.push(ev.new_level);
-    }
-
-    if pending.levels.is_empty() {
-        return;
-    }
-
-    // Don't pop level-up if a room clear is happening this frame (let rewards go first)
-    if !room_cleared.is_empty() {
-        return;
-    }
-
-    // Only trigger when we're actually in a gameplay state
-    let return_state = match current_state.get() {
-        AppState::InGame => AppState::InGame,
-        AppState::CoopGame => AppState::CoopGame,
-        _ => return, // Not in gameplay, wait
-    };
-
-    let new_level = pending.levels.remove(0);
-    let max_health = health_q
-        .get_single()
-        .map(|health| health.max)
-        .unwrap_or(100.0);
-    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let default_scaling;
-    let scaling = if let Some(data) = data.as_ref() {
-        &data.rewards.scaling
-    } else {
-        default_scaling = RewardScalingConfig::default_config();
-        &default_scaling
-    };
+pub fn build_levelup_options(
+    rng: &mut GameRng,
+    scaling: &RewardScalingConfig,
+    max_health: f32,
+    floor_number: u32,
+) -> Vec<LevelUpOption> {
     let heal_value = heal_amount(scaling, max_health, floor_number);
-
     let all_stats: Vec<(LevelUpStat, &str, &str)> = vec![
         (
             LevelUpStat::AttackPower(3.0),
@@ -154,7 +115,7 @@ pub fn handle_levelup_event(
         (
             LevelUpStat::MaxHealth(15.0),
             "生命上限 +15",
-            "提升最大生命值并回复等量HP",
+            "提升最大生命值并回复等量 HP",
         ),
         (
             LevelUpStat::MoveSpeed(15.0),
@@ -192,7 +153,56 @@ pub fn handle_levelup_event(
             apply: *stat,
         }
     }));
-    choices.options = options;
+    options
+}
+
+/// System: when a LevelUpEvent fires, generate 3 random stat options and enter LevelUpSelect.
+/// Defers if a RoomClearedEvent is pending in the same frame (Boss kill gives XP + room clear).
+pub fn handle_levelup_event(
+    mut levelup_events: EventReader<LevelUpEvent>,
+    mut pending: ResMut<PendingLevelUps>,
+    mut choices: ResMut<LevelUpChoices>,
+    mut next_state: ResMut<NextState<AppState>>,
+    mut rng: ResMut<GameRng>,
+    current_state: Res<State<AppState>>,
+    room_cleared: EventReader<RoomClearedEvent>,
+    health_q: Query<&Health, With<Player>>,
+    floor: Option<Res<FloorNumber>>,
+    data: Option<Res<GameDataRegistry>>,
+) {
+    for ev in levelup_events.read() {
+        pending.levels.push(ev.new_level);
+    }
+
+    if pending.levels.is_empty() {
+        return;
+    }
+
+    if !room_cleared.is_empty() {
+        return;
+    }
+
+    let return_state = match current_state.get() {
+        AppState::InGame => AppState::InGame,
+        AppState::CoopGame => AppState::CoopGame,
+        _ => return,
+    };
+
+    let new_level = pending.levels.remove(0);
+    let max_health = health_q
+        .get_single()
+        .map(|health| health.max)
+        .unwrap_or(100.0);
+    let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+    let default_scaling;
+    let scaling = if let Some(data) = data.as_ref() {
+        &data.rewards.scaling
+    } else {
+        default_scaling = RewardScalingConfig::default_config();
+        &default_scaling
+    };
+
+    choices.options = build_levelup_options(&mut rng, scaling, max_health, floor_number);
     choices.return_state = Some(return_state);
     choices.new_level = new_level;
 
@@ -208,7 +218,7 @@ mod tests {
         let level = PlayerLevel::default();
         assert_eq!(level.level, 1);
         assert_eq!(level.xp, 0);
-        assert_eq!(level.xp_to_next, 25);
+        assert_eq!(level.xp_to_next, 30);
     }
 
     #[test]
@@ -226,30 +236,48 @@ mod tests {
         let gained = level.add_xp(30);
         assert_eq!(gained, 1);
         assert_eq!(level.level, 2);
-        assert_eq!(level.xp, 5);
-        assert_eq!(level.xp_to_next, 35);
+        assert_eq!(level.xp, 0);
+        assert_eq!(level.xp_to_next, 45);
     }
 
     #[test]
     fn test_multi_levelup() {
         let mut level = PlayerLevel::default();
         let gained = level.add_xp(200);
-        assert_eq!(gained, 4);
-        assert_eq!(level.level, 5);
-        assert_eq!(level.xp, 40);
-        assert_eq!(level.xp_to_next, 65);
+        assert_eq!(gained, 3);
+        assert_eq!(level.level, 4);
+        assert_eq!(level.xp, 65);
+        assert_eq!(level.xp_to_next, 83);
     }
 
     #[test]
     fn test_xp_threshold_formula() {
-        assert_eq!(PlayerLevel::xp_threshold(1), 25);
-        assert_eq!(PlayerLevel::xp_threshold(2), 35);
-        assert_eq!(PlayerLevel::xp_threshold(5), 65);
+        assert_eq!(PlayerLevel::xp_threshold(1), 30);
+        assert_eq!(PlayerLevel::xp_threshold(2), 45);
+        assert_eq!(PlayerLevel::xp_threshold(3), 60);
+        assert_eq!(PlayerLevel::xp_threshold(4), 83);
+        assert_eq!(PlayerLevel::xp_threshold(5), 106);
     }
 
     #[test]
     fn test_pending_levelups_default() {
         let pending = PendingLevelUps::default();
         assert!(pending.levels.is_empty());
+    }
+
+    #[test]
+    fn test_build_levelup_options_always_starts_with_heal() {
+        let mut rng = GameRng::default();
+        rng.reseed(7);
+
+        let options = build_levelup_options(
+            &mut rng,
+            &RewardScalingConfig::default_config(),
+            100.0,
+            1,
+        );
+
+        assert_eq!(options.len(), 4);
+        assert!(matches!(options[0].apply, LevelUpStat::RecoverHealth(_)));
     }
 }

@@ -23,7 +23,7 @@ use crate::gameplay::event_room::{ActiveEvent, EventType};
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomType};
 use crate::gameplay::player::components::{
-    DashCooldown, Gold, Health, InvincibilityTimer, RewardModifiers,
+    DashCooldown, Gold, Health, InvincibilityTimer, RewardModifiers, TeamMarker,
 };
 use crate::gameplay::player::components::{Health as PlayerHealth, Player};
 use crate::gameplay::progression::difficulty::{
@@ -272,6 +272,7 @@ pub fn room_entry_spawner(
         Query<Entity, (With<Hitbox>, Without<Replicated>)>,
         Query<Entity, With<ShopKiosk>>,
         Query<Entity, With<PuzzleEntity>>,
+        Query<Entity, With<BossSubCore>>,
     )>,
     mut spawn_count: ResMut<EnemySpawnCount>,
     mut active_puzzle: ResMut<ActivePuzzle>,
@@ -295,6 +296,9 @@ pub fn room_entry_spawner(
         safe_despawn_recursive(&mut commands, entity);
     }
     for entity in &cleanup_q.p4() {
+        safe_despawn_recursive(&mut commands, entity);
+    }
+    for entity in &cleanup_q.p5() {
         safe_despawn_recursive(&mut commands, entity);
     }
     reset_active_puzzle(&mut active_puzzle);
@@ -485,6 +489,7 @@ fn spawn_elite_room_enemies(
                 floor_multiplier,
                 coop_hp_mult,
                 true,
+                data.balance.use_sprite_textures,
                 1.4,
                 1.0,
             );
@@ -694,6 +699,7 @@ pub fn spawn_enemy(
         floor_multiplier,
         coop_hp_mult,
         is_elite,
+        data.balance.use_sprite_textures,
         1.0,
         1.3,
     )
@@ -709,6 +715,7 @@ fn spawn_enemy_with_elite_scale(
     floor_multiplier: f32,
     coop_hp_mult: f32,
     is_elite: bool,
+    use_sprite_textures: bool,
     elite_transform_scale: f32,
     elite_sprite_scale: f32,
 ) -> Entity {
@@ -785,12 +792,27 @@ fn spawn_enemy_with_elite_scale(
         Transform::from_translation(pos.extend(45.0))
     };
 
+    let (texture, sprite_color) = if use_sprite_textures {
+        if let Some(tex) = assets.textures.enemy_sprites.get(&enemy_type) {
+            let tint = if is_elite && enemy_type != EnemyType::Boss {
+                Color::srgb(1.0, 0.92, 0.7)
+            } else {
+                Color::WHITE
+            };
+            (tex.clone(), tint)
+        } else {
+            (assets.textures.white.clone(), color)
+        }
+    } else {
+        (assets.textures.white.clone(), color)
+    };
+
     let mut entity = commands.spawn((
         SpriteBundle {
-            texture: assets.textures.white.clone(),
+            texture,
             transform,
             sprite: Sprite {
-                color,
+                color: sprite_color,
                 custom_size: Some(Vec2::splat(sprite_size)),
                 ..default()
             },
@@ -957,13 +979,23 @@ pub fn spawn_boss(
         BossArchetype::TideHunter => (32.0, 30.0),
         BossArchetype::CubeCore => (84.0, 80.0),
     };
+    let use_textures = data.balance.use_sprite_textures;
+    let (boss_texture, boss_sprite_color) = if use_textures {
+        if let Some(tex) = assets.textures.boss_sprites.get(&archetype) {
+            (tex.clone(), Color::WHITE)
+        } else {
+            (assets.textures.white.clone(), boss::boss_color(archetype))
+        }
+    } else {
+        (assets.textures.white.clone(), boss::boss_color(archetype))
+    };
     let id = commands
         .spawn((
             SpriteBundle {
-                texture: assets.textures.white.clone(),
+                texture: boss_texture,
                 transform: Transform::from_translation(Vec3::new(220.0, 0.0, 45.0)),
                 sprite: Sprite {
-                    color: boss::boss_color(archetype),
+                    color: boss_sprite_color,
                     custom_size: Some(Vec2::splat(sprite_size)),
                     ..default()
                 },
@@ -1389,6 +1421,7 @@ fn elite_splitting_system(
                     max: split_stats.max_hp,
                 },
                 split_stats,
+                SplitSpawn,
                 EnemyAttackCooldown {
                     timer: Timer::from_seconds(split_stats.attack_cooldown_s, TimerMode::Once),
                 },

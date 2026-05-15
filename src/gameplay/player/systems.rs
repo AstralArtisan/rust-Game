@@ -11,11 +11,9 @@ use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::AugmentInventory;
 use crate::gameplay::augment::effects::DashResetSpeedBuff;
 use crate::gameplay::combat::components::{Hurtbox, Knockback, Team};
-use crate::gameplay::curse::CurseState;
 use crate::gameplay::effects::flash::Flash;
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::progression::experience::PlayerLevel;
-use crate::gameplay::rune::data::RuneLoadout;
 use crate::gameplay::session_core::{DeathDecision, SessionMode, evaluate_death};
 use crate::states::{AppState, RoomState};
 use crate::utils::math::{clamp_in_room, clamp_length};
@@ -91,7 +89,6 @@ pub fn spawn_player(
             timer: Timer::from_seconds(0.12, TimerMode::Once),
         },
     ));
-    entity.insert((RuneLoadout::default(), CurseState::default()));
     entity.insert((AugmentInventory::default(), PlayerLevel::default()));
     entity.insert((
         AttackCooldown::new(attack_cd),

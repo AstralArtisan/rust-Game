@@ -3,8 +3,6 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::gameplay::combat::components::Team;
-
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Enemy;
 
@@ -101,17 +99,13 @@ pub struct TeleportAffixTimer {
     pub timer: Timer,
 }
 
-#[allow(dead_code)]
-#[derive(Component, Debug, Clone, Copy)]
-pub struct TeamMarker(pub Team);
-
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BossPhase(pub u8);
 
 #[derive(Component, Debug, Clone)]
 pub struct BossPatternTimer(pub Timer);
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BossArchetype {
     Floor1Guardian,
     MirrorWarden,
@@ -139,6 +133,10 @@ pub struct BossCycleState {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct BossSummoned;
+
+/// Marker for split spawns from elite Splitting affix — these should not drop loot.
+#[derive(Component, Debug, Clone, Copy)]
+pub struct SplitSpawn;
 
 /// Boss face direction. Hits from the guarded front arc deal reduced damage.
 #[derive(Component, Debug, Clone, Copy)]

@@ -45,9 +45,6 @@ flowchart TD
     B --> N["CoopPlugin"]
     B --> O["PvpPlugin"]
     B --> P["UiPlugin"]
-    B --> Q["AugmentPlugin ⚠️"]
-    B --> R["RunePlugin ⚠️"]
-    B --> S["CursePlugin ⚠️"]
 
     M --> M1["MapPlugin"]
     M --> M2["ProgressionPlugin"]
@@ -61,9 +58,11 @@ flowchart TD
     M --> M10["EventRoomPlugin"]
     M --> M11["ShopPlugin"]
     M --> M12["DropPlugin"]
+    M --> M13["AugmentPlugin"]
 ```
 
-> ⚠️ `AugmentPlugin`、`RunePlugin`、`CursePlugin` 当前在 `GamePlugin`（`app.rs`）中注册，而非 `GameplayPlugin` 内部。这是已知的架构不一致，详见 `docs/architecture_refactor_suggestions.md`。
+> 当前单机已移除 `RunePlugin` / `CursePlugin`，`AugmentPlugin` 已归入
+> `GameplayPlugin`。`RewardSelect` 仍保留，但单机语义已变为“圣所房选项”。
 
 ## 3. 状态机
 ### 3.1 全局状态 `AppState`
@@ -77,7 +76,7 @@ stateDiagram-v2
     MainMenu --> InGame: 单人开始
     MainMenu --> MultiplayerMenu: 联机入口
 
-    InGame --> RewardSelect
+    InGame --> RewardSelect: 进入圣所房
     RewardSelect --> InGame
     InGame --> AugmentSelect
     AugmentSelect --> InGame

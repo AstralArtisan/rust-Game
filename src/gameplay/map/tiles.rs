@@ -37,9 +37,9 @@ pub fn spawn_room_tiles_if_missing(
 pub fn spawn_room_tiles(commands: &mut Commands, assets: &GameAssets) {
     commands.spawn((
         SpriteBundle {
-            texture: assets.textures.white.clone(),
+            texture: assets.textures.room_background.clone(),
             sprite: Sprite {
-                color: Color::srgb(0.12, 0.14, 0.18),
+                color: Color::WHITE,
                 custom_size: Some(Vec2::new(ROOM_HALF_WIDTH * 2.0, ROOM_HALF_HEIGHT * 2.0)),
                 ..default()
             },

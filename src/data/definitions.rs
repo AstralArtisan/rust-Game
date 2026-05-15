@@ -1,11 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::gameplay::augment::data::{AugmentCategory, AugmentId, AugmentRarity};
-use crate::gameplay::curse::CurseId;
 use crate::gameplay::enemy::components::EnemyType;
 use crate::gameplay::map::room::RoomType;
 use crate::gameplay::rewards::data::RewardType;
-use crate::gameplay::rune::data::{RuneId, RuneSlot, RuneTier};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerConfig {
@@ -189,35 +187,6 @@ impl RewardScalingConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuneConfig {
-    pub id: RuneId,
-    pub slot: RuneSlot,
-    pub tier: RuneTier,
-    pub title: String,
-    pub description: String,
-    pub drawback: String,
-    pub shop_cost: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunesConfig {
-    pub runes: Vec<RuneConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CurseConfig {
-    pub id: CurseId,
-    pub title: String,
-    pub description: String,
-    pub duration: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CursesConfig {
-    pub curses: Vec<CurseConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomGenConfig {
     pub room_sequence: Vec<RoomType>,
 }
@@ -235,6 +204,12 @@ pub struct GameBalanceConfig {
     pub elite_hp_mult: f32,
     pub elite_damage_mult: f32,
     pub elite_gold_bonus: u32,
+    #[serde(default = "default_use_sprite_textures")]
+    pub use_sprite_textures: bool,
+}
+
+fn default_use_sprite_textures() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

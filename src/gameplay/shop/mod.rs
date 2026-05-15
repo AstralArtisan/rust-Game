@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use bevy::prelude::*;
 
 use crate::core::achievements::ShopPurchaseEvent;
@@ -8,7 +6,6 @@ use crate::core::input::PlayerInputState;
 use crate::data::definitions::RewardScalingConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
-use crate::gameplay::curse::CurseState;
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
@@ -126,7 +123,6 @@ pub enum ShopItem {
     IncreaseAttackSpeed,
     Augment(AugmentId),
     HealingPotion,
-    RemoveCurse,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -203,7 +199,7 @@ pub fn maybe_enter_shop_state(
     mut rng: ResMut<GameRng>,
     floor: Option<Res<FloorNumber>>,
     player_q: Query<&GlobalTransform, With<Player>>,
-    mods_q: Query<(&RewardModifiers, Option<&CurseState>), With<Player>>,
+    mods_q: Query<&RewardModifiers, With<Player>>,
     kiosk_q: Query<&GlobalTransform, With<ShopKiosk>>,
     transition: Option<Res<RoomTransition>>,
 ) {
@@ -232,17 +228,7 @@ pub fn maybe_enter_shop_state(
     seen.rooms.insert(current.0);
 
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let (mods, has_curse) = mods_q
-        .get_single()
-        .map(|(mods, curse_state)| {
-            (
-                *mods,
-                curse_state
-                    .map(|state| state.has_any_curse())
-                    .unwrap_or(false),
-            )
-        })
-        .unwrap_or((RewardModifiers::default(), false));
+    let mods = mods_q.get_single().copied().unwrap_or_default();
     generate_shop_offers(
         &mut offers,
         &mut cache,
@@ -251,7 +237,6 @@ pub fn maybe_enter_shop_state(
         current.0,
         floor_number,
         mods,
-        has_curse,
     );
     next.set(AppState::Shop);
 }
@@ -266,7 +251,7 @@ pub fn open_shop_hotkey(
     floor: Option<Res<FloorNumber>>,
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
-    mods_q: Query<(&RewardModifiers, Option<&CurseState>), With<Player>>,
+    mods_q: Query<&RewardModifiers, With<Player>>,
     transition: Option<Res<RoomTransition>>,
 ) {
     if !input.shop_pressed
@@ -288,17 +273,7 @@ pub fn open_shop_hotkey(
     }
 
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let (mods, has_curse) = mods_q
-        .get_single()
-        .map(|(mods, curse_state)| {
-            (
-                *mods,
-                curse_state
-                    .map(|state| state.has_any_curse())
-                    .unwrap_or(false),
-            )
-        })
-        .unwrap_or((RewardModifiers::default(), false));
+    let mods = mods_q.get_single().copied().unwrap_or_default();
     generate_shop_offers(
         &mut offers,
         &mut cache,
@@ -307,7 +282,6 @@ pub fn open_shop_hotkey(
         current.0,
         floor_number,
         mods,
-        has_curse,
     );
     next.set(AppState::Shop);
 }
@@ -320,7 +294,6 @@ fn generate_shop_offers(
     room: RoomId,
     floor_number: u32,
     mods: RewardModifiers,
-    has_curse: bool,
 ) {
     if let Some(state) = cache.rooms.get(&room) {
         offers.room = Some(room);
@@ -332,7 +305,7 @@ fn generate_shop_offers(
     }
 
     offers.room = Some(room);
-    let draft = build_shop_draft(floor_number, mods, rng, data, has_curse);
+    let draft = build_shop_draft(floor_number, mods, rng, data);
     offers.refresh_count = draft.refresh_count;
     let (lines, augment_lines, utility_lines) = build_shop_lines_from_draft(data, &draft);
     offers.lines = lines;
@@ -349,7 +322,6 @@ fn refresh_shop_offers(
     room: RoomId,
     floor_number: u32,
     mods: RewardModifiers,
-    has_curse: bool,
 ) {
     offers.room = Some(room);
     let draft = refresh_shop_draft(
@@ -358,7 +330,6 @@ fn refresh_shop_offers(
         mods,
         rng,
         data,
-        has_curse,
     );
     offers.refresh_count = draft.refresh_count;
     let (lines, augment_lines, utility_lines) = build_shop_lines_from_draft(data, &draft);
@@ -385,7 +356,6 @@ fn describe_item(item: ShopItem, base_cost: u32) -> (&'static str, &'static str,
         ShopItem::IncreaseAttackSpeed => ("连击", "攻速 +15%", base_cost + 14),
         ShopItem::Augment(_) => ("强化", "获得一个强化", base_cost),
         ShopItem::HealingPotion => ("回血药水", "回复 25% 最大生命", 30),
-        ShopItem::RemoveCurse => ("净化", "移除一个诅咒", 80),
     }
 }
 
@@ -401,7 +371,6 @@ fn describe_item_local(item: ShopItem, base_cost: u32) -> (&'static str, &'stati
         ShopItem::IncreaseAttackSpeed => ("连击", "提高攻击节奏", base_cost + 14),
         ShopItem::Augment(_) => ("强化", "获得一个强化", base_cost),
         ShopItem::HealingPotion => ("回血药水", "回复 25% 最大生命", 30),
-        ShopItem::RemoveCurse => ("净化", "移除一个诅咒", 80),
     }
 }
 
@@ -440,11 +409,18 @@ pub fn handle_shop_purchase_input(
             &mut RangedCooldown,
             &mut RewardModifiers,
             Option<&mut AugmentInventory>,
-            Option<&mut CurseState>,
         ),
         With<Player>,
     >,
 ) {
+    // Esc leaves the shop without buying. Without this the only exit is a
+    // successful purchase, trapping a player who has no gold or wants to
+    // leave. Offers/cache are preserved so re-entering shows the same state.
+    if keyboard.just_pressed(KeyCode::Escape) {
+        next.set(AppState::InGame);
+        return;
+    }
+
     let refresh_pressed = keyboard.just_pressed(KeyCode::KeyR);
     let selection = shop_selection_from_keyboard(&keyboard);
     let Ok((
@@ -459,7 +435,6 @@ pub fn handle_shop_purchase_input(
         mut ranged_cd,
         mut mods,
         augment_inventory,
-        curse_state,
     )) = player_q.get_single_mut()
     else {
         return;
@@ -484,10 +459,6 @@ pub fn handle_shop_purchase_input(
             room,
             floor_number,
             *mods,
-            curse_state
-                .as_ref()
-                .map(|state| state.has_any_curse())
-                .unwrap_or(false),
         );
         return;
     }
@@ -513,16 +484,6 @@ pub fn handle_shop_purchase_input(
                 return;
             };
             inventory.add(augment_id);
-            true
-        }
-        ShopItem::RemoveCurse => {
-            let Some(mut curse_state) = curse_state else {
-                return;
-            };
-            if curse_state.active.is_empty() {
-                return;
-            }
-            curse_state.active.remove(0);
             true
         }
         _ => {
@@ -683,7 +644,6 @@ fn shop_item_from_shared(item: SharedShopItem) -> ShopItem {
         SharedShopItem::IncreaseAttackSpeed => ShopItem::IncreaseAttackSpeed,
         SharedShopItem::Augment(augment_id) => ShopItem::Augment(augment_id),
         SharedShopItem::HealingPotion => ShopItem::HealingPotion,
-        SharedShopItem::RemoveCurse => ShopItem::RemoveCurse,
     }
 }
 
@@ -699,6 +659,5 @@ fn shared_shop_item_from_shop_item(item: ShopItem) -> SharedShopItem {
         ShopItem::IncreaseAttackSpeed => SharedShopItem::IncreaseAttackSpeed,
         ShopItem::Augment(augment_id) => SharedShopItem::Augment(augment_id),
         ShopItem::HealingPotion => SharedShopItem::HealingPotion,
-        ShopItem::RemoveCurse => SharedShopItem::RemoveCurse,
     }
 }

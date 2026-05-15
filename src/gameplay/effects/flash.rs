@@ -31,7 +31,7 @@ pub fn update_flash_effect(
         }
         flash.timer.tick(time.delta());
         if !flash.timer.finished() {
-            sprite.color = Color::WHITE;
+            sprite.color = Color::srgb(2.5, 2.5, 2.5);
         } else if let Some(original) = flash.original.take() {
             sprite.color = original;
             commands.entity(e).remove::<Flash>();

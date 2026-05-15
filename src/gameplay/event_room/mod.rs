@@ -5,7 +5,6 @@ use crate::core::events::RoomClearedEvent;
 use crate::core::input::PlayerInputState;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory, AugmentRarity};
-use crate::gameplay::curse::{CurseId, CurseState};
 use crate::gameplay::enemy::components::EnemyType;
 use crate::gameplay::enemy::spawner;
 use crate::gameplay::enemy::systems::{spawn_enemy, spawn_room_enemies};
@@ -58,7 +57,6 @@ pub enum EventType {
     SwitchOrder,
     TrapSurvival,
     Gambler,
-    CurseAltar,
     BloodPact,
     Treasure,
     HealingSpring,
@@ -74,7 +72,6 @@ impl EventType {
             Self::SwitchOrder => "机关顺序",
             Self::TrapSurvival => "陷阱求生",
             Self::Gambler => "赌徒",
-            Self::CurseAltar => "诅咒祭坛",
             Self::BloodPact => "血契",
             Self::Treasure => "宝箱",
             Self::HealingSpring => "治愈泉",
@@ -90,7 +87,6 @@ impl EventType {
             Self::SwitchOrder => "按正确顺序触发机关。",
             Self::TrapSurvival => "在陷阱区域中撑过挑战。",
             Self::Gambler => "付出金币，赌一项随机强化。",
-            Self::CurseAltar => "接受诅咒，换取更强的力量。",
             Self::BloodPact => "献出生命，换取一项强化。",
             Self::Treasure => "挑选宝藏并顺手带走金币。",
             Self::HealingSpring => "停留片刻，恢复生命。",
@@ -103,7 +99,6 @@ impl EventType {
     pub fn accent_color(self) -> Color {
         match self {
             Self::Gambler => Color::srgb(0.94, 0.76, 0.28),
-            Self::CurseAltar => Color::srgb(0.70, 0.36, 0.90),
             Self::BloodPact => Color::srgb(0.88, 0.30, 0.34),
             Self::Treasure => Color::srgb(0.30, 0.82, 0.54),
             Self::HealingSpring => Color::srgb(0.28, 0.72, 0.96),
@@ -118,7 +113,6 @@ impl EventType {
     pub fn symbol(self) -> &'static str {
         match self {
             Self::Gambler => "◈",
-            Self::CurseAltar => "☠",
             Self::BloodPact => "♦",
             Self::Treasure => "✦",
             Self::HealingSpring => "✿",
@@ -151,11 +145,6 @@ enum EventChoicePayload {
     Leave,
     Gambler {
         cost: u32,
-        augment_id: AugmentId,
-    },
-    CurseAltar {
-        curse_id: CurseId,
-        duration: u32,
         augment_id: AugmentId,
     },
     BloodPact {
@@ -360,6 +349,17 @@ fn event_interact_system(
     let Some(event_type) = active.event_type else {
         return;
     };
+
+    // Re-interaction with an already-configured non-combat event (the player
+    // pressed Esc to back out): re-open the same menu WITHOUT re-rolling its
+    // contents. Esc deliberately does not resolve the event, but without this
+    // guard each Esc+E would re-roll Gambler/Treasure/BloodPact rewards for
+    // free until a favorable roll appeared.
+    if !event_type.is_combat() && !event_type.is_puzzle() && !active.choice_payloads.is_empty() {
+        next_state.set(AppState::EventRoom);
+        return;
+    }
+
     active.choices.clear();
     active.choice_payloads.clear();
     active.combat_reward_ready = event_type.is_combat();
@@ -416,7 +416,6 @@ fn event_interact_system(
             );
         }
         EventType::Gambler
-        | EventType::CurseAltar
         | EventType::BloodPact
         | EventType::Treasure
         | EventType::HealingSpring
@@ -448,15 +447,7 @@ fn event_room_input(
     mut room_state: ResMut<RoomState>,
     mut next_state: ResMut<NextState<AppState>>,
     mut cleared: EventWriter<RoomClearedEvent>,
-    mut player_q: Query<
-        (
-            &mut Gold,
-            &mut Health,
-            &mut AugmentInventory,
-            &mut CurseState,
-        ),
-        With<Player>,
-    >,
+    mut player_q: Query<(&mut Gold, &mut Health, &mut AugmentInventory), With<Player>>,
 ) {
     let Some(room) = active.room else {
         next_state.set(AppState::InGame);
@@ -490,11 +481,11 @@ fn event_room_input(
     let Some(payload) = active.choice_payloads.get(index).cloned() else {
         return;
     };
-    let Ok((mut gold, mut health, mut inventory, mut curses)) = player_q.get_single_mut() else {
+    let Ok((mut gold, mut health, mut inventory)) = player_q.get_single_mut() else {
         return;
     };
 
-    match apply_choice_payload(payload, &mut gold, &mut health, &mut inventory, &mut curses) {
+    match apply_choice_payload(payload, &mut gold, &mut health, &mut inventory) {
         EventInputOutcome::StayOpen => {}
         EventInputOutcome::Leave => {
             *room_state = RoomState::Cleared;
@@ -573,42 +564,6 @@ fn configure_non_combat_event(
             active.choice_payloads = vec![
                 EventChoicePayload::Gambler {
                     cost: 50,
-                    augment_id,
-                },
-                EventChoicePayload::Leave,
-            ];
-        }
-        EventType::CurseAltar => {
-            let Some(data) = data else {
-                active.choices = vec![leave_choice()];
-                active.choice_payloads = vec![EventChoicePayload::Leave];
-                return;
-            };
-            let Some((curse_id, duration, curse_title)) = pick_random_curse(data, rng) else {
-                active.choices = vec![leave_choice()];
-                active.choice_payloads = vec![EventChoicePayload::Leave];
-                return;
-            };
-            let Some((augment_id, augment_title, _)) =
-                pick_random_augment_offer(data, rng, AugmentPool::EliteOnly)
-            else {
-                active.choices = vec![leave_choice()];
-                active.choice_payloads = vec![EventChoicePayload::Leave];
-                return;
-            };
-            active.choices = vec![
-                EventChoice {
-                    label: "接受代价".to_string(),
-                    description: format!(
-                        "获得诅咒“{curse_title}”，并立刻得到强化“{augment_title}”。"
-                    ),
-                },
-                leave_choice(),
-            ];
-            active.choice_payloads = vec![
-                EventChoicePayload::CurseAltar {
-                    curse_id,
-                    duration,
                     augment_id,
                 },
                 EventChoicePayload::Leave,
@@ -748,7 +703,6 @@ fn pick_weighted_event(rng: &mut GameRng) -> EventType {
         (EventType::SwitchOrder, 1),
         (EventType::TrapSurvival, 1),
         (EventType::Gambler, 2),
-        (EventType::CurseAltar, 2),
         (EventType::BloodPact, 2),
         (EventType::Treasure, 2),
         (EventType::HealingSpring, 2),
@@ -831,18 +785,6 @@ fn pick_augment_offers(
         .collect()
 }
 
-fn pick_random_curse(data: &GameDataRegistry, rng: &mut GameRng) -> Option<(CurseId, u32, String)> {
-    let mut curses = data.curses.curses.iter().collect::<Vec<_>>();
-    if curses.is_empty() {
-        return None;
-    }
-    rng.shuffle(&mut curses);
-    curses
-        .into_iter()
-        .next()
-        .map(|curse| (curse.id, curse.duration, curse.title.clone()))
-}
-
 fn half_price_augment_cost(data: &GameDataRegistry, augment_id: AugmentId) -> u32 {
     data.augments
         .augments
@@ -881,7 +823,6 @@ fn apply_choice_payload(
     gold: &mut Gold,
     health: &mut Health,
     inventory: &mut AugmentInventory,
-    curses: &mut CurseState,
 ) -> EventInputOutcome {
     match payload {
         EventChoicePayload::Leave => EventInputOutcome::Leave,
@@ -891,15 +832,6 @@ fn apply_choice_payload(
                 return EventInputOutcome::StayOpen;
             }
             gold.0 -= cost;
-            inventory.add(augment_id);
-            EventInputOutcome::Complete
-        }
-        EventChoicePayload::CurseAltar {
-            curse_id,
-            duration,
-            augment_id,
-        } => {
-            curses.add_curse(curse_id, duration);
             inventory.add(augment_id);
             EventInputOutcome::Complete
         }

@@ -1,6 +1,5 @@
 pub mod augment;
 pub mod combat;
-pub mod curse;
 pub mod drops;
 pub mod effects;
 pub mod enemy;
@@ -10,7 +9,6 @@ pub mod player;
 pub mod progression;
 pub mod puzzle;
 pub mod rewards;
-pub mod rune;
 pub mod session_core;
 pub mod shop;
 pub mod skills;
@@ -36,6 +34,7 @@ impl Plugin for GameplayPlugin {
             event_room::EventRoomPlugin,
             shop::ShopPlugin,
             drops::DropPlugin,
+            augment::AugmentPlugin,
         ))
         .add_systems(OnEnter(AppState::MainMenu), map::cleanup_ingame_world)
         .add_systems(OnEnter(AppState::GameOver), map::cleanup_ingame_world)

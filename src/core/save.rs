@@ -7,11 +7,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::achievements::{AchievementId, Achievements};
 use crate::core::local_debug::debug_save_filename;
+use crate::gameplay::augment::data::AugmentInventory;
 use crate::gameplay::enemy::systems::EnemySpawnCount;
 use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Gold,
-    Health, MoveSpeed, Player, RangedCooldown, RewardModifiers,
+    Health, MoveSpeed, Player, RangedCooldown, RewardModifiers, SkillSlots,
 };
+use crate::gameplay::progression::experience::PlayerLevel;
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::states::AppState;
 
@@ -40,6 +42,14 @@ pub struct SaveData {
     pub player: PlayerSave,
     pub enemy_spawn_count: Option<u32>,
     pub achievements: Vec<AchievementId>,
+    // Run-progression state. `#[serde(default)]` keeps older (version 1) save
+    // files loadable: missing fields fall back to component defaults.
+    #[serde(default)]
+    pub augments: AugmentInventory,
+    #[serde(default)]
+    pub level: PlayerLevel,
+    #[serde(default)]
+    pub skill_slots: SkillSlots,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +112,9 @@ fn save_hotkey_system(
             &AttackCooldown,
             &DashCooldown,
             &RangedCooldown,
+            &AugmentInventory,
+            &PlayerLevel,
+            &SkillSlots,
         ),
         With<Player>,
     >,
@@ -109,15 +122,28 @@ fn save_hotkey_system(
     if !keyboard.just_pressed(KeyCode::F5) {
         return;
     }
-    let Ok((hp, energy, gold, move_speed, attack_power, crit, rewards, atk_cd, dash_cd, ranged_cd)) =
-        player_q.get_single()
+    let Ok((
+        hp,
+        energy,
+        gold,
+        move_speed,
+        attack_power,
+        crit,
+        rewards,
+        atk_cd,
+        dash_cd,
+        ranged_cd,
+        augments,
+        level,
+        skill_slots,
+    )) = player_q.get_single()
     else {
         warn!("未找到玩家实体，无法存档（F5 仅在游戏内可用）");
         return;
     };
 
     let save = SaveData {
-        version: 1,
+        version: 2,
         floor: floor.as_deref().map(|f| f.0).unwrap_or(1),
         player: PlayerSave {
             hp_current: hp.current,
@@ -138,6 +164,9 @@ fn save_hotkey_system(
             .as_deref()
             .map(|a| a.unlocked.iter().copied().collect())
             .unwrap_or_default(),
+        augments: augments.clone(),
+        level: level.clone(),
+        skill_slots: *skill_slots,
     };
 
     if let Err(err) = write_save_file(&save) {
@@ -193,6 +222,9 @@ fn apply_pending_load(
             &mut AttackCooldown,
             &mut DashCooldown,
             &mut RangedCooldown,
+            &mut AugmentInventory,
+            &mut PlayerLevel,
+            &mut SkillSlots,
         ),
         With<Player>,
     >,
@@ -230,6 +262,9 @@ fn apply_pending_load(
         mut atk_cd,
         mut dash_cd,
         mut ranged_cd,
+        mut augments,
+        mut level,
+        mut skill_slots,
     )) = player_q.get_single_mut()
     else {
         pending.0 = Some(save);
@@ -256,6 +291,10 @@ fn apply_pending_load(
     atk_cd.apply_speed_bonus(rewards.total_melee_speed_bonus());
     dash_cd.apply_reduction(rewards.total_dash_cooldown_reduction());
     ranged_cd.apply_speed_bonus(rewards.total_ranged_speed_bonus());
+
+    *augments = save.augments;
+    *level = save.level;
+    *skill_slots = save.skill_slots;
 
     info!("读档完成：楼层 {}", floor_value);
 }

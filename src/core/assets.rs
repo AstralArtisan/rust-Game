@@ -3,7 +3,9 @@
 use bevy::prelude::*;
 use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use std::collections::HashMap;
 
+use crate::gameplay::enemy::components::{BossArchetype, EnemyType};
 use crate::states::AppState;
 
 #[derive(Resource, Clone)]
@@ -22,6 +24,9 @@ pub struct TextureHandles {
     pub crosshair: Handle<Image>,
     pub slash: Handle<Image>,
     pub slash_layout: Handle<TextureAtlasLayout>,
+    pub enemy_sprites: HashMap<EnemyType, Handle<Image>>,
+    pub boss_sprites: HashMap<BossArchetype, Handle<Image>>,
+    pub room_background: Handle<Image>,
 }
 
 #[allow(dead_code)]
@@ -64,6 +69,24 @@ pub fn load_game_assets(
     let cursor = images.add(make_cursor_image());
     let crosshair = images.add(make_crosshair_image());
 
+    let mut enemy_sprites = HashMap::new();
+    enemy_sprites.insert(
+        EnemyType::MeleeChaser,
+        asset_server.load("textures/enemies/melee_chaser.png"),
+    );
+    enemy_sprites.insert(
+        EnemyType::RangedShooter,
+        asset_server.load("textures/enemies/ranged_shooter.png"),
+    );
+
+    let mut boss_sprites = HashMap::new();
+    boss_sprites.insert(
+        BossArchetype::Floor1Guardian,
+        asset_server.load("textures/bosses/floor1_guardian.png"),
+    );
+
+    let room_background = asset_server.load("textures/backgrounds/room_bg_default.jpg");
+
     let white = images.add(Image::new_fill(
         Extent3d {
             width: 1,
@@ -85,6 +108,9 @@ pub fn load_game_assets(
             crosshair,
             slash,
             slash_layout,
+            enemy_sprites,
+            boss_sprites,
+            room_background,
         },
         audio: AudioHandles::default(),
     });
