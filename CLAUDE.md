@@ -175,7 +175,7 @@ src/utils/           → 数学、RNG、缓动、碰撞、实体工具
 
 2. **本地调试系统**：`src/core/local_debug.rs` 中的 `LocalDebugPlugin` 无需真实网络即可进行本地多人测试。它会自动将窗口并排放置，并为调试会话提供带后缀的独立存档文件。
 
-3. **存档系统**：使用 `ron` 格式保存可读存档。存档数据包括版本号、楼层、玩家属性、成就和敌人刷新计数。`PendingLoad` 资源确保存档只在切换到 `InGame` 状态时才被应用。
+3. **存档系统**：使用 `ron` 格式保存可读存档（当前 `version: 2`）。存档数据包括版本号、楼层、玩家属性、`RewardModifiers`、冷却、成就、敌人刷新计数，以及 `AugmentInventory`/`PlayerLevel`/`SkillSlots`（little-refactor Phase 1 起补齐，旧版 1 档案经 `#[serde(default)]` 仍可读）。楼层布局/当前房间尚未持久化，详见 `docs/superpowers/specs/2026-05-15-incremental-modification-plan.md`。`PendingLoad` 资源确保存档只在切换到 `InGame` 状态时才被应用。
 
 4. **网络栈分离**：Coop 使用 Lightyear 0.17.1 实现带房间推进和实体复制的主机权威多人模式；PVP 使用轻量级自定义 UDP 协议实现直接玩家对战，状态同步更简单。
 - **程序化音效系统**（`src/core/audio.rs`）：启动时用波形合成生成 13 种 WAV 音效，插入 `Assets<AudioSource>`。`SfxEvent` 事件驱动播放，桥接系统自动将 `DamageAppliedEvent`/`RoomClearedEvent`/`BossPhaseChangeEvent` 转换为音效。配置在 `audio.ron`。

@@ -872,3 +872,30 @@ Rust 程序设计课程第一次组长例会准备。需要理清项目架构以
 - 铭文系统残留代码清理（P0，涉及 14 个源文件 + runes.ron）
 - 插件注册位置统一（P1，AugmentPlugin/CursePlugin 移入 GameplayPlugin）
 - EventRoom UI 系统归位（P1）
+
+---
+
+## little-refactor Phase 1：流程 bug 修复 + 增量修改计划（2026-05-15）
+
+新分支 `little-refactor`（从 `claude-playground` 创建，承接 rune/curse→AugmentInventory 进行中工作树）。关键提交 `0b20f499`。
+
+### 改动内容
+- 新增 `docs/superpowers/specs/2026-05-15-incremental-modification-plan.md`：将全面重构 spec 转译为「就地增量修改」方案——保持 Bevy 0.14.2、统一 spec 自相矛盾的口径、bug 清单、分阶段路线图
+- `src/data/loaders.rs`：配置加载改为**按文件独立回退**。原 `try_load_all()` 对任一必需 RON 用 `?`，单个文件损坏会令整个 registry 回退默认值；现每个文件失败只回退该项并在日志中点名
+- `src/core/save.rs`：存档补齐 `AugmentInventory`/`PlayerLevel`/`SkillSlots`，`version` 1→2，新字段 `#[serde(default)]` 兼容旧档
+- `src/gameplay/event_room/mod.rs`：非战斗事件 Esc 退出后再交互时**复用已生成选项**而非重掷，堵住 Gambler/Treasure/BloodPact 的免费 re-roll；保留「Esc 不解决事件」语义
+- `src/gameplay/rewards/systems.rs`：圣所从 UpgradePick/AwakeningPick 按 Back 时保留原选项不再 RNG 重掷；强化锻造空池时安全收敛奖励房，消除死按钮软锁
+- `src/gameplay/shop/mod.rs`：商店增加 Esc 退出，避免无金币玩家被困
+
+### 目的与动机
+用户要求复用全面重构 spec 的全部设计，但以「修改而非重构」就地落地，并优先修复游戏流程 bug。本阶段只做**状态机无关**的确定性 bug，确保后续状态机迁移不返工。
+
+### 关键决策
+- 引擎保持 Bevy 0.14.2（已核实其原生支持 `SubStates`/`ComputedStates`，三层状态机迁移可行，无需升级引擎）
+- Bug#7（progression/skills 不在 CoopGame 运行）**推迟到 Phase 2**：朴素放宽 `run_if` 会让 coop client 跑单机楼层/升级逻辑并与 coop 自有 runtime 冲突造成 desync，根因是状态机设计，留待 Phase 2 一并解决
+- 商店「同帧双购 / 楼层重置残留」经核实在当前代码不可达，不加防御性死代码
+- Phase 1 提交为 little-refactor 基线：承接的 rune/curse→augment 工作树内部一致（cargo check/test 通过），与 Phase 1 修复一同作为分支起点提交
+
+### 已知问题 / 后续工作
+- Phase 2：三层状态机迁移（AppState→GamePhase→RoomPhase），并根因修复 Bug#7、RoomState 非状态问题
+- 验证：`cargo check` 通过（仅 3 个既有 audio dead-code 警告，无新增），`cargo test` 45/45 通过
