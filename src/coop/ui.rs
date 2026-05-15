@@ -1019,6 +1019,7 @@ pub fn attach_replicated_visuals(
     for (entity, kind, pos) in &q_enemies {
         let color = match kind.0 {
             EnemyType::MeleeChaser => Color::srgb(0.95, 0.45, 0.45),
+            EnemyType::Lobber => Color::srgb(0.74, 0.56, 0.96),
             EnemyType::RangedShooter => Color::srgb(0.55, 0.65, 0.95),
             EnemyType::Charger => Color::srgb(0.95, 0.75, 0.25),
             EnemyType::Flanker => Color::srgb(0.96, 0.56, 0.78),

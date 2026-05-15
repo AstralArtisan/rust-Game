@@ -20,6 +20,11 @@ pub fn load_all_configs(mut commands: Commands) {
         rooms: load_or_default("assets/configs/rooms.ron", defaults.rooms),
         balance: load_or_default("assets/configs/game_balance.ron", defaults.balance),
         augments: load_or_default("assets/configs/augments.ron", defaults.augments),
+        skills: load_or_default("assets/configs/skills.ron", defaults.skills),
+        events: load_or_default("assets/configs/events.ron", defaults.events),
+        shop: load_or_default("assets/configs/shop.ron", defaults.shop),
+        economy: load_or_default("assets/configs/balance.ron", defaults.economy),
+        elite_affixes: load_or_default("assets/configs/elite_affixes.ron", defaults.elite_affixes),
         audio: load_or_default("assets/configs/audio.ron", defaults.audio),
         effects: load_or_default("assets/configs/effects.ron", defaults.effects),
     };
@@ -83,6 +88,15 @@ fn default_registry() -> GameDataRegistry {
                 aggro_range: 480.0,
                 attack_range: 42.0,
                 projectile_speed: 0.0,
+            },
+            lobber: EnemyStatsConfig {
+                max_hp: 36.0,
+                move_speed: 112.0,
+                attack_damage: 12.0,
+                attack_cooldown_s: 1.25,
+                aggro_range: 620.0,
+                attack_range: 440.0,
+                projectile_speed: 390.0,
             },
             ranged_shooter: EnemyStatsConfig {
                 max_hp: 34.0,
@@ -200,8 +214,8 @@ fn default_registry() -> GameDataRegistry {
             reward_rooms_give_choice: true,
             boss_room_gives_victory: false,
             total_floors: 4,
-            floor_rooms: 7,
-            enemy_types: vec![],
+            floor_rooms: 10,
+            enemy_pools_by_floor: vec![],
             elite_chance: 0.18,
             elite_hp_mult: 2.0,
             elite_damage_mult: 1.55,
@@ -209,7 +223,263 @@ fn default_registry() -> GameDataRegistry {
             use_sprite_textures: true,
         },
         augments: AugmentsConfig { augments: vec![] },
+        skills: SkillsConfig { skills: vec![] },
+        events: EventsConfig { events: vec![] },
+        shop: ShopConfig::default(),
+        economy: EconomyConfig::default(),
+        elite_affixes: EliteAffixesConfig { affixes: vec![] },
         audio: AudioConfig::default(),
         effects: EffectsConfig::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    use crate::gameplay::augment::data::{AugmentId, AugmentRarity};
+    use crate::gameplay::enemy::components::{EliteAffix, EnemyType};
+    use crate::gameplay::player::components::SkillType;
+
+    fn close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.001,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    // Regression: floor 1 must NOT spawn floor 2/3/4 enemies. The old
+    // `choose_enemy_types` returned a flat `enemy_types` list verbatim for
+    // every floor, so floor 1 spawned the full roster. Pools are now per-floor
+    // cumulative; floor 1 = {MeleeChaser, Lobber, Charger} only.
+    #[test]
+    fn floor1_enemy_pool_excludes_higher_floor_enemies() {
+        use crate::gameplay::enemy::spawner::choose_enemy_types;
+
+        // Empty config -> built-in spec §7.1 table.
+        let mut reg = default_registry();
+        reg.balance.enemy_pools_by_floor = vec![];
+        assert_floor_gating(&reg);
+
+        // RON-provided config must gate identically.
+        reg.balance = load_ron("assets/configs/game_balance.ron").unwrap();
+        assert_floor_gating(&reg);
+
+        fn assert_floor_gating(reg: &GameDataRegistry) {
+            let f1 = choose_enemy_types(reg, 1);
+            assert!(f1.contains(&EnemyType::MeleeChaser));
+            assert!(f1.contains(&EnemyType::Lobber));
+            assert!(f1.contains(&EnemyType::Charger));
+            assert!(
+                !f1.iter().any(|e| matches!(
+                    e,
+                    EnemyType::RangedShooter
+                        | EnemyType::Flanker
+                        | EnemyType::Bomber
+                        | EnemyType::Sniper
+                        | EnemyType::Shielder
+                        | EnemyType::SupportCaster
+                        | EnemyType::Summoner
+                )),
+                "floor 1 must not include floor 2/3/4 enemies, got {f1:?}"
+            );
+
+            let f2 = choose_enemy_types(reg, 2);
+            assert!(f2.contains(&EnemyType::RangedShooter));
+            assert!(f2.contains(&EnemyType::Flanker));
+            assert!(!f2.contains(&EnemyType::Sniper));
+
+            let f4 = choose_enemy_types(reg, 4);
+            for e in [
+                EnemyType::MeleeChaser,
+                EnemyType::Lobber,
+                EnemyType::Charger,
+                EnemyType::RangedShooter,
+                EnemyType::Flanker,
+                EnemyType::Bomber,
+                EnemyType::Sniper,
+                EnemyType::Shielder,
+                EnemyType::SupportCaster,
+                EnemyType::Summoner,
+            ] {
+                assert!(f4.contains(&e), "floor 4 must include {e:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn phase3_augments_config_is_complete_three_level_matrix() {
+        let config: AugmentsConfig = load_ron("assets/configs/augments.ron").unwrap();
+        assert_eq!(config.augments.len(), 30);
+
+        let mut ids = BTreeSet::new();
+        for augment in &config.augments {
+            assert!(ids.insert(format!("{:?}", augment.id)));
+            assert_eq!(augment.levels.len(), 3, "{:?}", augment.id);
+            assert_eq!(augment.max_stacks(), 3, "{:?}", augment.id);
+            assert!(!augment.description_for_stacks(1).is_empty());
+            assert!(!augment.description_for_stacks(2).is_empty());
+            assert!(!augment.description_for_stacks(3).is_empty());
+            let expected_cost = match augment.rarity {
+                AugmentRarity::Common => 80,
+                AugmentRarity::Elite => 150,
+                AugmentRarity::Legendary => 250,
+            };
+            assert_eq!(augment.shop_cost, expected_cost, "{:?}", augment.id);
+        }
+
+        let by_id = |id| {
+            config
+                .augments
+                .iter()
+                .find(|augment| augment.id == id)
+                .unwrap_or_else(|| panic!("missing {id:?}"))
+        };
+        close(
+            *by_id(AugmentId::HeavyStrike).levels[2]
+                .params
+                .get("damage")
+                .unwrap(),
+            0.30,
+        );
+        close(
+            *by_id(AugmentId::Freeze).levels[2]
+                .params
+                .get("shatter")
+                .unwrap(),
+            0.50,
+        );
+        close(
+            *by_id(AugmentId::DashShield).levels[2]
+                .params
+                .get("charges")
+                .unwrap(),
+            3.0,
+        );
+        close(
+            *by_id(AugmentId::Phoenix).levels[2]
+                .params
+                .get("revive")
+                .unwrap(),
+            1.0,
+        );
+    }
+
+    #[test]
+    fn phase3_skills_config_matches_nine_finishers_and_energy_tiers() {
+        let config: SkillsConfig = load_ron("assets/configs/skills.ron").unwrap();
+        assert_eq!(config.skills.len(), 9);
+
+        for skill in [
+            SkillType::GroundSlam,
+            SkillType::BladeDance,
+            SkillType::ExecutionBlade,
+            SkillType::BulletBarrage,
+            SkillType::FrostField,
+            SkillType::MeteorFall,
+            SkillType::WarCry,
+            SkillType::LifeDrain,
+            SkillType::TimeRift,
+        ] {
+            assert!(config.get(skill).is_some(), "missing {skill:?}");
+        }
+
+        let light = config.get(SkillType::WarCry).unwrap();
+        assert_eq!(light.tier, SkillTier::Light);
+        close(light.energy_cost, 60.0);
+        close(light.cooldown_s, 8.0);
+
+        let medium = config.get(SkillType::LifeDrain).unwrap();
+        assert_eq!(medium.tier, SkillTier::Medium);
+        close(medium.energy_cost, 80.0);
+        close(medium.cooldown_s, 15.0);
+
+        let heavy = config.get(SkillType::MeteorFall).unwrap();
+        assert_eq!(heavy.tier, SkillTier::Heavy);
+        assert!(heavy.consumes_all_energy);
+        close(heavy.min_energy, 80.0);
+        close(heavy.cooldown_s, 25.0);
+    }
+
+    #[test]
+    fn phase3_events_shop_economy_and_enemy_configs_match_spec_counts() {
+        let events: EventsConfig = load_ron("assets/configs/events.ron").unwrap();
+        assert_eq!(events.events.len(), 17);
+        assert_eq!(
+            events
+                .events
+                .iter()
+                .filter(|event| event.category == EventCategory::Puzzle)
+                .count(),
+            3
+        );
+        assert_eq!(
+            events
+                .events
+                .iter()
+                .filter(|event| event.category == EventCategory::NonCombat)
+                .count(),
+            10
+        );
+        assert_eq!(
+            events
+                .events
+                .iter()
+                .filter(|event| event.category == EventCategory::Combat)
+                .count(),
+            4
+        );
+
+        let shop: ShopConfig = load_ron("assets/configs/shop.ron").unwrap();
+        assert_eq!(shop.heal_price, 40);
+        assert_eq!(shop.energy_price, 30);
+        assert_eq!(shop.max_hp_price, 80);
+        assert_eq!(shop.attack_power_price, 80);
+        assert_eq!(shop.common_augment_price, 80);
+        assert_eq!(shop.elite_augment_price, 150);
+        assert_eq!(shop.legendary_augment_price, 250);
+        assert_eq!(shop.augment_upgrade_price, 120);
+        assert_eq!(shop.skill_price, 180);
+        assert_eq!(shop.refresh_first_cost, 0);
+        assert_eq!(shop.refresh_base_cost, 30);
+        assert_eq!(shop.refresh_increment, 15);
+
+        let economy: EconomyConfig = load_ron("assets/configs/balance.ron").unwrap();
+        assert_eq!(economy.normal_gold, [3, 6]);
+        assert_eq!(economy.elite_gold, [12, 20]);
+        assert_eq!(economy.boss_gold, [30, 50]);
+        assert_eq!(economy.floor_income, [100, 180]);
+        assert!(!economy.xp_curve.is_empty());
+
+        let enemies: EnemiesConfig = load_ron("assets/configs/enemies.ron").unwrap();
+        assert!(enemies.lobber.projectile_speed > 0.0);
+        assert!(enemies.charger.attack_cooldown_s <= 0.80);
+        assert!(enemies.bomber.move_speed >= 240.0);
+        assert!(enemies.shielder.attack_damage >= 16.0);
+
+        let balance: GameBalanceConfig = load_ron("assets/configs/game_balance.ron").unwrap();
+        assert_eq!(balance.floor_rooms, 10);
+        assert_eq!(balance.enemy_pools_by_floor.len(), 4);
+        assert_eq!(
+            balance.enemy_pools_by_floor[0],
+            vec![EnemyType::MeleeChaser, EnemyType::Lobber, EnemyType::Charger]
+        );
+
+        let affixes: EliteAffixesConfig = load_ron("assets/configs/elite_affixes.ron").unwrap();
+        assert_eq!(affixes.affixes.len(), 6);
+        for affix in [
+            EliteAffix::Swift,
+            EliteAffix::Splitting,
+            EliteAffix::Shielded,
+            EliteAffix::Vampiric,
+            EliteAffix::Berserk,
+            EliteAffix::Teleporting,
+        ] {
+            assert!(
+                affixes.affixes.iter().any(|config| config.affix == affix),
+                "missing {affix:?}"
+            );
+        }
     }
 }

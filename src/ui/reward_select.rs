@@ -19,11 +19,7 @@ pub struct RewardActionButton {
 #[derive(Component)]
 pub struct RewardBackButton;
 
-pub fn setup_reward_ui(
-    mut commands: Commands,
-    assets: Res<GameAssets>,
-    flow: Res<RewardFlow>,
-) {
+pub fn setup_reward_ui(mut commands: Commands, assets: Res<GameAssets>, flow: Res<RewardFlow>) {
     commands
         .spawn((widgets::root_node(), RewardUi, Name::new("RewardRoot")))
         .with_children(|root| {
@@ -84,7 +80,8 @@ pub fn setup_reward_ui(
                                             "觉醒",
                                             "从 2 个精英/传说强化中选择 1 个",
                                             if preview.is_empty() {
-                                                "当前没有可淬炼强化，改为提供高稀有强化。".to_string()
+                                                "当前没有可淬炼强化，改为提供高稀有强化。"
+                                                    .to_string()
                                             } else {
                                                 format!("候选：{preview}")
                                             },
@@ -253,7 +250,11 @@ fn spawn_augment_choice_row(
                         format!(
                             "{}{}",
                             rarity_label(option.rarity),
-                            if option.is_upgrade { " · 升级后效果" } else { "" }
+                            if option.is_upgrade {
+                                " · 升级后效果"
+                            } else {
+                                ""
+                            }
                         ),
                         14.0,
                     ));

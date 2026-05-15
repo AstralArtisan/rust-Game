@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::gameplay::augment::data::{AugmentCategory, AugmentId, AugmentRarity};
-use crate::gameplay::enemy::components::EnemyType;
+use crate::gameplay::enemy::components::{EliteAffix, EnemyType};
 use crate::gameplay::map::room::RoomType;
+use crate::gameplay::player::components::SkillType;
 use crate::gameplay::rewards::data::RewardType;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,6 +48,8 @@ pub struct EnemyStatsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnemiesConfig {
     pub melee_chaser: EnemyStatsConfig,
+    #[serde(default = "default_lobber_stats")]
+    pub lobber: EnemyStatsConfig,
     pub ranged_shooter: EnemyStatsConfig,
     pub charger: EnemyStatsConfig,
     pub flanker: EnemyStatsConfig,
@@ -53,6 +58,18 @@ pub struct EnemiesConfig {
     pub bomber: EnemyStatsConfig,
     pub shielder: EnemyStatsConfig,
     pub summoner: EnemyStatsConfig,
+}
+
+fn default_lobber_stats() -> EnemyStatsConfig {
+    EnemyStatsConfig {
+        max_hp: 36.0,
+        move_speed: 112.0,
+        attack_damage: 12.0,
+        attack_cooldown_s: 1.25,
+        aggro_range: 620.0,
+        attack_range: 440.0,
+        projectile_speed: 390.0,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -199,7 +216,11 @@ pub struct GameBalanceConfig {
     pub boss_room_gives_victory: bool,
     pub total_floors: u32,
     pub floor_rooms: u32,
-    pub enemy_types: Vec<EnemyType>,
+    /// Per-floor enemy unlock pools (spec §7.1). Index 0 = floor 1; each inner
+    /// list = enemies NEWLY unlocked at that floor. The pool for floor N is the
+    /// cumulative union of floors 1..=N. Empty -> built-in spec table is used.
+    #[serde(default)]
+    pub enemy_pools_by_floor: Vec<Vec<EnemyType>>,
     pub elite_chance: f32,
     pub elite_hp_mult: f32,
     pub elite_damage_mult: f32,
@@ -213,19 +234,194 @@ fn default_use_sprite_textures() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AugmentLevelConfig {
+    pub description: String,
+    #[serde(default)]
+    pub params: BTreeMap<String, f32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AugmentConfig {
     pub id: AugmentId,
     pub category: AugmentCategory,
     pub rarity: AugmentRarity,
     pub title: String,
+    #[serde(default)]
     pub description: String,
+    #[serde(default)]
     pub upgraded_description: String,
     pub shop_cost: u32,
+    #[serde(default)]
+    pub levels: Vec<AugmentLevelConfig>,
+}
+
+impl AugmentConfig {
+    pub fn max_stacks(&self) -> u8 {
+        self.levels.len().clamp(2, 3) as u8
+    }
+
+    pub fn description_for_stacks(&self, stacks: u8) -> &str {
+        let normalized = stacks.clamp(1, self.max_stacks());
+        if let Some(level) = self.levels.get(normalized.saturating_sub(1) as usize) {
+            return level.description.as_str();
+        }
+        if normalized >= 2 && !self.upgraded_description.is_empty() {
+            self.upgraded_description.as_str()
+        } else {
+            self.description.as_str()
+        }
+    }
+
+    pub fn next_description(&self, current_stacks: u8) -> &str {
+        self.description_for_stacks(current_stacks.saturating_add(1))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AugmentsConfig {
     pub augments: Vec<AugmentConfig>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillCategory {
+    Melee,
+    Ranged,
+    Support,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SkillTier {
+    Light,
+    Medium,
+    Heavy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillConfig {
+    pub skill: SkillType,
+    pub category: SkillCategory,
+    pub tier: SkillTier,
+    pub title: String,
+    pub description: String,
+    pub energy_cost: f32,
+    pub cooldown_s: f32,
+    #[serde(default)]
+    pub consumes_all_energy: bool,
+    #[serde(default)]
+    pub min_energy: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillsConfig {
+    pub skills: Vec<SkillConfig>,
+}
+
+impl SkillsConfig {
+    pub fn get(&self, skill: SkillType) -> Option<&SkillConfig> {
+        self.skills.iter().find(|config| config.skill == skill)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EventCategory {
+    Puzzle,
+    NonCombat,
+    Combat,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventChoiceConfig {
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventDefinitionConfig {
+    pub id: String,
+    pub category: EventCategory,
+    pub title: String,
+    pub description: String,
+    #[serde(default)]
+    pub choices: Vec<EventChoiceConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventsConfig {
+    pub events: Vec<EventDefinitionConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShopConfig {
+    pub heal_price: u32,
+    pub energy_price: u32,
+    pub max_hp_price: u32,
+    pub attack_power_price: u32,
+    pub common_augment_price: u32,
+    pub elite_augment_price: u32,
+    pub legendary_augment_price: u32,
+    pub augment_upgrade_price: u32,
+    pub skill_price: u32,
+    pub healing_potion_price: u32,
+    pub energy_potion_price: u32,
+    pub talisman_price: u32,
+    pub refresh_first_cost: u32,
+    pub refresh_base_cost: u32,
+    pub refresh_increment: u32,
+}
+
+impl Default for ShopConfig {
+    fn default() -> Self {
+        Self {
+            heal_price: 40,
+            energy_price: 30,
+            max_hp_price: 80,
+            attack_power_price: 80,
+            common_augment_price: 80,
+            elite_augment_price: 150,
+            legendary_augment_price: 250,
+            augment_upgrade_price: 120,
+            skill_price: 180,
+            healing_potion_price: 60,
+            energy_potion_price: 40,
+            talisman_price: 120,
+            refresh_first_cost: 0,
+            refresh_base_cost: 30,
+            refresh_increment: 15,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EconomyConfig {
+    pub normal_gold: [u32; 2],
+    pub elite_gold: [u32; 2],
+    pub boss_gold: [u32; 2],
+    pub floor_income: [u32; 2],
+    pub xp_curve: Vec<u32>,
+}
+
+impl Default for EconomyConfig {
+    fn default() -> Self {
+        Self {
+            normal_gold: [3, 6],
+            elite_gold: [12, 20],
+            boss_gold: [30, 50],
+            floor_income: [100, 180],
+            xp_curve: vec![0, 50, 120, 210, 320, 450, 600],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EliteAffixConfig {
+    pub affix: EliteAffix,
+    pub title: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EliteAffixesConfig {
+    pub affixes: Vec<EliteAffixConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

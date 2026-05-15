@@ -1,0 +1,21 @@
+(
+  events: [
+    (id: "bullet_maze", category: Puzzle, title: "弹幕迷宫", description: "从 A 到 B 躲避移动弹幕墙。"),
+    (id: "memory_blocks", category: Puzzle, title: "记忆方块", description: "方块短暂亮起后按顺序踩亮。"),
+    (id: "timed_collect", category: Puzzle, title: "限时收集", description: "收集闪烁能量球，球会消失刷新。"),
+    (id: "gambler", category: NonCombat, title: "赌徒", description: "付出金币，赌随机强化。"),
+    (id: "blood_pact", category: NonCombat, title: "血契", description: "献出生命，换取强化。"),
+    (id: "treasure", category: NonCombat, title: "宝箱", description: "免费获得金币、经验和强化概率。"),
+    (id: "healing_spring", category: NonCombat, title: "治愈泉", description: "恢复生命、能量或永久最大生命。"),
+    (id: "traveling_merchant", category: NonCombat, title: "流动商贩", description: "3 个半价强化，只能买 1 个。"),
+    (id: "gold_altar", category: NonCombat, title: "金币祭坛", description: "用能量或生命换取金币。"),
+    (id: "mystic_blacksmith", category: NonCombat, title: "神秘铁匠", description: "替换、升稀有度或强化已有强化。"),
+    (id: "wheel_of_fate", category: NonCombat, title: "命运之轮", description: "随机获得奖励或惩罚。"),
+    (id: "traveler_gift", category: NonCombat, title: "旅者的馈赠", description: "药水、金币或刷新券。"),
+    (id: "sacrifice_altar", category: NonCombat, title: "献祭祭坛", description: "献祭强化、生命或能量换奖励。"),
+    (id: "timed_challenge", category: Combat, title: "限时清剿", description: "30s 清空，成功给高稀有强化。"),
+    (id: "hunt_challenge", category: Combat, title: "猎杀挑战", description: "2-3 只不同词缀精英混战。"),
+    (id: "flawless_trial", category: Combat, title: "无伤试炼", description: "清一波普通怪不受伤。"),
+    (id: "cursed_vault", category: Combat, title: "诅咒宝库", description: "开宝箱可能给金币或触发小怪。"),
+  ],
+)

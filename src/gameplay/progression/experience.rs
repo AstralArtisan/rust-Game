@@ -5,6 +5,7 @@ use crate::core::events::RoomClearedEvent;
 use crate::data::definitions::RewardScalingConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
+use crate::gameplay::augment::tuning;
 use crate::gameplay::player::components::{Health, Player};
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::rewards::apply::heal_amount;
@@ -25,7 +26,7 @@ impl Default for PlayerLevel {
         Self {
             level: 1,
             xp: 0,
-            xp_to_next: 30,
+            xp_to_next: Self::xp_threshold(1),
         }
     }
 }
@@ -46,11 +47,11 @@ impl PlayerLevel {
 
     /// XP needed to go from `level` to `level+1`.
     pub fn xp_threshold(level: u32) -> u32 {
-        if level <= 3 {
-            30 + (level.saturating_sub(1)) * 15
-        } else {
-            30 + (level.saturating_sub(1)) * 15 + (level.saturating_sub(3)) * 8
-        }
+        const PHASE3_THRESHOLDS: [u32; 9] = [50, 70, 90, 110, 130, 150, 180, 200, 220];
+        PHASE3_THRESHOLDS
+            .get(level.saturating_sub(1) as usize)
+            .copied()
+            .unwrap_or_else(|| 220 + level.saturating_sub(9) * 25)
     }
 }
 
@@ -75,14 +76,11 @@ pub fn process_xp_gains(
         return;
     }
     for (mut level, inventory) in &mut player_q {
-        let xp_mult = match inventory
-            .map(|value| value.stacks(AugmentId::XpBonus))
-            .unwrap_or(0)
-        {
-            2 => 1.50,
-            1 => 1.25,
-            _ => 1.0,
-        };
+        let xp_mult = tuning::xp_bonus_mult(
+            inventory
+                .map(|value| value.stacks(AugmentId::XpBonus))
+                .unwrap_or(0),
+        );
         let adjusted_xp = (total_xp as f32 * xp_mult) as u32;
         let levels_gained = level.add_xp(adjusted_xp);
         for i in 0..levels_gained {
@@ -218,7 +216,7 @@ mod tests {
         let level = PlayerLevel::default();
         assert_eq!(level.level, 1);
         assert_eq!(level.xp, 0);
-        assert_eq!(level.xp_to_next, 30);
+        assert_eq!(level.xp_to_next, 50);
     }
 
     #[test]
@@ -233,30 +231,30 @@ mod tests {
     #[test]
     fn test_add_xp_levelup() {
         let mut level = PlayerLevel::default();
-        let gained = level.add_xp(30);
+        let gained = level.add_xp(50);
         assert_eq!(gained, 1);
         assert_eq!(level.level, 2);
         assert_eq!(level.xp, 0);
-        assert_eq!(level.xp_to_next, 45);
+        assert_eq!(level.xp_to_next, 70);
     }
 
     #[test]
     fn test_multi_levelup() {
         let mut level = PlayerLevel::default();
         let gained = level.add_xp(200);
-        assert_eq!(gained, 3);
-        assert_eq!(level.level, 4);
-        assert_eq!(level.xp, 65);
-        assert_eq!(level.xp_to_next, 83);
+        assert_eq!(gained, 2);
+        assert_eq!(level.level, 3);
+        assert_eq!(level.xp, 80);
+        assert_eq!(level.xp_to_next, 90);
     }
 
     #[test]
     fn test_xp_threshold_formula() {
-        assert_eq!(PlayerLevel::xp_threshold(1), 30);
-        assert_eq!(PlayerLevel::xp_threshold(2), 45);
-        assert_eq!(PlayerLevel::xp_threshold(3), 60);
-        assert_eq!(PlayerLevel::xp_threshold(4), 83);
-        assert_eq!(PlayerLevel::xp_threshold(5), 106);
+        assert_eq!(PlayerLevel::xp_threshold(1), 50);
+        assert_eq!(PlayerLevel::xp_threshold(2), 70);
+        assert_eq!(PlayerLevel::xp_threshold(3), 90);
+        assert_eq!(PlayerLevel::xp_threshold(4), 110);
+        assert_eq!(PlayerLevel::xp_threshold(5), 130);
     }
 
     #[test]
@@ -270,12 +268,8 @@ mod tests {
         let mut rng = GameRng::default();
         rng.reseed(7);
 
-        let options = build_levelup_options(
-            &mut rng,
-            &RewardScalingConfig::default_config(),
-            100.0,
-            1,
-        );
+        let options =
+            build_levelup_options(&mut rng, &RewardScalingConfig::default_config(), 100.0, 1);
 
         assert_eq!(options.len(), 4);
         assert!(matches!(options[0].apply, LevelUpStat::RecoverHealth(_)));

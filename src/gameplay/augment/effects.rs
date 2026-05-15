@@ -11,14 +11,18 @@ use crate::gameplay::combat::components::{
 };
 use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::components::Enemy;
-use crate::gameplay::player::components::{DashState, Energy, Health, Player, RewardModifiers};
+use crate::gameplay::player::components::{
+    AttackPower, DashState, Energy, Health, Player, RewardModifiers,
+};
 use crate::utils::collision::{Aabb2, aabb_from_transform_size};
 
 use super::data::{AugmentId, AugmentInventory};
+use super::tuning;
 
 #[derive(Component, Debug, Clone)]
 pub struct ArmorBroken {
     pub damage_multiplier: f32,
+    pub crit_taken_bonus: f32,
     pub timer: Timer,
 }
 
@@ -31,18 +35,10 @@ pub struct HomingProjectile {
 
 impl HomingProjectile {
     pub fn from_stacks(stacks: u8, speed: f32) -> Self {
-        if stacks >= 2 {
-            Self {
-                speed,
-                turn_rate: 0.22,
-                search_radius: 320.0,
-            }
-        } else {
-            Self {
-                speed,
-                turn_rate: 0.12,
-                search_radius: 240.0,
-            }
+        Self {
+            speed,
+            turn_rate: tuning::homing_turn_rate(stacks),
+            search_radius: tuning::homing_search_radius(stacks),
         }
     }
 }
@@ -111,7 +107,7 @@ pub fn dash_energy_system(
             continue;
         }
 
-        let gain = if stacks >= 2 { 15.0 } else { 10.0 };
+        let gain = tuning::dash_energy_gain(stacks, hit_set.len());
         energy.current = (energy.current + gain).min(energy.max);
     }
 }
@@ -180,7 +176,7 @@ pub fn melee_reflect_system(
         });
     }
 
-    for (_entity, mut projectile, mut projectile_hitbox, projectile_tf, mut tf, mut sprite) in
+    for (entity, mut projectile, mut projectile_hitbox, projectile_tf, mut tf, mut sprite) in
         &mut collision_sets.p1()
     {
         if projectile.team != Team::Enemy {
@@ -205,13 +201,7 @@ pub fn melee_reflect_system(
         let reflected_dir =
             projectile_reflect_direction(projectile.velocity, reflector.arc.direction);
         let reflected_speed = projectile.velocity.length().max(360.0);
-        let damage_mult = if reflector.augment_stacks >= 2 {
-            1.50
-        } else if reflector.augment_stacks >= 1 {
-            1.0
-        } else {
-            1.10
-        };
+        let damage_mult = tuning::reflect_damage_mult(reflector.augment_stacks);
 
         projectile.velocity = reflected_dir * reflected_speed;
         projectile.team = Team::Player;
@@ -227,6 +217,11 @@ pub fn melee_reflect_system(
         tf.rotation = Quat::from_rotation_z(reflected_dir.y.atan2(reflected_dir.x));
         sprite.color = Color::srgb(0.86, 1.0, 0.52);
         sprite.custom_size = Some(Vec2::new(18.0, 9.0));
+        if tuning::reflect_homing(reflector.augment_stacks) {
+            commands
+                .entity(entity)
+                .insert(HomingProjectile::from_stacks(3, reflected_speed));
+        }
 
         particles::spawn_hit_particles(
             &mut commands,
@@ -301,11 +296,13 @@ pub fn chain_lightning_system(
             continue;
         }
 
-        let max_jumps = if stacks >= 2 { 2 } else { 1 };
+        let Some(profile) = tuning::chain_lightning_profile(stacks) else {
+            continue;
+        };
         let mut struck = HashSet::from([event.target]);
         let mut from_pos = event.pos;
 
-        for _ in 0..max_jumps {
+        for _ in 0..profile.jumps {
             let mut next_target = None;
             let mut best_dist_sq = 180.0_f32 * 180.0;
             for (enemy, enemy_tf, health) in &enemy_q {
@@ -338,7 +335,7 @@ pub fn chain_lightning_system(
             damage_writer.send(DamageEvent {
                 target: enemy,
                 source: Some(player),
-                amount: event.amount * 0.50,
+                amount: event.amount * profile.damage_fraction,
                 knockback: to_enemy.normalize_or_zero() * 120.0,
                 team: Team::Player,
                 kind: DamageKind::Passive,
@@ -353,7 +350,7 @@ pub fn thorns_system(
     assets: Res<GameAssets>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     mut damage_writer: EventWriter<DamageEvent>,
-    player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
+    player_augments: Query<(&AugmentInventory, &AttackPower), (With<Player>, Without<Replicated>)>,
     source_q: Query<&GlobalTransform, Without<Replicated>>,
     target_q: Query<&GlobalTransform, Without<Replicated>>,
 ) {
@@ -364,7 +361,7 @@ pub fn thorns_system(
         let Some(source) = event.source else {
             continue;
         };
-        let Ok(inventory) = player_augments.get(event.target) else {
+        let Ok((inventory, attack_power)) = player_augments.get(event.target) else {
             continue;
         };
         let stacks = inventory.stacks(AugmentId::Thorns);
@@ -372,7 +369,7 @@ pub fn thorns_system(
             continue;
         }
 
-        let reflected_damage = if stacks >= 2 { 25.0 } else { 15.0 };
+        let reflected_damage = attack_power.0 * tuning::thorns_damage_fraction(stacks);
         let knockback = match (target_q.get(event.target), source_q.get(source)) {
             (Ok(target_tf), Ok(source_tf)) => {
                 (source_tf.translation().truncate() - target_tf.translation().truncate())
@@ -466,12 +463,15 @@ fn arc_hitbox_intersects_target(
 #[derive(Component, Debug, Clone)]
 pub struct Frozen {
     pub timer: Timer,
+    pub shatter_damage_bonus: f32,
 }
 
 /// DashShield: absorbs one hit, expires after duration.
 #[derive(Component, Debug, Clone)]
 pub struct DashShieldBuff {
     pub timer: Timer,
+    pub charges: u8,
+    pub break_damage_fraction: f32,
 }
 
 /// Phoenix: marks that the once-per-run revive has been used.
@@ -506,15 +506,14 @@ pub fn freeze_system(
         if existing_frozen.get(event.target).is_ok() {
             continue;
         }
-        let (chance, duration) = if stacks >= 2 {
-            (0.25, 2.0)
-        } else {
-            (0.15, 1.5)
+        let Some(profile) = tuning::freeze_profile(stacks) else {
+            continue;
         };
-        if rng.gen_range_f32(0.0, 1.0) < chance {
+        if rng.gen_range_f32(0.0, 1.0) < profile.chance {
             if let Some(mut ec) = commands.get_entity(event.target) {
                 ec.insert(Frozen {
-                    timer: Timer::from_seconds(duration, TimerMode::Once),
+                    timer: Timer::from_seconds(profile.duration_s, TimerMode::Once),
+                    shatter_damage_bonus: profile.shatter_bonus,
                 });
             }
         }
@@ -623,8 +622,10 @@ pub fn phoenix_system(
         if stacks == 0 {
             continue;
         }
-        let revive_fraction = if stacks >= 2 { 0.80 } else { 0.50 };
-        health.current = health.max * revive_fraction;
+        let Some(profile) = tuning::phoenix_profile(stacks) else {
+            continue;
+        };
+        health.current = health.max * profile.revive_fraction;
         commands.entity(entity).insert(PhoenixUsed);
         flash_events.send(crate::core::events::ScreenFlashRequest {
             color: Color::srgba(1.0, 0.85, 0.3, 0.9),

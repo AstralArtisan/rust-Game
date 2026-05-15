@@ -92,28 +92,61 @@ pub(crate) fn build_rooms(
             branching_rooms(data.balance.floor_rooms.max(4), floor, rng)
         }
     } else {
-        branching_rooms(7, floor, rng)
+        branching_rooms(10, floor, rng)
     };
 
-    enforce_reward_room_rules(generated)
+    enforce_room_rules(generated)
 }
 
-fn enforce_reward_room_rules(mut rooms: Vec<RoomData>) -> Vec<RoomData> {
+fn enforce_room_rules(mut rooms: Vec<RoomData>) -> Vec<RoomData> {
     let mut reward_kept = false;
+    let mut previous_special: Option<RoomType> = None;
 
     for room in &mut rooms {
-        if room.room_type != RoomType::Reward {
-            continue;
+        if room.room_type == RoomType::Reward {
+            if reward_kept {
+                room.room_type = RoomType::Normal;
+                room.mystery = false;
+            } else {
+                reward_kept = true;
+            }
         }
-        if reward_kept {
+
+        if matches!(room.room_type, RoomType::Shop | RoomType::Event) && previous_special.is_some()
+        {
             room.room_type = RoomType::Normal;
             room.mystery = false;
-        } else {
-            reward_kept = true;
+        }
+
+        if matches!(room.room_type, RoomType::Shop | RoomType::Event) {
+            previous_special = Some(room.room_type);
+        } else if !matches!(room.room_type, RoomType::Start) {
+            previous_special = None;
+        }
+    }
+
+    let mut layers_with_normal = std::collections::HashSet::new();
+    for room in &rooms {
+        if room.room_type == RoomType::Normal {
+            layers_with_normal.insert(room.id.0);
+        }
+    }
+    if layers_with_normal.is_empty() {
+        if let Some(room) = rooms
+            .iter_mut()
+            .find(|room| !matches!(room.room_type, RoomType::Start | RoomType::Boss))
+        {
+            room.room_type = RoomType::Normal;
+            room.mystery = false;
         }
     }
 
     rooms
+}
+
+#[cfg(test)]
+fn enforce_reward_room_rules(rooms: Vec<RoomData>) -> Vec<RoomData> {
+    enforce_room_rules(rooms)
 }
 
 fn linear_rooms(sequence: Vec<GeneratedRoom>) -> Vec<RoomData> {
@@ -375,6 +408,51 @@ mod tests {
             .count();
 
         assert_eq!(rewards, 1);
+    }
+
+    #[test]
+    fn room_rules_block_consecutive_shop_event_specials() {
+        let rooms = vec![
+            dummy_room(0, RoomType::Start),
+            dummy_room(1, RoomType::Shop),
+            dummy_room(2, RoomType::Event),
+            dummy_room(3, RoomType::Shop),
+            dummy_room(4, RoomType::Boss),
+        ];
+
+        let rooms = enforce_room_rules(rooms);
+        assert_eq!(rooms[1].room_type, RoomType::Shop);
+        assert_eq!(rooms[2].room_type, RoomType::Normal);
+        assert_eq!(rooms[3].room_type, RoomType::Shop);
+    }
+
+    #[test]
+    fn generated_phase3_floor_has_boss_and_room_rule_invariants() {
+        let mut rng = GameRng::default();
+        rng.reseed(19);
+        let rooms = build_rooms(None, 3, &mut rng);
+
+        assert!(rooms.len() >= 10);
+        assert_eq!(rooms.first().unwrap().room_type, RoomType::Start);
+        assert!(rooms.iter().any(|room| room.room_type == RoomType::Boss));
+        assert!(rooms.iter().any(|room| room.room_type == RoomType::Normal));
+        assert!(
+            rooms
+                .iter()
+                .filter(|room| room.room_type == RoomType::Reward)
+                .count()
+                <= 1
+        );
+
+        let mut previous_special = false;
+        for room in rooms
+            .iter()
+            .filter(|room| !matches!(room.room_type, RoomType::Start | RoomType::Boss))
+        {
+            let special = matches!(room.room_type, RoomType::Shop | RoomType::Event);
+            assert!(!(previous_special && special));
+            previous_special = special;
+        }
     }
 }
 

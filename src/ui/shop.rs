@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
 use crate::gameplay::shop::{ShopLine, ShopOffers, ShopUiLine, next_refresh_cost};
-use crate::states::AppState;
+use crate::states::GamePhase;
 use crate::ui::widgets;
 
 #[derive(Component)]
@@ -88,9 +88,21 @@ pub fn update_shop_ui(
             format!("刷新：{} 金币", refresh_cost)
         };
         lines.spawn((widgets::body_text(&assets, refresh_text, 18.0), ShopUiLine));
-        spawn_shop_section(lines, &assets, "属性", &offers.lines, 1);
-        spawn_shop_section(lines, &assets, "强化", &offers.augment_lines, 4);
-        spawn_shop_section(lines, &assets, "工具", &offers.utility_lines, 7);
+        spawn_shop_section(lines, &assets, "属性", &offers.lines, &["1", "2", "3", "4"]);
+        spawn_shop_section(
+            lines,
+            &assets,
+            "强化",
+            &offers.augment_lines,
+            &["5", "6", "7", "8", "9"],
+        );
+        spawn_shop_section(
+            lines,
+            &assets,
+            "工具",
+            &offers.utility_lines,
+            &["0", "-", "="],
+        );
     });
 }
 
@@ -99,18 +111,18 @@ fn spawn_shop_section(
     assets: &GameAssets,
     title: &str,
     section_lines: &[ShopLine],
-    key_start: usize,
+    keys: &[&str],
 ) {
     lines.spawn((widgets::title_text(assets, title, 22.0), ShopUiLine));
     for (i, line) in section_lines.iter().enumerate() {
-        let key = key_start + i;
+        let key = keys.get(i).copied().unwrap_or("?");
         lines.spawn((
             widgets::body_text(
                 assets,
                 if line.purchased {
-                    format!("{}）{}（已购买）", key, line.title)
+                    format!("{key}）{}（已购买）", line.title)
                 } else {
-                    format!("{}）{}（价格：{}）", key, line.title, line.cost)
+                    format!("{key}）{}（价格：{}）", line.title, line.cost)
                 },
                 20.0,
             ),
@@ -125,10 +137,10 @@ fn spawn_shop_section(
 
 pub fn shop_ui_input_system(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mut next: ResMut<NextState<AppState>>,
+    mut next: ResMut<NextState<GamePhase>>,
 ) {
     if keyboard.just_pressed(KeyCode::Escape) {
-        next.set(AppState::InGame);
+        next.set(GamePhase::Playing);
     }
 }
 

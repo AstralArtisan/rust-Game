@@ -9,6 +9,7 @@ pub struct Enemy;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EnemyType {
     MeleeChaser,
+    Lobber,
     RangedShooter,
     Charger,
     Flanker,
@@ -54,6 +55,15 @@ pub enum EliteAffix {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct EliteAffixMarker(pub EliteAffix);
+
+#[derive(Component, Debug, Clone)]
+pub struct EliteAffixes(pub Vec<EliteAffix>);
+
+impl EliteAffixes {
+    pub fn contains(&self, affix: EliteAffix) -> bool {
+        self.0.contains(&affix)
+    }
+}
 
 #[derive(Component)]
 pub struct EliteAffixLabel;
@@ -148,7 +158,7 @@ pub struct BossDirectionalDefense {
 #[derive(Component, Debug, Clone, Copy)]
 pub struct GuardianShieldIndicator;
 
-/// MirrorWarden decoy. It can fire but cannot be damaged.
+/// MirrorWarden decoy. Phase 3 decoys have 20% of the boss HP.
 #[derive(Component, Debug, Clone)]
 pub struct BossDecoy {
     pub lifetime: Timer,

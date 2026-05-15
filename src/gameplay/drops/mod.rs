@@ -5,8 +5,10 @@ use crate::coop::net::is_coop_authority;
 use crate::coop::runtime::is_coop_simulation_active;
 use crate::core::assets::GameAssets;
 use crate::core::events::{DeathEvent, SfxEvent, SfxKind};
+use crate::data::definitions::EconomyConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
+use crate::gameplay::augment::tuning;
 use crate::gameplay::combat::components::Team;
 use crate::gameplay::enemy::components::{BossSubCore, Elite, EnemyKind, EnemyType};
 use crate::gameplay::map::InGameEntity;
@@ -109,27 +111,7 @@ pub fn spawn_drops_on_death(
         let kind = enemy_kind.0;
         let is_elite = elite.is_some();
 
-        // Gold calculation (same as old enemy_death_system)
-        let base_gold: u32 = match kind {
-            EnemyType::Boss => match floor_number {
-                1 => 35,
-                2 => 45,
-                3 => 50,
-                _ => 55,
-            },
-            _ => match floor_number {
-                1 => 8,
-                2 => 9,
-                3 => 10,
-                _ => 11,
-            },
-        };
-        let reward_gold = base_gold
-            + if is_elite {
-                data.balance.elite_gold_bonus
-            } else {
-                0
-            };
+        let reward_gold = roll_enemy_gold(kind, is_elite, &data.economy, &mut rng);
 
         // XP calculation (raw, XpBonus applied in experience.rs)
         let xp_amount: u32 = match kind {
@@ -163,14 +145,11 @@ pub fn spawn_drops_on_death(
 
         // Spawn gold drops per player (GoldBonus applied here)
         for inventory in &player_q {
-            let gold_mult: f32 = match inventory
-                .map(|inv| inv.stacks(AugmentId::GoldBonus))
-                .unwrap_or(0)
-            {
-                2 => 1.50,
-                1 => 1.25,
-                _ => 1.0,
-            };
+            let gold_mult = tuning::gold_bonus_mult(
+                inventory
+                    .map(|inv| inv.stacks(AugmentId::GoldBonus))
+                    .unwrap_or(0),
+            );
             let final_gold = (reward_gold as f32 * gold_mult) as u32;
             if final_gold > 0 {
                 let gold_per = (final_gold / gold_drop_count).max(1);
@@ -196,6 +175,32 @@ pub fn spawn_drops_on_death(
             }
         }
     }
+}
+
+fn roll_enemy_gold(
+    enemy_type: EnemyType,
+    is_elite: bool,
+    economy: &EconomyConfig,
+    rng: &mut GameRng,
+) -> u32 {
+    let range = if enemy_type == EnemyType::Boss {
+        economy.boss_gold
+    } else if is_elite {
+        economy.elite_gold
+    } else {
+        economy.normal_gold
+    };
+    roll_u32_inclusive(range, rng)
+}
+
+fn roll_u32_inclusive([min, max]: [u32; 2], rng: &mut GameRng) -> u32 {
+    if max <= min {
+        return min;
+    }
+    let upper_exclusive = max.saturating_add(1);
+    (rng.gen_range_f32(min as f32, upper_exclusive as f32)
+        .floor() as u32)
+        .clamp(min, max)
 }
 
 fn spawn_drop(
@@ -289,14 +294,11 @@ pub fn drop_magnet(
         for (player_tf, inventory) in &player_q {
             let player_pos = player_tf.translation().truncate();
             let dist = drop_pos.distance(player_pos);
-            let pickup_mult: f32 = match inventory
-                .map(|inv| inv.stacks(AugmentId::PickupRange))
-                .unwrap_or(0)
-            {
-                2 => 2.0,
-                1 => 1.6,
-                _ => 1.0,
-            };
+            let pickup_mult = tuning::pickup_range_mult(
+                inventory
+                    .map(|inv| inv.stacks(AugmentId::PickupRange))
+                    .unwrap_or(0),
+            );
             let range = 140.0 * pickup_mult;
             if dist < closest_dist {
                 closest_dist = dist;
@@ -410,6 +412,39 @@ pub fn update_pickup_texts(
         }
         if pt.timer.finished() {
             safe_despawn_recursive(&mut commands, entity);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phase3_gold_economy_rolls_within_configured_ranges() {
+        let economy = EconomyConfig::default();
+        let mut rng = GameRng::default();
+        rng.reseed(17);
+
+        for _ in 0..32 {
+            assert!((3..=6).contains(&roll_enemy_gold(
+                EnemyType::MeleeChaser,
+                false,
+                &economy,
+                &mut rng
+            )));
+            assert!((12..=20).contains(&roll_enemy_gold(
+                EnemyType::MeleeChaser,
+                true,
+                &economy,
+                &mut rng
+            )));
+            assert!((30..=50).contains(&roll_enemy_gold(
+                EnemyType::Boss,
+                false,
+                &economy,
+                &mut rng
+            )));
         }
     }
 }

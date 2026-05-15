@@ -7,6 +7,7 @@ use crate::core::assets::GameAssets;
 use crate::core::events::DamageEvent;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::augment::effects::ArmorBroken;
+use crate::gameplay::augment::tuning;
 use crate::gameplay::combat::components::{
     ArcHitbox, DamageKind, Hitbox, Hurtbox, Projectile, RuptureDot, Team,
 };
@@ -199,7 +200,7 @@ pub fn detect_hitbox_hurtbox_overlap(
                         .map(|inv| inv.stacks(AugmentId::Executioner))
                         .unwrap_or(0);
                     if exec_stacks > 0 {
-                        let threshold = if exec_stacks >= 2 { 0.25 } else { 0.15 };
+                        let threshold = tuning::executioner_threshold(exec_stacks);
                         if let Ok(target_hp) = target_health_q.get(target) {
                             if target_hp.max > 0.0 && target_hp.current / target_hp.max < threshold
                             {
@@ -234,15 +235,13 @@ pub fn detect_hitbox_hurtbox_overlap(
                         .map(|inventory| inventory.stacks(AugmentId::ArmorBreak))
                         .unwrap_or(0);
                     if armor_break_stacks > 0 {
-                        let (damage_multiplier, duration_s) = if armor_break_stacks >= 2 {
-                            (1.30, 5.0)
-                        } else {
-                            (1.20, 3.0)
-                        };
-                        commands.entity(target).insert(ArmorBroken {
-                            damage_multiplier,
-                            timer: Timer::from_seconds(duration_s, TimerMode::Once),
-                        });
+                        if let Some(profile) = tuning::armor_break_profile(armor_break_stacks) {
+                            commands.entity(target).insert(ArmorBroken {
+                                damage_multiplier: profile.damage_multiplier,
+                                crit_taken_bonus: profile.crit_taken_bonus,
+                                timer: Timer::from_seconds(profile.duration_s, TimerMode::Once),
+                            });
+                        }
                     }
 
                     if let Some(mods) = mods {
@@ -252,11 +251,7 @@ pub fn detect_hitbox_hurtbox_overlap(
                         }
                     }
                     if lifesteal_slash_stacks > 0 {
-                        let heal_fraction = if lifesteal_slash_stacks >= 2 {
-                            0.05
-                        } else {
-                            0.03
-                        };
+                        let heal_fraction = tuning::lifesteal_fraction(lifesteal_slash_stacks);
                         total_heal += (amount * heal_fraction).min(5.0);
                     }
                     if total_heal > 0.0 {

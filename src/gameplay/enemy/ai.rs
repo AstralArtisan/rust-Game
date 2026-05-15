@@ -106,7 +106,7 @@ pub fn update_enemy_ai(
                     far_pursuit_velocity(dir, separation, move_speed, 0.62, 1.10)
                 };
             }
-            EnemyType::RangedShooter => {
+            EnemyType::RangedShooter | EnemyType::Lobber => {
                 vel.0 = if dist < stats.aggro_range {
                     let target_dist = (stats.attack_range * 0.72).clamp(180.0, 280.0);
                     let radial = if dist < target_dist * 0.88 {
@@ -431,7 +431,7 @@ fn separation_force(
         EnemyType::Summoner => 40.0,
         EnemyType::SupportCaster => 42.0,
         EnemyType::Sniper => 40.0,
-        EnemyType::RangedShooter => 40.0,
+        EnemyType::RangedShooter | EnemyType::Lobber => 40.0,
         EnemyType::Bomber => 35.0,
         EnemyType::Flanker => 30.0,
         EnemyType::MeleeChaser => 36.0,

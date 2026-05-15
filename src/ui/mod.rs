@@ -9,6 +9,7 @@ pub mod notifications;
 pub mod pause;
 pub mod reward_select;
 pub mod shop;
+pub mod skill_select;
 pub mod tutorial;
 pub mod widgets;
 
@@ -42,7 +43,10 @@ impl Plugin for UiPlugin {
             .add_systems(Update, notifications::update_notifications)
             .add_systems(OnEnter(AppState::InGame), hud::setup_hud)
             .add_systems(OnEnter(AppState::CoopGame), hud::setup_hud)
-            .add_systems(OnEnter(GamePhase::EventRoom), event_room::setup_event_room_ui)
+            .add_systems(
+                OnEnter(GamePhase::EventRoom),
+                event_room::setup_event_room_ui,
+            )
             .add_systems(
                 Update,
                 (
@@ -61,13 +65,14 @@ impl Plugin for UiPlugin {
                     hud::update_boss_health_bar,
                     hud::update_stage_progress,
                 )
-                    .run_if(
-                        in_state(AppState::InGame).or_else(in_state(AppState::CoopGame)),
-                    ),
+                    .run_if(in_state(AppState::InGame).or_else(in_state(AppState::CoopGame))),
             )
             .add_systems(OnExit(AppState::InGame), hud::cleanup_hud)
             .add_systems(OnExit(AppState::CoopGame), hud::cleanup_hud)
-            .add_systems(OnExit(GamePhase::EventRoom), event_room::cleanup_event_room_ui)
+            .add_systems(
+                OnExit(GamePhase::EventRoom),
+                event_room::cleanup_event_room_ui,
+            )
             .add_systems(Update, pause::toggle_pause)
             .add_systems(OnEnter(GamePhase::Paused), pause::setup_pause_menu)
             .add_systems(
@@ -102,6 +107,20 @@ impl Plugin for UiPlugin {
             .add_systems(
                 OnExit(GamePhase::AugmentSelect),
                 augment_select::cleanup_augment_select_ui,
+            )
+            // Skill select
+            .init_resource::<skill_select::SkillChoices>()
+            .add_systems(
+                OnEnter(GamePhase::SkillSelect),
+                (skill_select::setup_skill_select_ui, clear_screen_flash),
+            )
+            .add_systems(
+                Update,
+                skill_select::skill_select_input.run_if(in_state(GamePhase::SkillSelect)),
+            )
+            .add_systems(
+                OnExit(GamePhase::SkillSelect),
+                skill_select::cleanup_skill_select_ui,
             )
             // Level-up select
             .init_resource::<levelup_select::LevelUpChoices>()

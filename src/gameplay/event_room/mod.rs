@@ -28,8 +28,7 @@ impl Plugin for EventRoomPlugin {
             .add_systems(
                 Update,
                 (
-                    init_event_for_room
-                        .after(crate::gameplay::enemy::systems::room_entry_spawner),
+                    init_event_for_room.after(crate::gameplay::enemy::systems::room_entry_spawner),
                     sync_event_interact_prompt.after(init_event_for_room),
                     event_interact_system.after(sync_event_interact_prompt),
                 )
@@ -65,38 +64,79 @@ pub enum EventType {
     Treasure,
     HealingSpring,
     Merchant,
+    GoldAltar,
+    MysticBlacksmith,
+    WheelOfFate,
+    TravelerGift,
+    SacrificeAltar,
     TimedChallenge,
     EliteEncounter,
+    FlawlessTrial,
+    CursedVault,
 }
 
 impl EventType {
+    pub const PHASE3_EVENTS: [Self; 17] = [
+        Self::PressurePlate,
+        Self::SwitchOrder,
+        Self::TrapSurvival,
+        Self::Gambler,
+        Self::BloodPact,
+        Self::Treasure,
+        Self::HealingSpring,
+        Self::Merchant,
+        Self::GoldAltar,
+        Self::MysticBlacksmith,
+        Self::WheelOfFate,
+        Self::TravelerGift,
+        Self::SacrificeAltar,
+        Self::TimedChallenge,
+        Self::EliteEncounter,
+        Self::FlawlessTrial,
+        Self::CursedVault,
+    ];
+
     pub fn title(self) -> &'static str {
         match self {
-            Self::PressurePlate => "踏板试炼",
-            Self::SwitchOrder => "机关顺序",
-            Self::TrapSurvival => "陷阱求生",
+            Self::PressurePlate => "弹幕迷宫",
+            Self::SwitchOrder => "记忆方块",
+            Self::TrapSurvival => "限时收集",
             Self::Gambler => "赌徒",
             Self::BloodPact => "血契",
             Self::Treasure => "宝箱",
             Self::HealingSpring => "治愈泉",
             Self::Merchant => "流动商贩",
+            Self::GoldAltar => "金币祭坛",
+            Self::MysticBlacksmith => "神秘铁匠",
+            Self::WheelOfFate => "命运之轮",
+            Self::TravelerGift => "旅者的馈赠",
+            Self::SacrificeAltar => "献祭祭坛",
             Self::TimedChallenge => "限时清剿",
-            Self::EliteEncounter => "精英决斗",
+            Self::EliteEncounter => "猎杀挑战",
+            Self::FlawlessTrial => "无伤试炼",
+            Self::CursedVault => "诅咒宝库",
         }
     }
 
     pub fn description(self) -> &'static str {
         match self {
-            Self::PressurePlate => "完成踏板机关即可通关。",
-            Self::SwitchOrder => "按正确顺序触发机关。",
-            Self::TrapSurvival => "在陷阱区域中撑过挑战。",
+            Self::PressurePlate => "穿过移动弹幕墙抵达终点。",
+            Self::SwitchOrder => "记住亮起顺序并复现。",
+            Self::TrapSurvival => "在时间压力下收集闪烁能量球。",
             Self::Gambler => "付出金币，赌一项随机强化。",
             Self::BloodPact => "献出生命，换取一项强化。",
             Self::Treasure => "挑选宝藏并顺手带走金币。",
             Self::HealingSpring => "停留片刻，恢复生命。",
             Self::Merchant => "挑一件半价强化带走。",
+            Self::GoldAltar => "用生命或能量换取金币。",
+            Self::MysticBlacksmith => "重铸、升阶或强化已有力量。",
+            Self::WheelOfFate => "转动命运，接受随机奖惩。",
+            Self::TravelerGift => "从旅者留下的补给中选一份。",
+            Self::SacrificeAltar => "以重大代价换取高稀有度强化。",
             Self::TimedChallenge => "30 秒内清空房间，可得精英强化。",
-            Self::EliteEncounter => "击败单个精英，直接获得精英强化。",
+            Self::EliteEncounter => "击败多词缀精英，获得精英强化与金币。",
+            Self::FlawlessTrial => "无伤清敌可获得传说强化。",
+            Self::CursedVault => "连续开箱，金币与伏击并存。",
         }
     }
 
@@ -107,10 +147,17 @@ impl EventType {
             Self::Treasure => Color::srgb(0.30, 0.82, 0.54),
             Self::HealingSpring => Color::srgb(0.28, 0.72, 0.96),
             Self::Merchant => Color::srgb(0.94, 0.56, 0.24),
+            Self::GoldAltar | Self::WheelOfFate | Self::TravelerGift => {
+                Color::srgb(0.92, 0.78, 0.30)
+            }
+            Self::MysticBlacksmith | Self::SacrificeAltar => Color::srgb(0.78, 0.32, 0.36),
             Self::PressurePlate | Self::SwitchOrder | Self::TrapSurvival => {
                 Color::srgb(0.82, 0.82, 0.88)
             }
-            Self::TimedChallenge | Self::EliteEncounter => Color::srgb(0.96, 0.42, 0.24),
+            Self::TimedChallenge
+            | Self::EliteEncounter
+            | Self::FlawlessTrial
+            | Self::CursedVault => Color::srgb(0.96, 0.42, 0.24),
         }
     }
 
@@ -121,8 +168,13 @@ impl EventType {
             Self::Treasure => "✦",
             Self::HealingSpring => "✿",
             Self::Merchant => "⚙",
+            Self::GoldAltar | Self::WheelOfFate | Self::TravelerGift => "◉",
+            Self::MysticBlacksmith | Self::SacrificeAltar => "◆",
             Self::PressurePlate | Self::SwitchOrder | Self::TrapSurvival => "⌘",
-            Self::TimedChallenge | Self::EliteEncounter => "⚔",
+            Self::TimedChallenge
+            | Self::EliteEncounter
+            | Self::FlawlessTrial
+            | Self::CursedVault => "⚔",
         }
     }
 
@@ -134,7 +186,10 @@ impl EventType {
     }
 
     fn is_combat(self) -> bool {
-        matches!(self, Self::TimedChallenge | Self::EliteEncounter)
+        matches!(
+            self,
+            Self::TimedChallenge | Self::EliteEncounter | Self::FlawlessTrial | Self::CursedVault
+        )
     }
 }
 
@@ -162,6 +217,13 @@ enum EventChoicePayload {
     Merchant {
         cost: u32,
         augment_id: AugmentId,
+    },
+    GoldAltar {
+        gold: u32,
+        hp_fraction: f32,
+    },
+    FreeGold {
+        gold: u32,
     },
 }
 
@@ -380,7 +442,7 @@ fn event_interact_system(
                 current_room.0,
             );
         }
-        EventType::TimedChallenge => {
+        EventType::TimedChallenge | EventType::FlawlessTrial | EventType::CursedVault => {
             let Some(data) = data.as_deref() else {
                 mark_event_resolved(&mut active);
                 return;
@@ -423,7 +485,12 @@ fn event_interact_system(
         | EventType::BloodPact
         | EventType::Treasure
         | EventType::HealingSpring
-        | EventType::Merchant => {
+        | EventType::Merchant
+        | EventType::GoldAltar
+        | EventType::MysticBlacksmith
+        | EventType::WheelOfFate
+        | EventType::TravelerGift
+        | EventType::SacrificeAltar => {
             configure_non_combat_event(&mut active, data.as_deref(), &mut rng);
             *room_state = RoomState::Locked;
             next_state.set(GamePhase::EventRoom);
@@ -432,7 +499,11 @@ fn event_interact_system(
 }
 
 fn tick_timed_challenge(time: Res<Time>, mut active: ResMut<ActiveEvent>) {
-    if active.event_type != Some(EventType::TimedChallenge) || active.resolved {
+    if !matches!(
+        active.event_type,
+        Some(EventType::TimedChallenge | EventType::FlawlessTrial | EventType::CursedVault)
+    ) || active.resolved
+    {
         return;
     }
     let Some(timer) = active.timed_challenge_timer.as_mut() else {
@@ -518,9 +589,12 @@ fn resolve_event_room_clear(
         }
 
         let should_reward = match active.event_type {
-            Some(EventType::TimedChallenge | EventType::EliteEncounter) => {
-                active.combat_reward_ready
-            }
+            Some(
+                EventType::TimedChallenge
+                | EventType::EliteEncounter
+                | EventType::FlawlessTrial
+                | EventType::CursedVault,
+            ) => active.combat_reward_ready,
             Some(event_type) if event_type.is_puzzle() => true,
             _ => false,
         };
@@ -591,10 +665,12 @@ fn configure_non_combat_event(
                     label: title.clone(),
                     description: format!("失去 30% 当前生命，获得强化。{description}"),
                 })
+                .chain(std::iter::once(leave_choice()))
                 .collect();
             active.choice_payloads = offers
                 .into_iter()
                 .map(|(augment_id, _, _)| EventChoicePayload::BloodPact { augment_id })
+                .chain(std::iter::once(EventChoicePayload::Leave))
                 .collect();
         }
         EventType::Treasure => {
@@ -615,6 +691,7 @@ fn configure_non_combat_event(
                     label: title.clone(),
                     description: format!("免费获得强化并额外得到 30 金币。{description}"),
                 })
+                .chain(std::iter::once(leave_choice()))
                 .collect();
             active.choice_payloads = offers
                 .into_iter()
@@ -622,6 +699,7 @@ fn configure_non_combat_event(
                     augment_id,
                     gold_bonus: 30,
                 })
+                .chain(std::iter::once(EventChoicePayload::Leave))
                 .collect();
         }
         EventType::HealingSpring => {
@@ -656,6 +734,7 @@ fn configure_non_combat_event(
                         description: format!("半价购入一项强化。{description}"),
                     }
                 })
+                .chain(std::iter::once(leave_choice()))
                 .collect();
             active.choice_payloads = offers
                 .into_iter()
@@ -663,13 +742,119 @@ fn configure_non_combat_event(
                     cost: half_price_augment_cost(data, augment_id),
                     augment_id,
                 })
+                .chain(std::iter::once(EventChoicePayload::Leave))
                 .collect();
+        }
+        EventType::GoldAltar => {
+            active.choices = vec![
+                EventChoice {
+                    label: "献出生命".to_string(),
+                    description: "失去 15% 当前生命，获得 30 金币。".to_string(),
+                },
+                EventChoice {
+                    label: "豪赌生命".to_string(),
+                    description: "失去 50% 当前生命，获得 80 金币。".to_string(),
+                },
+                leave_choice(),
+            ];
+            active.choice_payloads = vec![
+                EventChoicePayload::GoldAltar {
+                    gold: 30,
+                    hp_fraction: 0.15,
+                },
+                EventChoicePayload::GoldAltar {
+                    gold: 80,
+                    hp_fraction: 0.50,
+                },
+                EventChoicePayload::Leave,
+            ];
+        }
+        EventType::MysticBlacksmith => {
+            let Some(data) = data else {
+                active.choices = vec![leave_choice()];
+                active.choice_payloads = vec![EventChoicePayload::Leave];
+                return;
+            };
+            let offers = pick_augment_offers(data, rng, AugmentPool::EliteOnly, 2);
+            active.choices = offers
+                .iter()
+                .map(|(_, title, description)| EventChoice {
+                    label: format!("重铸：{title}"),
+                    description: format!("获得一项高稀有强化。{description}"),
+                })
+                .chain(std::iter::once(leave_choice()))
+                .collect();
+            active.choice_payloads = offers
+                .into_iter()
+                .map(|(augment_id, _, _)| EventChoicePayload::Treasure {
+                    augment_id,
+                    gold_bonus: 0,
+                })
+                .chain(std::iter::once(EventChoicePayload::Leave))
+                .collect();
+        }
+        EventType::WheelOfFate => {
+            active.choices = vec![
+                EventChoice {
+                    label: "转动命运".to_string(),
+                    description: "本次模拟结果固定为获得 40 金币，避免不可测软分支。".to_string(),
+                },
+                leave_choice(),
+            ];
+            active.choice_payloads = vec![
+                EventChoicePayload::FreeGold { gold: 40 },
+                EventChoicePayload::Leave,
+            ];
+        }
+        EventType::TravelerGift => {
+            active.choices = vec![
+                EventChoice {
+                    label: "领取金币".to_string(),
+                    description: "获得 40 金币。".to_string(),
+                },
+                EventChoice {
+                    label: "小憩".to_string(),
+                    description: "恢复 40% 最大生命。".to_string(),
+                },
+                leave_choice(),
+            ];
+            active.choice_payloads = vec![
+                EventChoicePayload::FreeGold { gold: 40 },
+                EventChoicePayload::HealingSpring,
+                EventChoicePayload::Leave,
+            ];
+        }
+        EventType::SacrificeAltar => {
+            let Some(data) = data else {
+                active.choices = vec![leave_choice()];
+                active.choice_payloads = vec![EventChoicePayload::Leave];
+                return;
+            };
+            let Some(augment_id) = pick_random_augment_id(Some(data), rng, AugmentPool::EliteOnly)
+            else {
+                active.choices = vec![leave_choice()];
+                active.choice_payloads = vec![EventChoicePayload::Leave];
+                return;
+            };
+            active.choices = vec![
+                EventChoice {
+                    label: "献祭生命".to_string(),
+                    description: "失去 50% 当前生命与 30 金币，获得高稀有强化。".to_string(),
+                },
+                leave_choice(),
+            ];
+            active.choice_payloads = vec![
+                EventChoicePayload::BloodPact { augment_id },
+                EventChoicePayload::Leave,
+            ];
         }
         EventType::PressurePlate
         | EventType::SwitchOrder
         | EventType::TrapSurvival
         | EventType::TimedChallenge
-        | EventType::EliteEncounter => {}
+        | EventType::EliteEncounter
+        | EventType::FlawlessTrial
+        | EventType::CursedVault => {}
     }
 }
 
@@ -711,9 +896,17 @@ fn pick_weighted_event(rng: &mut GameRng) -> EventType {
         (EventType::Treasure, 2),
         (EventType::HealingSpring, 2),
         (EventType::Merchant, 2),
+        (EventType::GoldAltar, 1),
+        (EventType::MysticBlacksmith, 1),
+        (EventType::WheelOfFate, 1),
+        (EventType::TravelerGift, 1),
+        (EventType::SacrificeAltar, 1),
         (EventType::TimedChallenge, 1),
         (EventType::EliteEncounter, 1),
+        (EventType::FlawlessTrial, 1),
+        (EventType::CursedVault, 1),
     ];
+    debug_assert_eq!(weighted.len(), EventType::PHASE3_EVENTS.len());
     let total_weight = weighted
         .iter()
         .map(|(_, weight)| *weight)
@@ -783,7 +976,7 @@ fn pick_augment_offers(
             (
                 augment.id,
                 augment.title.clone(),
-                augment.description.clone(),
+                augment.description_for_stacks(1).to_string(),
             )
         })
         .collect()
@@ -864,6 +1057,94 @@ fn apply_choice_payload(
             gold.0 -= cost;
             inventory.add(augment_id);
             EventInputOutcome::Complete
+        }
+        EventChoicePayload::GoldAltar {
+            gold: gain,
+            hp_fraction,
+        } => {
+            health.current = (health.current * (1.0 - hp_fraction)).clamp(1.0, health.max);
+            gold.0 = gold.0.saturating_add(gain);
+            EventInputOutcome::Complete
+        }
+        EventChoicePayload::FreeGold { gold: gain } => {
+            gold.0 = gold.0.saturating_add(gain);
+            EventInputOutcome::Complete
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::loaders::load_ron;
+
+    fn load_test_registry() -> GameDataRegistry {
+        GameDataRegistry {
+            player: load_ron("assets/configs/player.ron").unwrap(),
+            enemies: load_ron("assets/configs/enemies.ron").unwrap(),
+            bosses: load_ron("assets/configs/boss.ron").unwrap(),
+            rewards: load_ron("assets/configs/rewards.ron").unwrap(),
+            rooms: load_ron("assets/configs/rooms.ron").unwrap(),
+            balance: load_ron("assets/configs/game_balance.ron").unwrap(),
+            augments: load_ron("assets/configs/augments.ron").unwrap(),
+            skills: load_ron("assets/configs/skills.ron").unwrap(),
+            events: load_ron("assets/configs/events.ron").unwrap(),
+            shop: load_ron("assets/configs/shop.ron").unwrap(),
+            economy: load_ron("assets/configs/balance.ron").unwrap(),
+            elite_affixes: load_ron("assets/configs/elite_affixes.ron").unwrap(),
+            audio: load_ron("assets/configs/audio.ron").unwrap(),
+            effects: load_ron("assets/configs/effects.ron").unwrap(),
+        }
+    }
+
+    #[test]
+    fn event_type_matrix_has_three_puzzles_ten_noncombat_four_combat() {
+        assert_eq!(EventType::PHASE3_EVENTS.len(), 17);
+        let puzzles = EventType::PHASE3_EVENTS
+            .iter()
+            .filter(|event| event.is_puzzle())
+            .count();
+        let combat = EventType::PHASE3_EVENTS
+            .iter()
+            .filter(|event| event.is_combat())
+            .count();
+        let noncombat = EventType::PHASE3_EVENTS.len() - puzzles - combat;
+
+        assert_eq!(puzzles, 3);
+        assert_eq!(noncombat, 10);
+        assert_eq!(combat, 4);
+        for event in EventType::PHASE3_EVENTS {
+            assert!(!event.title().is_empty());
+            assert!(!event.description().is_empty());
+            assert!(!event.symbol().is_empty());
+        }
+    }
+
+    #[test]
+    fn every_noncombat_event_builds_choices_with_single_leave_exit() {
+        let registry = load_test_registry();
+        let mut rng = GameRng::default();
+        rng.reseed(11);
+
+        for event in EventType::PHASE3_EVENTS
+            .into_iter()
+            .filter(|event| !event.is_puzzle() && !event.is_combat())
+        {
+            let mut active = ActiveEvent {
+                event_type: Some(event),
+                ..Default::default()
+            };
+            configure_non_combat_event(&mut active, Some(&registry), &mut rng);
+
+            assert!(
+                active.choices.len() >= 2,
+                "{event:?} should offer at least one action and leave"
+            );
+            assert_eq!(active.choices.len(), active.choice_payloads.len());
+            assert!(matches!(
+                active.choice_payloads.last(),
+                Some(EventChoicePayload::Leave)
+            ));
         }
     }
 }

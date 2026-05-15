@@ -60,7 +60,7 @@ pub enum AugmentId {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeldAugment {
     pub id: AugmentId,
-    pub stacks: u8, // 1 = normal, 2 = upgraded
+    pub stacks: u8, // 1 = base, 2 = upgraded, 3 = qualitative capstone
 }
 
 /// Player component: tracks all collected augments this run.
@@ -71,10 +71,12 @@ pub struct AugmentInventory {
 }
 
 impl AugmentInventory {
-    /// Add an augment. If already held, increment stacks (max 2).
+    pub const MAX_STACKS: u8 = 3;
+
+    /// Add an augment. If already held, increment stacks (max 3).
     pub fn add(&mut self, id: AugmentId) {
         if let Some(held) = self.augments.iter_mut().find(|a| a.id == id) {
-            held.stacks = (held.stacks + 1).min(2);
+            held.stacks = (held.stacks + 1).min(Self::MAX_STACKS);
         } else {
             self.augments.push(HeldAugment { id, stacks: 1 });
         }
@@ -124,7 +126,8 @@ mod tests {
         inv.add(AugmentId::Piercing);
         inv.add(AugmentId::Piercing);
         inv.add(AugmentId::Piercing);
-        assert_eq!(inv.stacks(AugmentId::Piercing), 2);
+        inv.add(AugmentId::Piercing);
+        assert_eq!(inv.stacks(AugmentId::Piercing), 3);
     }
 
     #[test]

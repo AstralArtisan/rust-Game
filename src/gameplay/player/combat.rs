@@ -10,6 +10,7 @@ use crate::coop::components::{
 use crate::core::assets::GameAssets;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
+use crate::gameplay::augment::tuning;
 use crate::gameplay::combat::components::{
     ArcHitbox, DamageKind, Hitbox, Lifetime, Projectile, Team,
 };
@@ -122,18 +123,15 @@ pub fn player_attack_input_system(
         }
 
         let mut melee_speed_bonus = mods.total_melee_speed_bonus();
+        let mut combo_crit_bonus = 0.0;
         let combo_accelerate_stacks = inventory
             .map(|value| value.stacks(AugmentId::ComboAccelerate))
             .unwrap_or(0);
         if combo_accelerate_stacks > 0 {
-            let (combo_threshold, combo_bonus) = if combo_accelerate_stacks >= 2 {
-                (3, 0.40)
-            } else {
-                (5, 0.25)
-            };
-            if combo.count >= combo_threshold {
-                melee_speed_bonus += combo_bonus;
-            }
+            let (combo_bonus, crit_bonus) =
+                tuning::combo_accelerate_bonuses(combo_accelerate_stacks, combo.count);
+            melee_speed_bonus += combo_bonus;
+            combo_crit_bonus += crit_bonus;
         }
 
         cd.apply_speed_bonus(melee_speed_bonus);
@@ -151,7 +149,7 @@ pub fn player_attack_input_system(
             player_tf,
             facing.0,
             power.0 * mods.melee_damage_mult() * greed_mult,
-            crit.0,
+            crit.0 + combo_crit_bonus + greed_crit_bonus(inventory, gold.0),
             *mods,
             inventory,
         );
@@ -248,18 +246,19 @@ pub fn player_ranged_input_system(
         });
 
         let dir = facing.0;
-        let speed_boost_mult = match inventory
-            .map(|value| value.stacks(AugmentId::SpeedBoost))
-            .unwrap_or(0)
-        {
-            2 => 1.50,
-            1 => 1.30,
-            _ => 1.0,
-        };
+        let speed_boost_mult = tuning::speed_boost_mult(
+            inventory
+                .map(|value| value.stacks(AugmentId::SpeedBoost))
+                .unwrap_or(0),
+        );
         let speed =
             BASE_RANGED_PROJECTILE_SPEED * mods.ranged_projectile_speed_mult() * speed_boost_mult;
         let greed_mult = greed_damage_mult(inventory, gold.0);
-        let damage = power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult;
+        let charge_stacks = inventory
+            .map(|value| value.stacks(AugmentId::Piercing))
+            .unwrap_or(0);
+        let charge_mult = tuning::charge_shot_damage_mult(charge_stacks);
+        let damage = power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult * charge_mult;
         spawn_player_ranged_volley(
             &mut commands,
             &assets,
@@ -268,7 +267,7 @@ pub fn player_ranged_input_system(
             dir,
             speed,
             damage,
-            crit.0,
+            crit.0 + greed_crit_bonus(inventory, gold.0),
             *mods,
             inventory,
         );
@@ -323,27 +322,15 @@ pub fn spawn_player_melee_hitbox_with_mods(
     let heavy_strike_stacks = inventory
         .map(|value| value.stacks(AugmentId::HeavyStrike))
         .unwrap_or(0);
-    let (heavy_damage_mult, heavy_knockback_mult) = match heavy_strike_stacks {
-        2 => (1.25, 2.20),
-        1 => (1.15, 1.80),
-        _ => (1.0, 1.0),
-    };
+    let heavy_profile = tuning::heavy_strike_profile(heavy_strike_stacks);
     let whirlwind_stacks = inventory
         .map(|value| value.stacks(AugmentId::Whirlwind))
         .unwrap_or(0);
-    let whirlwind_damage_mult = match whirlwind_stacks {
-        2 => 1.0,
-        1 => 0.70,
-        _ => 1.0,
-    };
+    let whirlwind_damage_mult = tuning::whirlwind_damage_mult(whirlwind_stacks);
     let crit_enhance_stacks = inventory
         .map(|value| value.stacks(AugmentId::CritEnhance))
         .unwrap_or(0);
-    let (crit_bonus, crit_multiplier_bonus) = match crit_enhance_stacks {
-        2 => (0.15, 0.50),
-        1 => (0.10, 0.30),
-        _ => (0.0, 0.0),
-    };
+    let crit_profile = tuning::crit_enhance_profile(crit_enhance_stacks);
 
     let slash_rotation = Quat::from_rotation_z(direction.y.atan2(direction.x));
     let primary_color = if mods.melee_mastery_stacks >= 2 {
@@ -393,16 +380,17 @@ pub fn spawn_player_melee_hitbox_with_mods(
             team: Team::Player,
             damage_kind: DamageKind::PlayerMelee,
             size: swing.hitbox_size,
-            damage: damage * heavy_damage_mult * whirlwind_damage_mult,
-            knockback: (360.0 + mods.melee_mastery_stacks as f32 * 12.0) * heavy_knockback_mult,
+            damage: damage * heavy_profile.damage_mult * whirlwind_damage_mult,
+            knockback: (360.0 + mods.melee_mastery_stacks as f32 * 12.0)
+                * heavy_profile.knockback_mult,
             can_crit: true,
-            crit_chance: crit_chance + crit_bonus,
-            crit_multiplier: 1.75 + crit_multiplier_bonus,
+            crit_chance: crit_chance + crit_profile.crit_bonus,
+            crit_multiplier: 1.75 + crit_profile.crit_multiplier_bonus,
         },
         ArcHitbox {
             origin: owner_pos,
             direction,
-            radius: swing.reach,
+            radius: swing.reach * tuning::whirlwind_range_mult(whirlwind_stacks),
             half_angle_rad: if whirlwind_stacks > 0 { PI } else { half_angle },
         },
         Lifetime(Timer::from_seconds(
@@ -434,20 +422,24 @@ pub fn spawn_player_melee_hitbox_with_mods(
         .map(|value| value.stacks(AugmentId::SwordWave))
         .unwrap_or(0);
     if sword_wave_stacks > 0 && !mods.melee_sword_wave_unlocked() {
-        let sw_damage_mult = if sword_wave_stacks >= 2 { 0.50 } else { 0.35 };
+        let Some(sword_wave) = tuning::sword_wave_profile(sword_wave_stacks, false) else {
+            return;
+        };
         let sw_entity = spawn_player_sword_wave(
             commands,
             assets,
             owner,
             owner_pos + direction * (swing.reach + 12.0),
             direction,
-            damage * sw_damage_mult,
+            damage * sword_wave.damage_fraction,
         );
-        // Upgraded: infinite pierce
-        if sword_wave_stacks >= 2 {
-            commands
-                .entity(sw_entity)
-                .insert((PierceCount { remaining: 255 }, HitTargets::default()));
+        if sword_wave.pierce_remaining > 0 {
+            commands.entity(sw_entity).insert((
+                PierceCount {
+                    remaining: sword_wave.pierce_remaining,
+                },
+                HitTargets::default(),
+            ));
         }
     }
 }
@@ -500,20 +492,16 @@ fn spawn_ranged_burst(
     delay_s: f32,
     inventory: Option<&AugmentInventory>,
 ) {
-    let extra_projectiles = match inventory
-        .map(|value| value.stacks(AugmentId::ExtraProjectile))
-        .unwrap_or(0)
-    {
-        2 => 2,
-        1 => 1,
-        _ => 0,
-    };
+    let extra_projectiles = tuning::extra_projectile_count(
+        inventory
+            .map(|value| value.stacks(AugmentId::ExtraProjectile))
+            .unwrap_or(0),
+    );
     let pierce_remaining = match inventory
         .map(|value| value.stacks(AugmentId::Piercing))
         .unwrap_or(0)
     {
-        2 => 2,
-        1 => 1,
+        3 => 255,
         _ => 0,
     };
     let scatter_stacks = inventory
@@ -522,24 +510,19 @@ fn spawn_ranged_burst(
     let crit_enhance_stacks = inventory
         .map(|value| value.stacks(AugmentId::CritEnhance))
         .unwrap_or(0);
-    let (crit_bonus, crit_multiplier_bonus) = match crit_enhance_stacks {
-        2 => (0.15, 0.50),
-        1 => (0.10, 0.30),
-        _ => (0.0, 0.0),
-    };
-    let final_crit_chance = crit_chance + crit_bonus;
-    let final_crit_multiplier = 1.75 + crit_multiplier_bonus;
+    let crit_profile = tuning::crit_enhance_profile(crit_enhance_stacks);
+    let final_crit_chance = crit_chance + crit_profile.crit_bonus;
+    let final_crit_multiplier = 1.75 + crit_profile.crit_multiplier_bonus;
 
     if scatter_stacks > 0 {
         // Scatter fan visual
         crate::gameplay::effects::particles::spawn_scatter_fan(commands, assets, pos, dir);
-        let angles: &[f32] = if scatter_stacks >= 2 {
-            &[-0.36, -0.18, 0.0, 0.18, 0.36]
-        } else {
-            &[-0.24, 0.0, 0.24]
+        let Some(scatter) = tuning::scatter_profile(scatter_stacks) else {
+            return;
         };
+        let angles = scatter_angles(scatter.shots, scatter.ring);
         for angle in angles {
-            let shot_dir = Mat2::from_angle(*angle).mul_vec2(dir);
+            let shot_dir = Mat2::from_angle(angle).mul_vec2(dir);
             queue_or_spawn_ranged_projectile(
                 commands,
                 assets,
@@ -547,7 +530,7 @@ fn spawn_ranged_burst(
                 pos,
                 shot_dir,
                 projectile_speed,
-                damage * 0.50,
+                damage * scatter.damage_fraction,
                 final_crit_chance,
                 final_crit_multiplier,
                 delay_s,
@@ -808,6 +791,8 @@ fn spawn_ranged_projectile(
             ),
         );
     }
+    let homing_pierce = crate::gameplay::augment::tuning::homing_pierce(homing_stacks);
+    let pierce_remaining = pierce_remaining.max(homing_pierce);
     if pierce_remaining > 0 {
         commands.entity(projectile).insert((
             PierceCount {
@@ -1004,13 +989,30 @@ fn spawn_player_sword_wave(
         .id()
 }
 
+fn scatter_angles(shots: usize, ring: bool) -> Vec<f32> {
+    if ring {
+        return (0..shots)
+            .map(|index| std::f32::consts::TAU * index as f32 / shots as f32)
+            .collect();
+    }
+
+    match shots {
+        5 => vec![-0.36, -0.18, 0.0, 0.18, 0.36],
+        3 => vec![-0.24, 0.0, 0.24],
+        _ => vec![0.0],
+    }
+}
+
 fn greed_damage_mult(inventory: Option<&AugmentInventory>, gold: u32) -> f32 {
     let stacks = inventory
         .map(|inv| inv.stacks(AugmentId::Greed))
         .unwrap_or(0);
-    if stacks == 0 {
-        return 1.0;
-    }
-    let threshold = if stacks >= 2 { 80 } else { 100 };
-    1.0 + (gold / threshold) as f32 * 0.05
+    tuning::greed_damage_mult(stacks, gold)
+}
+
+fn greed_crit_bonus(inventory: Option<&AugmentInventory>, gold: u32) -> f32 {
+    let stacks = inventory
+        .map(|inv| inv.stacks(AugmentId::Greed))
+        .unwrap_or(0);
+    tuning::greed_crit_bonus(stacks, gold)
 }

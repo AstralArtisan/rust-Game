@@ -927,3 +927,34 @@ Rust 程序设计课程第一次组长例会准备。需要理清项目架构以
 - Phase 2b：RoomState→RoomPhase 房间流程语义重设计（可并入 Phase 5）
 - Phase 3：强化 2→3 层质变、9 终结技、事件房 17 种等内容
 - 验证：`cargo check` 通过（仅 3 个既有 audio dead-code 警告，无新增），`cargo test` 45/45 通过
+
+---
+
+## little-refactor Phase 3：Codex 产出审查 + 敌人楼层池根因修复（2026-05-15）
+
+Phase 3 内容由 Codex 实现（30+ 文件 + 新配置）。Claude 按用户指示逐项审查并就地对齐 4-29 设计文档，修复根因 bug。
+
+### 改动内容（Claude 本轮）
+- **修复"floor 1 刷高层怪"根因**：`game_balance.ron` 的 `enemy_types` 扁平满列表触发 `choose_enemy_types` 的"非空即全局覆盖"短路，跳过楼层门控。
+  - `data/definitions.rs`：`enemy_types: Vec<EnemyType>` → `#[serde(default)] enemy_pools_by_floor: Vec<Vec<EnemyType>>`
+  - `game_balance.ron`：改为每层新解锁池 `[[MeleeChaser,Lobber,Charger],[RangedShooter,Flanker,Bomber],[Sniper,Shielder],[SupportCaster,Summoner]]`（4-29 §7.1）
+  - `enemy/spawner.rs`：`choose_enemy_types` 改为按楼层 1..=floor 累积并集；空配置回退到内置 spec §7.1 表；**删除全局覆盖短路**；Lobber 归入 `backline_enemy_types`
+  - `data/loaders.rs`：默认值改 `enemy_pools_by_floor: vec![]`；改写锁死错误形状的旧测试；**新增回归测试** `floor1_enemy_pool_excludes_higher_floor_enemies`
+
+### 审查结论（Codex Phase 3 vs 4-29）
+- §4 强化：`augments.ron` 30×3 层质变、类别/稀有度/价格、`data.rs` 3 层 cap —— 与 §4.4 **忠实一致**
+- §5 终结技：`skills.ron` 9 个 + 档位/能量/CD、`skills/execute.rs` 9 分支、`slots.rs` floor≥2/3/4 解锁 —— 与 §5 **一致**
+- §6 事件/圣所/商店：`events.ron` 17（3+10+4）、`shop.ron` 价格全表、圣所流程 —— 与 §6 **一致**；**Phase 1 修复（事件房 Esc 防重 roll、圣所 Back 不重抽/空池收敛）全部保留未回退**
+- §7 怪物：`enemies.ron` 含 Lobber、Lobber 落点预警、Bomber 引信、Shielder 格挡、精英 floor≥3 双词缀、MirrorWarden 分身 —— 与 §7 **一致**
+- §8 地图/经济：每层 10 房 + 门规则、`balance.ron` 经济区间 —— 与 §6.4/§8 **一致**
+- coop 改动（`runtime.rs` 测试断言 + `ui.rs` Lobber match 臂）：EnemyType 新增变体的穷尽匹配 + 共享刷新曲线连带，**编译/测试必要，非越界，保留**
+
+### 关键决策
+- 4-29 作为设计文档，只对齐其设计要求（流程/怪物/事件/技能），不强求其技术性描述
+- 数据驱动按楼层池替代"扁平列表+全局覆盖"反模式；空配置走内置 spec 表，永不与楼层无关
+- 文档教训：交给委托实现者的 plan/交接须单一权威源、内联精确数值、预警雷区（详见记忆）
+
+### 已知问题 / 后续工作
+- Charger"撞墙眩晕 1.5s"为细粒度行为，未在本轮深核（设计结构无偏差，列后续打磨）
+- Phase 4+（成长/NG+/coop 重写等）后续推进
+- 验证：`cargo check` 通过（仅 3 个既有 audio dead-code 警告，无新增），`cargo test` **67/67 通过**（含新回归测试）

@@ -2783,8 +2783,9 @@ mod tests {
         assert_eq!(once_bought, 112);
         assert_eq!(twice_bought, 145);
         assert_eq!(next_refresh_cost(0), 0);
-        assert_eq!(next_refresh_cost(1), 50);
-        assert_eq!(next_refresh_cost(2), 100);
+        assert_eq!(next_refresh_cost(1), 30);
+        assert_eq!(next_refresh_cost(2), 45);
+        assert_eq!(next_refresh_cost(3), 60);
     }
 
     #[test]

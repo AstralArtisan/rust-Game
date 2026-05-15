@@ -4,7 +4,7 @@ use crate::gameplay::augment::data::{AugmentId, AugmentRarity};
 use crate::gameplay::map::room::RoomType;
 use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Health,
-    MoveSpeed, RangedCooldown, RewardModifiers,
+    MoveSpeed, RangedCooldown, RewardModifiers, SkillType,
 };
 use crate::gameplay::rewards::apply::{
     attack_power_gain, attack_speed_gain_s, crit_gain, dash_cooldown_gain_s, max_health_gain,
@@ -64,6 +64,7 @@ pub enum DeathDecision {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SharedShopItem {
     Heal,
+    RestoreEnergy,
     IncreaseMaxHealth,
     IncreaseAttackPower,
     ReduceDashCooldown,
@@ -72,7 +73,11 @@ pub enum SharedShopItem {
     IncreaseCritChance,
     IncreaseAttackSpeed,
     Augment(AugmentId),
+    UpgradeAugment,
+    Skill(SkillType),
     HealingPotion,
+    EnergyPotion,
+    Talisman,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,35 +123,35 @@ pub fn on_room_cleared(ctx: SessionRuleContext) -> RoomClearDecision {
 }
 
 pub fn build_shop_draft(
-    floor_number: u32,
+    _floor_number: u32,
     mods: RewardModifiers,
     rng: &mut GameRng,
     registry: Option<&GameDataRegistry>,
 ) -> ShopDraft {
     ShopDraft {
         refresh_count: 0,
-        offers: build_shop_offers(floor_number, mods, rng),
+        offers: build_shop_offers(mods, registry.map(|registry| &registry.shop)),
         augment_offers: registry
-            .map(|registry| build_augment_offers(registry, rng, floor_number))
+            .map(|registry| build_augment_offers(registry, rng))
             .unwrap_or_default(),
-        utility_offers: build_utility_offers(),
+        utility_offers: build_utility_offers(registry.map(|registry| &registry.shop)),
     }
 }
 
 pub fn refresh_shop_draft(
     refresh_count: u32,
-    floor_number: u32,
+    _floor_number: u32,
     mods: RewardModifiers,
     rng: &mut GameRng,
     registry: Option<&GameDataRegistry>,
 ) -> ShopDraft {
     ShopDraft {
         refresh_count: refresh_count.saturating_add(1),
-        offers: build_shop_offers(floor_number, mods, rng),
+        offers: build_shop_offers(mods, registry.map(|registry| &registry.shop)),
         augment_offers: registry
-            .map(|registry| build_augment_offers(registry, rng, floor_number))
+            .map(|registry| build_augment_offers(registry, rng))
             .unwrap_or_default(),
-        utility_offers: build_utility_offers(),
+        utility_offers: build_utility_offers(registry.map(|registry| &registry.shop)),
     }
 }
 
@@ -178,80 +183,112 @@ pub fn next_refresh_cost(refresh_count: u32) -> u32 {
     if refresh_count == 0 {
         0
     } else {
-        refresh_count.saturating_mul(50)
+        30 + refresh_count.saturating_sub(1).saturating_mul(15)
     }
 }
 
 fn build_shop_offers(
-    floor_number: u32,
     mods: RewardModifiers,
-    rng: &mut GameRng,
+    shop: Option<&crate::data::definitions::ShopConfig>,
 ) -> Vec<ShopOfferDraft> {
+    let fallback = crate::data::definitions::ShopConfig::default();
+    let shop = shop.unwrap_or(&fallback);
     let mut pool = vec![
-        SharedShopItem::Heal,
-        SharedShopItem::IncreaseMaxHealth,
-        SharedShopItem::IncreaseAttackPower,
-        SharedShopItem::ReduceDashCooldown,
-        SharedShopItem::IncreaseMoveSpeed,
-        SharedShopItem::IncreaseEnergyMax,
-        SharedShopItem::IncreaseCritChance,
-        SharedShopItem::IncreaseAttackSpeed,
+        (
+            SharedShopItem::Heal,
+            shop.heal_price + u32::from(mods.shop_heal_purchases) * 15,
+        ),
+        (
+            SharedShopItem::RestoreEnergy,
+            shop.energy_price + u32::from(mods.shop_energy_purchases) * 10,
+        ),
+        (
+            SharedShopItem::IncreaseMaxHealth,
+            shop.max_hp_price + u32::from(mods.shop_max_health_purchases) * 30,
+        ),
+        (
+            SharedShopItem::IncreaseAttackPower,
+            shop.attack_power_price + u32::from(mods.shop_attack_power_purchases) * 30,
+        ),
     ];
     if !ENERGY_SYSTEM_ENABLED {
-        pool.retain(|item| *item != SharedShopItem::IncreaseEnergyMax);
+        pool.retain(|(item, _)| *item != SharedShopItem::RestoreEnergy);
     }
-    rng.shuffle(&mut pool);
-    pool.truncate(3);
-
-    let base_cost = shop_base_cost(floor_number);
     pool.into_iter()
         .map(|item| ShopOfferDraft {
-            item,
-            cost: shop_item_cost(item, base_cost, mods),
+            item: item.0,
+            cost: item.1,
             purchased: false,
         })
         .collect()
 }
 
-fn build_augment_offers(
-    registry: &GameDataRegistry,
-    rng: &mut GameRng,
-    floor_number: u32,
-) -> Vec<ShopOfferDraft> {
-    let target_count = if floor_number >= 3 { 3 } else { 2 };
+fn build_augment_offers(registry: &GameDataRegistry, rng: &mut GameRng) -> Vec<ShopOfferDraft> {
     let mut pool = registry.augments.augments.iter().collect::<Vec<_>>();
-    if pool.is_empty() {
-        return Vec::new();
-    }
-
     rng.shuffle(&mut pool);
-    pool.truncate(target_count.min(pool.len()));
+    pool.truncate(3.min(pool.len()));
 
-    pool.into_iter()
+    let mut offers = pool
+        .into_iter()
         .map(|augment| ShopOfferDraft {
             item: SharedShopItem::Augment(augment.id),
-            cost: augment_shop_cost(augment.shop_cost, augment.rarity),
+            cost: augment_shop_cost(augment.shop_cost, augment.rarity, &registry.shop),
             purchased: false,
         })
-        .collect()
-}
-
-fn build_utility_offers() -> Vec<ShopOfferDraft> {
-    vec![ShopOfferDraft {
-        item: SharedShopItem::HealingPotion,
-        cost: 30,
+        .collect::<Vec<_>>();
+    offers.push(ShopOfferDraft {
+        item: SharedShopItem::UpgradeAugment,
+        cost: registry.shop.augment_upgrade_price,
         purchased: false,
-    }]
+    });
+    let mut skills = registry.skills.skills.iter().collect::<Vec<_>>();
+    rng.shuffle(&mut skills);
+    for skill in skills.into_iter().take(2) {
+        offers.push(ShopOfferDraft {
+            item: SharedShopItem::Skill(skill.skill),
+            cost: registry.shop.skill_price,
+            purchased: false,
+        });
+    }
+    offers
 }
 
-fn augment_shop_cost(shop_cost: u32, rarity: AugmentRarity) -> u32 {
+fn build_utility_offers(
+    shop: Option<&crate::data::definitions::ShopConfig>,
+) -> Vec<ShopOfferDraft> {
+    let fallback = crate::data::definitions::ShopConfig::default();
+    let shop = shop.unwrap_or(&fallback);
+    vec![
+        ShopOfferDraft {
+            item: SharedShopItem::HealingPotion,
+            cost: shop.healing_potion_price,
+            purchased: false,
+        },
+        ShopOfferDraft {
+            item: SharedShopItem::EnergyPotion,
+            cost: shop.energy_potion_price,
+            purchased: false,
+        },
+        ShopOfferDraft {
+            item: SharedShopItem::Talisman,
+            cost: shop.talisman_price,
+            purchased: false,
+        },
+    ]
+}
+
+fn augment_shop_cost(
+    shop_cost: u32,
+    rarity: AugmentRarity,
+    shop: &crate::data::definitions::ShopConfig,
+) -> u32 {
     if shop_cost > 0 {
         shop_cost
     } else {
         match rarity {
-            AugmentRarity::Common => 40,
-            AugmentRarity::Elite => 70,
-            AugmentRarity::Legendary => 120,
+            AugmentRarity::Common => shop.common_augment_price,
+            AugmentRarity::Elite => shop.elite_augment_price,
+            AugmentRarity::Legendary => shop.legendary_augment_price,
         }
     }
 }
@@ -264,7 +301,15 @@ fn apply_shop_item(
 ) -> bool {
     match item {
         SharedShopItem::Heal => {
-            effects.health.current = (effects.health.current + 35.0).min(effects.health.max);
+            effects.health.current =
+                (effects.health.current + effects.health.max * 0.30).min(effects.health.max);
+            effects.mods.shop_heal_purchases = effects.mods.shop_heal_purchases.saturating_add(1);
+            true
+        }
+        SharedShopItem::RestoreEnergy => {
+            effects.energy.current = (effects.energy.current + 50.0).min(effects.energy.max);
+            effects.mods.shop_energy_purchases =
+                effects.mods.shop_energy_purchases.saturating_add(1);
             true
         }
         SharedShopItem::IncreaseMaxHealth => {
@@ -333,71 +378,48 @@ fn apply_shop_item(
                 effects.mods.shop_attack_speed_purchases.saturating_add(1);
             true
         }
-        SharedShopItem::Augment(_) => false,
+        SharedShopItem::Augment(_) | SharedShopItem::UpgradeAugment | SharedShopItem::Skill(_) => {
+            false
+        }
         SharedShopItem::HealingPotion => {
-            let heal = effects.health.max * 0.25;
+            let heal = effects.health.max * 0.40;
             effects.health.current = (effects.health.current + heal).min(effects.health.max);
+            true
+        }
+        SharedShopItem::EnergyPotion => {
+            effects.energy.current = (effects.energy.current + 60.0).min(effects.energy.max);
+            true
+        }
+        SharedShopItem::Talisman => {
+            effects.mods.talisman_charges = effects.mods.talisman_charges.saturating_add(1);
             true
         }
     }
 }
 
-fn shop_base_cost(floor_number: u32) -> u32 {
-    match floor_number {
-        1 => 40,
-        2 => 55,
-        3 => 70,
-        _ => 85,
-    }
-}
-
-fn shop_item_extra_cost(item: SharedShopItem) -> u32 {
-    match item {
-        SharedShopItem::Heal => 0,
-        SharedShopItem::IncreaseMaxHealth => 15,
-        SharedShopItem::IncreaseAttackPower => 18,
-        SharedShopItem::ReduceDashCooldown => 18,
-        SharedShopItem::IncreaseMoveSpeed => 15,
-        SharedShopItem::IncreaseEnergyMax => 12,
-        SharedShopItem::IncreaseCritChance => 20,
-        SharedShopItem::IncreaseAttackSpeed => 20,
-        SharedShopItem::Augment(_) | SharedShopItem::HealingPotion => 0,
-    }
-}
-
-fn shop_purchase_count(mods: RewardModifiers, item: SharedShopItem) -> u8 {
-    match item {
-        SharedShopItem::Heal
-        | SharedShopItem::IncreaseEnergyMax
-        | SharedShopItem::Augment(_)
-        | SharedShopItem::HealingPotion => 0,
-        SharedShopItem::IncreaseMaxHealth => mods.shop_max_health_purchases,
-        SharedShopItem::IncreaseAttackPower => mods.shop_attack_power_purchases,
-        SharedShopItem::ReduceDashCooldown => mods.shop_dash_purchases,
-        SharedShopItem::IncreaseMoveSpeed => mods.shop_move_speed_purchases,
-        SharedShopItem::IncreaseCritChance => mods.shop_crit_purchases,
-        SharedShopItem::IncreaseAttackSpeed => mods.shop_attack_speed_purchases,
-    }
-}
-
-fn shop_repeat_price_mult(purchases: u8) -> f32 {
-    match purchases {
-        0 => 1.00,
-        1 => 1.35,
-        2 => 1.75,
-        _ => 2.15,
-    }
-}
-
-fn shop_item_cost(item: SharedShopItem, base_cost: u32, mods: RewardModifiers) -> u32 {
-    let base = base_cost + shop_item_extra_cost(item);
-    let purchases = shop_purchase_count(mods, item);
-    ((base as f32) * shop_repeat_price_mult(purchases)).round() as u32
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::data::loaders::load_ron;
+
+    fn load_test_registry() -> GameDataRegistry {
+        GameDataRegistry {
+            player: load_ron("assets/configs/player.ron").unwrap(),
+            enemies: load_ron("assets/configs/enemies.ron").unwrap(),
+            bosses: load_ron("assets/configs/boss.ron").unwrap(),
+            rewards: load_ron("assets/configs/rewards.ron").unwrap(),
+            rooms: load_ron("assets/configs/rooms.ron").unwrap(),
+            balance: load_ron("assets/configs/game_balance.ron").unwrap(),
+            augments: load_ron("assets/configs/augments.ron").unwrap(),
+            skills: load_ron("assets/configs/skills.ron").unwrap(),
+            events: load_ron("assets/configs/events.ron").unwrap(),
+            shop: load_ron("assets/configs/shop.ron").unwrap(),
+            economy: load_ron("assets/configs/balance.ron").unwrap(),
+            elite_affixes: load_ron("assets/configs/elite_affixes.ron").unwrap(),
+            audio: load_ron("assets/configs/audio.ron").unwrap(),
+            effects: load_ron("assets/configs/effects.ron").unwrap(),
+        }
+    }
 
     fn sample_effects() -> (
         Health,
@@ -459,14 +481,86 @@ mod tests {
     #[test]
     fn shop_refresh_cost_and_repeat_price_follow_curve() {
         assert_eq!(next_refresh_cost(0), 0);
-        assert_eq!(next_refresh_cost(1), 50);
-        assert_eq!(next_refresh_cost(2), 100);
+        assert_eq!(next_refresh_cost(1), 30);
+        assert_eq!(next_refresh_cost(2), 45);
+        assert_eq!(next_refresh_cost(3), 60);
 
         let mut mods = RewardModifiers::default();
-        let base = shop_item_cost(SharedShopItem::IncreaseAttackPower, shop_base_cost(1), mods);
+        let base = build_shop_offers(mods, None)
+            .into_iter()
+            .find(|offer| offer.item == SharedShopItem::IncreaseAttackPower)
+            .map(|offer| offer.cost)
+            .unwrap_or_default();
         mods.shop_attack_power_purchases = 1;
-        let raised = shop_item_cost(SharedShopItem::IncreaseAttackPower, shop_base_cost(1), mods);
+        let raised = build_shop_offers(mods, None)
+            .into_iter()
+            .find(|offer| offer.item == SharedShopItem::IncreaseAttackPower)
+            .map(|offer| offer.cost)
+            .unwrap_or_default();
         assert!(raised > base);
+    }
+
+    #[test]
+    fn shop_draft_has_phase3_three_section_structure() {
+        let registry = load_test_registry();
+        let mut rng = GameRng::default();
+        rng.reseed(23);
+        let draft = build_shop_draft(1, RewardModifiers::default(), &mut rng, Some(&registry));
+
+        let expected_attribute_count = if ENERGY_SYSTEM_ENABLED { 4 } else { 3 };
+        assert_eq!(draft.offers.len(), expected_attribute_count);
+        assert!(draft.offers.iter().any(|offer| {
+            offer.item == SharedShopItem::Heal && offer.cost == registry.shop.heal_price
+        }));
+        if ENERGY_SYSTEM_ENABLED {
+            assert!(draft.offers.iter().any(|offer| {
+                offer.item == SharedShopItem::RestoreEnergy
+                    && offer.cost == registry.shop.energy_price
+            }));
+        }
+        assert!(draft.offers.iter().any(|offer| {
+            offer.item == SharedShopItem::IncreaseMaxHealth
+                && offer.cost == registry.shop.max_hp_price
+        }));
+        assert!(draft.offers.iter().any(|offer| {
+            offer.item == SharedShopItem::IncreaseAttackPower
+                && offer.cost == registry.shop.attack_power_price
+        }));
+
+        assert_eq!(draft.augment_offers.len(), 6);
+        assert_eq!(
+            draft
+                .augment_offers
+                .iter()
+                .filter(|offer| matches!(offer.item, SharedShopItem::Augment(_)))
+                .count(),
+            3
+        );
+        assert!(draft.augment_offers.iter().any(|offer| {
+            offer.item == SharedShopItem::UpgradeAugment
+                && offer.cost == registry.shop.augment_upgrade_price
+        }));
+        assert_eq!(
+            draft
+                .augment_offers
+                .iter()
+                .filter(|offer| matches!(offer.item, SharedShopItem::Skill(_)))
+                .count(),
+            2
+        );
+
+        assert_eq!(draft.utility_offers.len(), 3);
+        assert!(draft.utility_offers.iter().any(|offer| {
+            offer.item == SharedShopItem::HealingPotion
+                && offer.cost == registry.shop.healing_potion_price
+        }));
+        assert!(draft.utility_offers.iter().any(|offer| {
+            offer.item == SharedShopItem::EnergyPotion
+                && offer.cost == registry.shop.energy_potion_price
+        }));
+        assert!(draft.utility_offers.iter().any(|offer| {
+            offer.item == SharedShopItem::Talisman && offer.cost == registry.shop.talisman_price
+        }));
     }
 
     #[test]
@@ -500,6 +594,42 @@ mod tests {
         assert_eq!(result, ShopPurchaseResult::Applied);
         assert_eq!(effects.energy.max, 125.0);
         assert_eq!(effects.energy.current, 75.0);
+    }
+
+    #[test]
+    fn talisman_shop_item_adds_lethal_guard_charge() {
+        let scaling = RewardScalingConfig::default_config();
+        let (
+            mut health,
+            mut energy,
+            mut move_speed,
+            mut attack_power,
+            mut crit,
+            mut dash_cooldown,
+            mut attack_cooldown,
+            mut ranged_cooldown,
+            mut mods,
+        ) = sample_effects();
+
+        let result = apply_shop_purchase(
+            SharedShopItem::Talisman,
+            1,
+            &mut PlayerRuleEffects {
+                health: &mut health,
+                energy: &mut energy,
+                attack_power: &mut attack_power,
+                attack_cooldown: &mut attack_cooldown,
+                dash_cooldown: &mut dash_cooldown,
+                move_speed: &mut move_speed,
+                crit: &mut crit,
+                ranged_cooldown: &mut ranged_cooldown,
+                mods: &mut mods,
+            },
+            &scaling,
+        );
+
+        assert_eq!(result, ShopPurchaseResult::Applied);
+        assert_eq!(mods.talisman_charges, 1);
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Gold, Health, MoveSpeed, Player,
-    RangedCooldown, RewardModifiers,
+    RangedCooldown, RewardModifiers, SkillSlots,
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::session_core::{
@@ -114,6 +114,7 @@ pub struct ShopLine {
 #[derive(Debug, Clone, Copy)]
 pub enum ShopItem {
     Heal,
+    RestoreEnergy,
     IncreaseMaxHealth,
     IncreaseAttackPower,
     ReduceDashCooldown,
@@ -122,7 +123,11 @@ pub enum ShopItem {
     IncreaseCritChance,
     IncreaseAttackSpeed,
     Augment(AugmentId),
+    UpgradeAugment,
+    Skill(crate::gameplay::player::components::SkillType),
     HealingPotion,
+    EnergyPotion,
+    Talisman,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -324,13 +329,7 @@ fn refresh_shop_offers(
     mods: RewardModifiers,
 ) {
     offers.room = Some(room);
-    let draft = refresh_shop_draft(
-        offers.refresh_count,
-        floor_number,
-        mods,
-        rng,
-        data,
-    );
+    let draft = refresh_shop_draft(offers.refresh_count, floor_number, mods, rng, data);
     offers.refresh_count = draft.refresh_count;
     let (lines, augment_lines, utility_lines) = build_shop_lines_from_draft(data, &draft);
     offers.lines = lines;
@@ -346,7 +345,8 @@ pub fn next_refresh_cost(refresh_count: u32) -> u32 {
 #[allow(dead_code)]
 fn describe_item(item: ShopItem, base_cost: u32) -> (&'static str, &'static str, u32) {
     match item {
-        ShopItem::Heal => ("治疗", "立刻恢复 35 点生命", base_cost),
+        ShopItem::Heal => ("治疗药剂", "立刻恢复 30% 最大生命", base_cost),
+        ShopItem::RestoreEnergy => ("能量药剂", "立刻恢复 50 能量", base_cost),
         ShopItem::IncreaseMaxHealth => ("强健", "最大生命 +20", base_cost + 10),
         ShopItem::IncreaseAttackPower => ("锋刃", "攻击力 +5", base_cost + 12),
         ShopItem::ReduceDashCooldown => ("迅捷", "冲刺冷却 -15%", base_cost + 12),
@@ -355,13 +355,18 @@ fn describe_item(item: ShopItem, base_cost: u32) -> (&'static str, &'static str,
         ShopItem::IncreaseCritChance => ("锐眼", "暴击率 +8%", base_cost + 14),
         ShopItem::IncreaseAttackSpeed => ("连击", "攻速 +15%", base_cost + 14),
         ShopItem::Augment(_) => ("强化", "获得一个强化", base_cost),
-        ShopItem::HealingPotion => ("回血药水", "回复 25% 最大生命", 30),
+        ShopItem::UpgradeAugment => ("强化升级", "随机升级一个未满级强化", base_cost),
+        ShopItem::Skill(skill) => (skill.label(), "装入一个已解锁终结技槽位", base_cost),
+        ShopItem::HealingPotion => ("回血药水", "回复 40% 最大生命", base_cost),
+        ShopItem::EnergyPotion => ("能量药水", "回复 60 能量", base_cost),
+        ShopItem::Talisman => ("护身符", "下次致命伤保留 1 HP", base_cost),
     }
 }
 
 fn describe_item_local(item: ShopItem, base_cost: u32) -> (&'static str, &'static str, u32) {
     match item {
-        ShopItem::Heal => ("治疗", "立即恢复生命", base_cost),
+        ShopItem::Heal => ("治疗药剂", "立即恢复生命", base_cost),
+        ShopItem::RestoreEnergy => ("能量药剂", "立即恢复能量", base_cost),
         ShopItem::IncreaseMaxHealth => ("强健", "提高生命上限", base_cost + 10),
         ShopItem::IncreaseAttackPower => ("锋刃", "提高攻击伤害", base_cost + 12),
         ShopItem::ReduceDashCooldown => ("迅捷", "缩短冲刺冷却", base_cost + 12),
@@ -370,7 +375,11 @@ fn describe_item_local(item: ShopItem, base_cost: u32) -> (&'static str, &'stati
         ShopItem::IncreaseCritChance => ("锐眼", "提高暴击率", base_cost + 14),
         ShopItem::IncreaseAttackSpeed => ("连击", "提高攻击节奏", base_cost + 14),
         ShopItem::Augment(_) => ("强化", "获得一个强化", base_cost),
-        ShopItem::HealingPotion => ("回血药水", "回复 25% 最大生命", 30),
+        ShopItem::UpgradeAugment => ("强化升级", "随机升级一个未满级强化", base_cost),
+        ShopItem::Skill(skill) => (skill.label(), "装入终结技槽位", base_cost),
+        ShopItem::HealingPotion => ("回血药水", "回复 40% 最大生命", base_cost),
+        ShopItem::EnergyPotion => ("能量药水", "回复 60 能量", base_cost),
+        ShopItem::Talisman => ("护身符", "下次致命伤保留 1 HP", base_cost),
     }
 }
 
@@ -408,6 +417,7 @@ pub fn handle_shop_purchase_input(
             &mut AttackCooldown,
             &mut RangedCooldown,
             &mut RewardModifiers,
+            &mut SkillSlots,
             Option<&mut AugmentInventory>,
         ),
         With<Player>,
@@ -434,6 +444,7 @@ pub fn handle_shop_purchase_input(
         mut atk_cd,
         mut ranged_cd,
         mut mods,
+        mut skill_slots,
         augment_inventory,
     )) = player_q.get_single_mut()
     else {
@@ -484,6 +495,25 @@ pub fn handle_shop_purchase_input(
                 return;
             };
             inventory.add(augment_id);
+            true
+        }
+        ShopItem::UpgradeAugment => {
+            let Some(mut inventory) = augment_inventory else {
+                return;
+            };
+            let Some(held) = inventory
+                .augments
+                .iter()
+                .find(|held| held.stacks < AugmentInventory::MAX_STACKS)
+                .cloned()
+            else {
+                return;
+            };
+            inventory.add(held.id);
+            true
+        }
+        ShopItem::Skill(skill) => {
+            skill_slots.equip_first_available(skill);
             true
         }
         _ => {
@@ -578,7 +608,12 @@ fn augment_details(
             .augments
             .iter()
             .find(|augment| augment.id == augment_id)
-            .map(|augment| (augment.title.clone(), augment.description.clone()))
+            .map(|augment| {
+                (
+                    augment.title.clone(),
+                    augment.description_for_stacks(1).to_string(),
+                )
+            })
     })
 }
 
@@ -602,15 +637,23 @@ fn shop_selection_from_keyboard(keyboard: &ButtonInput<KeyCode>) -> Option<(Shop
     } else if keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3) {
         Some((ShopSection::Attributes, 2))
     } else if keyboard.just_pressed(KeyCode::Digit4) || keyboard.just_pressed(KeyCode::Numpad4) {
-        Some((ShopSection::Augments, 0))
+        Some((ShopSection::Attributes, 3))
     } else if keyboard.just_pressed(KeyCode::Digit5) || keyboard.just_pressed(KeyCode::Numpad5) {
-        Some((ShopSection::Augments, 1))
+        Some((ShopSection::Augments, 0))
     } else if keyboard.just_pressed(KeyCode::Digit6) || keyboard.just_pressed(KeyCode::Numpad6) {
-        Some((ShopSection::Augments, 2))
+        Some((ShopSection::Augments, 1))
     } else if keyboard.just_pressed(KeyCode::Digit7) || keyboard.just_pressed(KeyCode::Numpad7) {
-        Some((ShopSection::Utilities, 0))
+        Some((ShopSection::Augments, 2))
     } else if keyboard.just_pressed(KeyCode::Digit8) || keyboard.just_pressed(KeyCode::Numpad8) {
+        Some((ShopSection::Augments, 3))
+    } else if keyboard.just_pressed(KeyCode::Digit9) || keyboard.just_pressed(KeyCode::Numpad9) {
+        Some((ShopSection::Augments, 4))
+    } else if keyboard.just_pressed(KeyCode::Digit0) || keyboard.just_pressed(KeyCode::Numpad0) {
+        Some((ShopSection::Utilities, 0))
+    } else if keyboard.just_pressed(KeyCode::Minus) {
         Some((ShopSection::Utilities, 1))
+    } else if keyboard.just_pressed(KeyCode::Equal) {
+        Some((ShopSection::Utilities, 2))
     } else {
         None
     }
@@ -635,6 +678,7 @@ fn shop_lines_for_section_mut(offers: &mut ShopOffers, section: ShopSection) -> 
 fn shop_item_from_shared(item: SharedShopItem) -> ShopItem {
     match item {
         SharedShopItem::Heal => ShopItem::Heal,
+        SharedShopItem::RestoreEnergy => ShopItem::RestoreEnergy,
         SharedShopItem::IncreaseMaxHealth => ShopItem::IncreaseMaxHealth,
         SharedShopItem::IncreaseAttackPower => ShopItem::IncreaseAttackPower,
         SharedShopItem::ReduceDashCooldown => ShopItem::ReduceDashCooldown,
@@ -643,13 +687,18 @@ fn shop_item_from_shared(item: SharedShopItem) -> ShopItem {
         SharedShopItem::IncreaseCritChance => ShopItem::IncreaseCritChance,
         SharedShopItem::IncreaseAttackSpeed => ShopItem::IncreaseAttackSpeed,
         SharedShopItem::Augment(augment_id) => ShopItem::Augment(augment_id),
+        SharedShopItem::UpgradeAugment => ShopItem::UpgradeAugment,
+        SharedShopItem::Skill(skill) => ShopItem::Skill(skill),
         SharedShopItem::HealingPotion => ShopItem::HealingPotion,
+        SharedShopItem::EnergyPotion => ShopItem::EnergyPotion,
+        SharedShopItem::Talisman => ShopItem::Talisman,
     }
 }
 
 fn shared_shop_item_from_shop_item(item: ShopItem) -> SharedShopItem {
     match item {
         ShopItem::Heal => SharedShopItem::Heal,
+        ShopItem::RestoreEnergy => SharedShopItem::RestoreEnergy,
         ShopItem::IncreaseMaxHealth => SharedShopItem::IncreaseMaxHealth,
         ShopItem::IncreaseAttackPower => SharedShopItem::IncreaseAttackPower,
         ShopItem::ReduceDashCooldown => SharedShopItem::ReduceDashCooldown,
@@ -658,6 +707,10 @@ fn shared_shop_item_from_shop_item(item: ShopItem) -> SharedShopItem {
         ShopItem::IncreaseCritChance => SharedShopItem::IncreaseCritChance,
         ShopItem::IncreaseAttackSpeed => SharedShopItem::IncreaseAttackSpeed,
         ShopItem::Augment(augment_id) => SharedShopItem::Augment(augment_id),
+        ShopItem::UpgradeAugment => SharedShopItem::UpgradeAugment,
+        ShopItem::Skill(skill) => SharedShopItem::Skill(skill),
         ShopItem::HealingPotion => SharedShopItem::HealingPotion,
+        ShopItem::EnergyPotion => SharedShopItem::EnergyPotion,
+        ShopItem::Talisman => SharedShopItem::Talisman,
     }
 }

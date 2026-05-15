@@ -12,7 +12,7 @@ use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::map::{InGameEntity, VisitedRooms};
 use crate::gameplay::player::components::{
-    DashState, Energy, Health, Player, RewardModifiers, Velocity,
+    DashState, Energy, Gold, Health, Player, RewardModifiers, Velocity,
 };
 use crate::gameplay::progression::experience::{PlayerLevel, build_levelup_options};
 use crate::gameplay::progression::floor::FloorNumber;
@@ -22,6 +22,7 @@ use crate::gameplay::session_core::{
 use crate::states::{AppState, GamePhase, RoomState};
 use crate::ui::augment_select::{AugmentChoiceOption, AugmentChoices};
 use crate::ui::levelup_select::LevelUpChoices;
+use crate::ui::skill_select::{SkillChoiceOption, SkillChoices};
 use crate::utils::entity::safe_despawn_recursive;
 use crate::utils::rng::GameRng;
 
@@ -166,7 +167,9 @@ fn offer_reward_in_reward_room(
     let inventory = player_q.get_single().ok().flatten();
     let draft = data
         .as_deref()
-        .map(|registry| build_sanctuary_draft(registry.augments.augments.as_slice(), &mut rng, inventory))
+        .map(|registry| {
+            build_sanctuary_draft(registry.augments.augments.as_slice(), &mut rng, inventory)
+        })
         .unwrap_or_else(|| SanctuaryDraft {
             augment_service: RewardRoomAugmentService::Awakening(Vec::new()),
         });
@@ -185,6 +188,7 @@ fn enter_reward_selection(
     mut pending_action: ResMut<RewardPendingAction>,
     mut rng: ResMut<GameRng>,
     mut augment_choices: ResMut<AugmentChoices>,
+    mut skill_choices: ResMut<SkillChoices>,
     data: Option<Res<GameDataRegistry>>,
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
@@ -257,6 +261,8 @@ fn enter_reward_selection(
 
     flow.spawn_portal = true;
     flow.portal_is_victory = decision.post_reward == PostRewardDecision::Victory;
+    augment_choices.options.clear();
+    skill_choices.options.clear();
 
     if let Some(registry) = data.as_deref() {
         let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
@@ -266,9 +272,22 @@ fn enter_reward_selection(
             true,
             inventory,
         );
+        let generated_skills = generate_skill_choices(registry, &mut rng);
         if !generated.is_empty() {
             augment_choices.options = generated;
             augment_choices.return_state = Some(GamePhase::Playing);
+        }
+        if !generated_skills.is_empty() {
+            skill_choices.options = generated_skills;
+            skill_choices.return_state = if augment_choices.options.is_empty() {
+                Some(GamePhase::Playing)
+            } else {
+                Some(GamePhase::AugmentSelect)
+            };
+            next_state.set(GamePhase::SkillSelect);
+            return;
+        }
+        if !augment_choices.options.is_empty() {
             next_state.set(GamePhase::AugmentSelect);
             return;
         }
@@ -303,7 +322,8 @@ fn handle_reward_choice_input(
                 return;
             }
             if !options.is_empty()
-                && (keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1))
+                && (keyboard.just_pressed(KeyCode::Digit1)
+                    || keyboard.just_pressed(KeyCode::Numpad1))
             {
                 pending_action.0 = Some(RewardUiAction::Select(0));
             } else if options.len() >= 2
@@ -331,7 +351,16 @@ fn apply_reward_choice(
     floor: Option<Res<FloorNumber>>,
     data: Option<Res<GameDataRegistry>>,
     mut rng: ResMut<GameRng>,
-    mut player_q: Query<(&mut Health, &mut Energy, &mut AugmentInventory, &mut PlayerLevel), With<Player>>,
+    mut player_q: Query<
+        (
+            &mut Health,
+            &mut Energy,
+            &mut AugmentInventory,
+            &mut PlayerLevel,
+            &mut Gold,
+        ),
+        With<Player>,
+    >,
 ) {
     let Some(action) = pending_action.0.take() else {
         return;
@@ -343,7 +372,7 @@ fn apply_reward_choice(
         (RewardFlowStep::Sanctuary(_), RewardUiAction::Back) => {}
         (RewardFlowStep::Sanctuary(sanctuary), RewardUiAction::Select(index)) => match index {
             0 => {
-                if let Ok((mut health, mut energy, _, _)) = player_q.get_single_mut() {
+                if let Ok((mut health, mut energy, _, _, _)) = player_q.get_single_mut() {
                     full_restore(&mut health, &mut energy);
                 }
                 finish_reward_room(
@@ -389,9 +418,10 @@ fn apply_reward_choice(
                     &default_scaling
                 };
 
-                if let Ok((health, _energy, _inventory, mut level)) = player_q.get_single_mut() {
-                    level.level += 1;
-                    level.xp_to_next = PlayerLevel::xp_threshold(level.level);
+                if let Ok((health, _energy, _inventory, mut level, mut gold)) =
+                    player_q.get_single_mut()
+                {
+                    apply_revelation_reward(&mut level, &mut gold);
                     configure_revelation_choices(
                         &mut levelup_choices,
                         &mut rng,
@@ -429,7 +459,7 @@ fn apply_reward_choice(
             let Some(choice) = options.get(index) else {
                 return;
             };
-            if let Ok((_, _, mut inventory, _)) = player_q.get_single_mut() {
+            if let Ok((_, _, mut inventory, _, _)) = player_q.get_single_mut() {
                 inventory.add(choice.id);
                 finish_reward_room(
                     &mut flow,
@@ -600,7 +630,13 @@ fn build_upgrade_candidates(
     inventory
         .augments
         .iter()
-        .filter(|held| held.stacks == 1)
+        .filter(|held| {
+            augments
+                .iter()
+                .find(|augment| augment.id == held.id)
+                .map(|augment| held.stacks < augment.max_stacks())
+                .unwrap_or(false)
+        })
         .filter_map(|held| {
             augments
                 .iter()
@@ -608,7 +644,7 @@ fn build_upgrade_candidates(
                 .map(|augment| AugmentChoiceOption {
                     id: augment.id,
                     title: augment.title.clone(),
-                    description: augment.upgraded_description.clone(),
+                    description: augment.next_description(held.stacks).to_string(),
                     rarity: augment.rarity,
                     is_upgrade: true,
                 })
@@ -634,13 +670,36 @@ fn build_awakening_choices(
 
     let mut pool = augments
         .iter()
-        .filter(|augment| matches!(augment.rarity, AugmentRarity::Elite | AugmentRarity::Legendary))
+        .filter(|augment| matches!(augment.rarity, AugmentRarity::Legendary))
         .filter(|augment| !owned.contains(&augment.id))
         .collect::<Vec<_>>();
     if pool.is_empty() {
         pool = augments
             .iter()
-            .filter(|augment| matches!(augment.rarity, AugmentRarity::Elite | AugmentRarity::Legendary))
+            .filter(|augment| matches!(augment.rarity, AugmentRarity::Legendary))
+            .collect::<Vec<_>>();
+    }
+    if pool.is_empty() {
+        pool = augments
+            .iter()
+            .filter(|augment| {
+                matches!(
+                    augment.rarity,
+                    AugmentRarity::Elite | AugmentRarity::Legendary
+                )
+            })
+            .filter(|augment| !owned.contains(&augment.id))
+            .collect::<Vec<_>>();
+    }
+    if pool.is_empty() {
+        pool = augments
+            .iter()
+            .filter(|augment| {
+                matches!(
+                    augment.rarity,
+                    AugmentRarity::Elite | AugmentRarity::Legendary
+                )
+            })
             .collect::<Vec<_>>();
     }
     rng.shuffle(&mut pool);
@@ -649,7 +708,7 @@ fn build_awakening_choices(
         .map(|augment| AugmentChoiceOption {
             id: augment.id,
             title: augment.title.clone(),
-            description: augment.description.clone(),
+            description: augment.description_for_stacks(1).to_string(),
             rarity: augment.rarity,
             is_upgrade: false,
         })
@@ -666,7 +725,10 @@ fn generate_augment_choices(
         .iter()
         .filter(|augment| {
             if is_boss {
-                matches!(augment.rarity, AugmentRarity::Elite | AugmentRarity::Legendary)
+                matches!(
+                    augment.rarity,
+                    AugmentRarity::Elite | AugmentRarity::Legendary
+                )
             } else {
                 matches!(augment.rarity, AugmentRarity::Common | AugmentRarity::Elite)
             }
@@ -685,16 +747,17 @@ fn generate_augment_choices(
         .iter()
         .map(|&i| {
             let augment = pool[i];
-            let is_upgrade = inventory.map(|inv| inv.has(augment.id)).unwrap_or(false);
+            let held_stacks = inventory.map(|inv| inv.stacks(augment.id)).unwrap_or(0);
+            let is_upgrade = held_stacks > 0 && held_stacks < augment.max_stacks();
             let description = if is_upgrade {
-                &augment.upgraded_description
+                augment.next_description(held_stacks)
             } else {
-                &augment.description
+                augment.description_for_stacks(1)
             };
             AugmentChoiceOption {
                 id: augment.id,
                 title: augment.title.clone(),
-                description: description.clone(),
+                description: description.to_string(),
                 rarity: augment.rarity,
                 is_upgrade,
             }
@@ -715,9 +778,34 @@ fn configure_revelation_choices(
     choices.new_level = new_level;
 }
 
+fn generate_skill_choices(
+    registry: &GameDataRegistry,
+    rng: &mut GameRng,
+) -> Vec<SkillChoiceOption> {
+    let mut skills = registry.skills.skills.iter().collect::<Vec<_>>();
+    rng.shuffle(&mut skills);
+    skills
+        .into_iter()
+        .take(3)
+        .map(|skill| SkillChoiceOption {
+            skill: skill.skill,
+            title: skill.title.clone(),
+            description: skill.description.clone(),
+            energy_cost: skill.energy_cost,
+            cooldown_s: skill.cooldown_s,
+        })
+        .collect()
+}
+
 fn full_restore(health: &mut Health, energy: &mut Energy) {
     health.current = health.max;
     energy.current = energy.max;
+}
+
+fn apply_revelation_reward(level: &mut PlayerLevel, gold: &mut Gold) {
+    level.level += 1;
+    level.xp_to_next = PlayerLevel::xp_threshold(level.level);
+    gold.0 = gold.0.saturating_add(50);
 }
 
 fn finish_reward_room(
@@ -738,7 +826,7 @@ fn finish_reward_room(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::definitions::AugmentConfig;
+    use crate::data::definitions::{AugmentConfig, AugmentLevelConfig};
     use crate::gameplay::augment::data::{AugmentCategory, AugmentId, HeldAugment};
 
     fn seeded_rng(seed: u64) -> GameRng {
@@ -762,6 +850,20 @@ mod tests {
             description: description.to_string(),
             upgraded_description: upgraded_description.to_string(),
             shop_cost: 0,
+            levels: vec![
+                AugmentLevelConfig {
+                    description: description.to_string(),
+                    params: Default::default(),
+                },
+                AugmentLevelConfig {
+                    description: upgraded_description.to_string(),
+                    params: Default::default(),
+                },
+                AugmentLevelConfig {
+                    description: format!("{upgraded_description}（质变）"),
+                    params: Default::default(),
+                },
+            ],
         }
     }
 
@@ -788,6 +890,13 @@ mod tests {
                 "死亡复活",
                 "复活更强",
             ),
+            sample_augment(
+                AugmentId::CritEnhance,
+                AugmentRarity::Legendary,
+                "弱点洞察",
+                "暴击更高",
+                "暴击更强",
+            ),
         ]
     }
 
@@ -809,7 +918,7 @@ mod tests {
     }
 
     #[test]
-    fn upgrade_service_only_lists_single_stack_augments() {
+    fn upgrade_service_lists_non_maxed_augments() {
         let mut inventory = AugmentInventory::default();
         inventory.augments = vec![
             HeldAugment {
@@ -820,13 +929,18 @@ mod tests {
                 id: AugmentId::Thorns,
                 stacks: 2,
             },
+            HeldAugment {
+                id: AugmentId::Phoenix,
+                stacks: 3,
+            },
         ];
 
         let options = build_upgrade_candidates(&sample_augments(), &inventory);
 
-        assert_eq!(options.len(), 1);
+        assert_eq!(options.len(), 2);
         assert_eq!(options[0].id, AugmentId::GoldBonus);
-        assert!(options[0].is_upgrade);
+        assert_eq!(options[1].id, AugmentId::Thorns);
+        assert!(options.iter().all(|option| option.is_upgrade));
     }
 
     #[test]
@@ -839,12 +953,30 @@ mod tests {
         match draft.augment_service {
             RewardRoomAugmentService::Awakening(options) => {
                 assert_eq!(options.len(), 2);
-                assert!(options.iter().all(|option| {
-                    matches!(option.rarity, AugmentRarity::Elite | AugmentRarity::Legendary)
-                }));
+                assert!(
+                    options
+                        .iter()
+                        .all(|option| option.rarity == AugmentRarity::Legendary)
+                );
             }
             RewardRoomAugmentService::Upgrade(_) => panic!("expected awakening fallback"),
         }
+    }
+
+    #[test]
+    fn revelation_grants_level_and_gold() {
+        let mut level = PlayerLevel {
+            level: 2,
+            xp: 0,
+            xp_to_next: PlayerLevel::xp_threshold(2),
+        };
+        let mut gold = Gold(20);
+
+        apply_revelation_reward(&mut level, &mut gold);
+
+        assert_eq!(level.level, 3);
+        assert_eq!(level.xp_to_next, PlayerLevel::xp_threshold(3));
+        assert_eq!(gold.0, 70);
     }
 
     #[test]

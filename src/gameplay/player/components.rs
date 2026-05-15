@@ -158,6 +158,16 @@ impl SkillSlot {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SkillType {
+    GroundSlam,
+    BladeDance,
+    ExecutionBlade,
+    BulletBarrage,
+    FrostField,
+    MeteorFall,
+    WarCry,
+    LifeDrain,
+    TimeRift,
+    // Legacy save-compatible variants.
     SwordArc,
     MarkedHunt,
     LightningDash,
@@ -167,6 +177,15 @@ pub enum SkillType {
 impl SkillType {
     pub fn label(self) -> &'static str {
         match self {
+            Self::GroundSlam => "裂地斩",
+            Self::BladeDance => "剑舞",
+            Self::ExecutionBlade => "处刑之刃",
+            Self::BulletBarrage => "弹幕倾泻",
+            Self::FrostField => "冰晶领域",
+            Self::MeteorFall => "天降陨石",
+            Self::WarCry => "战吼",
+            Self::LifeDrain => "生命汲取",
+            Self::TimeRift => "时空裂隙",
             Self::SwordArc => "剑气斩",
             Self::MarkedHunt => "标记猎杀",
             Self::LightningDash => "闪电冲刺",
@@ -191,19 +210,19 @@ impl Default for SkillSlots {
         Self {
             slots: [
                 SkillSlotState {
-                    skill: Some(SkillType::SwordArc),
+                    skill: Some(SkillType::GroundSlam),
                     unlocked: true,
                 },
                 SkillSlotState {
-                    skill: Some(SkillType::MarkedHunt),
+                    skill: Some(SkillType::BulletBarrage),
                     unlocked: false,
                 },
                 SkillSlotState {
-                    skill: Some(SkillType::LightningDash),
+                    skill: Some(SkillType::WarCry),
                     unlocked: false,
                 },
                 SkillSlotState {
-                    skill: Some(SkillType::Relic),
+                    skill: Some(SkillType::MeteorFall),
                     unlocked: false,
                 },
             ],
@@ -221,6 +240,23 @@ impl SkillSlots {
         let was_locked = !state.unlocked;
         state.unlocked = true;
         was_locked
+    }
+
+    pub fn equip_first_available(&mut self, skill: SkillType) -> SkillSlot {
+        let target = SkillSlot::ALL
+            .into_iter()
+            .find(|slot| {
+                let state = self.slots[slot.index()];
+                state.unlocked && state.skill.is_none()
+            })
+            .or_else(|| {
+                SkillSlot::ALL
+                    .into_iter()
+                    .find(|slot| self.slots[slot.index()].unlocked)
+            })
+            .unwrap_or(SkillSlot::One);
+        self.slots[target.index()].skill = Some(skill);
+        target
     }
 }
 
@@ -300,6 +336,9 @@ pub struct RewardModifiers {
     pub shop_move_speed_purchases: u8,
     pub shop_crit_purchases: u8,
     pub shop_attack_speed_purchases: u8,
+    pub shop_heal_purchases: u8,
+    pub shop_energy_purchases: u8,
+    pub talisman_charges: u8,
 }
 
 impl RewardModifiers {

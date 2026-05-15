@@ -12,6 +12,7 @@ use crate::data::definitions::EnemyStatsConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::augment::effects::DashResetSpeedBuff;
+use crate::gameplay::augment::tuning;
 use crate::gameplay::combat::components::{
     DamageKind, Hitbox, Hurtbox, Knockback, Lifetime, Projectile, Team,
 };
@@ -44,6 +45,14 @@ use super::components::*;
 
 #[derive(Component, Debug, Default, Clone, Copy)]
 pub struct EnemyVelocity(pub Vec2);
+
+#[derive(Component, Debug, Clone)]
+struct LobberImpact {
+    owner: Entity,
+    timer: Timer,
+    damage: f32,
+    radius: f32,
+}
 
 #[derive(Component)]
 pub struct EnemyHealthBar {
@@ -145,15 +154,19 @@ impl Plugin for EnemySystemsPlugin {
             )
             .add_systems(
                 Update,
-                enemy_attack_system.run_if(
-                    in_state(AppState::InGame)
-                        .or_else(
-                            in_state(AppState::CoopGame)
-                                .and_then(is_coop_authority)
-                                .and_then(is_coop_simulation_active),
-                        )
-                        .and_then(in_state(GamePhase::Playing)),
-                ),
+                (
+                    enemy_attack_system,
+                    resolve_lobber_impacts.after(enemy_attack_system),
+                )
+                    .run_if(
+                        in_state(AppState::InGame)
+                            .or_else(
+                                in_state(AppState::CoopGame)
+                                    .and_then(is_coop_authority)
+                                    .and_then(is_coop_simulation_active),
+                            )
+                            .and_then(in_state(GamePhase::Playing)),
+                    ),
             )
             .add_systems(
                 Update,
@@ -745,6 +758,7 @@ fn spawn_enemy_with_elite_scale(
 ) -> Entity {
     let stats_cfg = match enemy_type {
         EnemyType::MeleeChaser => &data.enemies.melee_chaser,
+        EnemyType::Lobber => &data.enemies.lobber,
         EnemyType::RangedShooter => &data.enemies.ranged_shooter,
         EnemyType::Charger => &data.enemies.charger,
         EnemyType::Flanker => &data.enemies.flanker,
@@ -757,16 +771,20 @@ fn spawn_enemy_with_elite_scale(
     };
     let mut stats = scaled_enemy_stats(stats_cfg, enemy_type, floor_number, floor_multiplier);
     stats.max_hp *= coop_hp_mult.max(1.0);
-    let elite_affix = if is_elite && enemy_type != EnemyType::Boss {
+    let elite_affixes = if is_elite && enemy_type != EnemyType::Boss {
         let mut affix_rng = GameRng::default();
-        let affix = pick_elite_affix(&mut affix_rng);
-        if affix == EliteAffix::Swift {
+        let seed = floor_number as u64
+            ^ ((pos.x.to_bits() as u64) << 1)
+            ^ ((pos.y.to_bits() as u64) << 17);
+        affix_rng.reseed(seed);
+        let affixes = pick_elite_affixes(floor_number, &mut affix_rng);
+        if affixes.contains(&EliteAffix::Swift) {
             stats.move_speed *= 1.5;
             stats.attack_cooldown_s *= 0.77;
         }
-        Some(affix)
+        affixes
     } else {
-        None
+        Vec::new()
     };
     if is_elite && enemy_type != EnemyType::Boss {
         stats.max_hp *= data.balance.elite_hp_mult.max(1.0);
@@ -869,30 +887,40 @@ fn spawn_enemy_with_elite_scale(
         CoopNetRotation(0.0),
     ));
 
-    if let Some(affix) = elite_affix {
-        entity.insert((Elite, EliteAffixMarker(affix)));
-        match affix {
-            EliteAffix::Shielded => {
-                entity.insert(ShieldedAffixState { charges: 1 });
+    if let Some(&primary_affix) = elite_affixes.first() {
+        entity.insert((
+            Elite,
+            EliteAffixMarker(primary_affix),
+            EliteAffixes(elite_affixes.clone()),
+        ));
+        for affix in &elite_affixes {
+            match affix {
+                EliteAffix::Shielded => {
+                    entity.insert(ShieldedAffixState { charges: 1 });
+                }
+                EliteAffix::Berserk => {
+                    entity.insert(BerserkAffixState { active: false });
+                }
+                EliteAffix::Teleporting => {
+                    entity.insert(TeleportAffixTimer {
+                        timer: Timer::from_seconds(4.0, TimerMode::Repeating),
+                    });
+                }
+                EliteAffix::Swift | EliteAffix::Splitting | EliteAffix::Vampiric => {}
             }
-            EliteAffix::Berserk => {
-                entity.insert(BerserkAffixState { active: false });
-            }
-            EliteAffix::Teleporting => {
-                entity.insert(TeleportAffixTimer {
-                    timer: Timer::from_seconds(3.0, TimerMode::Repeating),
-                });
-            }
-            EliteAffix::Swift | EliteAffix::Splitting | EliteAffix::Vampiric => {}
         }
         entity.with_children(|parent| {
-            let label = affix.label();
-            let label_color = affix.color();
+            let label = elite_affixes
+                .iter()
+                .map(|affix| affix.label())
+                .collect::<Vec<_>>()
+                .join("+");
+            let label_color = primary_affix.color();
             // Outline: 4 black shadow copies offset by ±1px
             for &(dx, dy) in &[(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
                 parent.spawn(Text2dBundle {
                     text: Text::from_section(
-                        label,
+                        label.clone(),
                         TextStyle {
                             font: assets.font.clone(),
                             font_size: 18.0,
@@ -1380,13 +1408,7 @@ fn elite_splitting_system(
     coop_players: Query<(), With<CoopParticipant>>,
     floor: Option<Res<FloorNumber>>,
     elites: Query<
-        (
-            &EnemyKind,
-            &Transform,
-            &EliteAffixMarker,
-            &EnemyStats,
-            &Health,
-        ),
+        (&EnemyKind, &Transform, &EliteAffixes, &EnemyStats, &Health),
         (With<Enemy>, Without<Replicated>),
     >,
 ) {
@@ -1403,10 +1425,10 @@ fn elite_splitting_system(
     };
 
     for death in death_events.read() {
-        let Ok((kind, tf, affix, stats, health)) = elites.get(death.entity) else {
+        let Ok((kind, tf, affixes, stats, health)) = elites.get(death.entity) else {
             continue;
         };
-        if affix.0 != EliteAffix::Splitting {
+        if !affixes.contains(EliteAffix::Splitting) {
             continue;
         }
 
@@ -1472,7 +1494,7 @@ fn elite_splitting_system(
 
 fn elite_vampiric_system(
     mut damage_events: EventReader<DamageAppliedEvent>,
-    mut elites: Query<(&EliteAffixMarker, &mut Health), Without<Replicated>>,
+    mut elites: Query<(&EliteAffixes, &mut Health), Without<Replicated>>,
 ) {
     for event in damage_events.read() {
         if event.target_team != Some(Team::Player) || event.attacker_team != Team::Enemy {
@@ -1481,10 +1503,10 @@ fn elite_vampiric_system(
         let Some(source) = event.source else {
             continue;
         };
-        let Ok((affix, mut health)) = elites.get_mut(source) else {
+        let Ok((affixes, mut health)) = elites.get_mut(source) else {
             continue;
         };
-        if affix.0 != EliteAffix::Vampiric {
+        if !affixes.contains(EliteAffix::Vampiric) {
             continue;
         }
 
@@ -1699,19 +1721,23 @@ pub fn enemy_attack_system(
                     );
                 }
             }
-            EnemyType::RangedShooter => {
+            EnemyType::RangedShooter | EnemyType::Lobber => {
                 if dist <= stats.attack_range {
                     cd.timer = Timer::from_seconds(effective_cooldown, TimerMode::Once);
                     cd.timer.reset();
-                    projectiles::spawn_projectile_with_owner(
-                        &mut commands,
-                        &assets,
-                        entity,
-                        Team::Enemy,
-                        pos + dir * 18.0,
-                        dir * stats.projectile_speed,
-                        stats.attack_damage,
-                    );
+                    if kind.0 == EnemyType::Lobber {
+                        spawn_lobber_attack(&mut commands, &assets, entity, player_pos, stats);
+                    } else {
+                        projectiles::spawn_projectile_with_owner(
+                            &mut commands,
+                            &assets,
+                            entity,
+                            Team::Enemy,
+                            pos + dir * 18.0,
+                            dir * stats.projectile_speed,
+                            stats.attack_damage,
+                        );
+                    }
                 }
             }
             EnemyType::Sniper => {
@@ -1780,6 +1806,95 @@ pub fn enemy_attack_system(
             EnemyType::Boss => {}
         }
     }
+}
+
+fn spawn_lobber_attack(
+    commands: &mut Commands,
+    assets: &crate::core::assets::GameAssets,
+    owner: Entity,
+    target_pos: Vec2,
+    stats: &EnemyStats,
+) {
+    let radius = lobber_impact_radius();
+    commands.spawn((
+        SpriteBundle {
+            texture: assets.textures.white.clone(),
+            transform: Transform::from_translation(target_pos.extend(38.0)),
+            sprite: Sprite {
+                color: Color::srgba(1.0, 0.18, 0.12, 0.28),
+                custom_size: Some(Vec2::splat(radius * 2.0)),
+                ..default()
+            },
+            ..default()
+        },
+        Lifetime(Timer::from_seconds(
+            lobber_warning_seconds(),
+            TimerMode::Once,
+        )),
+        InGameEntity,
+        Name::new("LobberWarning"),
+    ));
+    commands.spawn((
+        TransformBundle::from_transform(Transform::from_translation(target_pos.extend(39.0))),
+        LobberImpact {
+            owner,
+            timer: Timer::from_seconds(lobber_warning_seconds(), TimerMode::Once),
+            damage: stats.attack_damage,
+            radius,
+        },
+        InGameEntity,
+        Name::new("LobberImpactTimer"),
+    ));
+}
+
+fn resolve_lobber_impacts(
+    mut commands: Commands,
+    time: Res<Time>,
+    assets: Res<crate::core::assets::GameAssets>,
+    mut impacts: Query<(Entity, &mut LobberImpact, &GlobalTransform), Without<Replicated>>,
+) {
+    for (entity, mut impact, tf) in &mut impacts {
+        impact.timer.tick(time.delta());
+        if !impact.timer.finished() {
+            continue;
+        }
+        let pos = tf.translation().truncate();
+        commands.spawn((
+            SpriteBundle {
+                texture: assets.textures.white.clone(),
+                transform: Transform::from_translation(pos.extend(40.0)),
+                sprite: Sprite {
+                    color: Color::srgba(1.0, 0.42, 0.18, 0.42),
+                    custom_size: Some(Vec2::splat(impact.radius * 2.0)),
+                    ..default()
+                },
+                ..default()
+            },
+            Hitbox {
+                owner: Some(impact.owner),
+                team: Team::Enemy,
+                damage_kind: DamageKind::Enemy,
+                size: Vec2::splat(impact.radius * 2.0),
+                damage: impact.damage,
+                knockback: 180.0,
+                can_crit: false,
+                crit_chance: 0.0,
+                crit_multiplier: 1.0,
+            },
+            Lifetime(Timer::from_seconds(0.12, TimerMode::Once)),
+            InGameEntity,
+            Name::new("LobberImpact"),
+        ));
+        safe_despawn_recursive(&mut commands, entity);
+    }
+}
+
+fn lobber_warning_seconds() -> f32 {
+    0.6
+}
+
+fn lobber_impact_radius() -> f32 {
+    54.0
 }
 
 fn spawn_enemy_melee_hitbox(
@@ -1943,14 +2058,12 @@ pub fn enemy_death_system(
                 continue;
             }
 
-            let kill_heal = match inventory
-                .map(|value| value.stacks(AugmentId::KillHeal))
-                .unwrap_or(0)
-            {
-                2 => 8.0,
-                1 => 5.0,
-                _ => 0.0,
-            };
+            let kill_heal = inventory
+                .map(|value| {
+                    tuning::kill_heal_amount(value.stacks(AugmentId::KillHeal))
+                        + tuning::lifesteal_kill_heal(value.stacks(AugmentId::LifestealSlash))
+                })
+                .unwrap_or(0.0);
             if kill_heal > 0.0 {
                 hp.current = (hp.current + kill_heal).min(hp.max);
             }
@@ -2150,6 +2263,7 @@ fn enemy_type_curve(enemy_type: EnemyType, floor_number: u32) -> (f32, f32, f32,
 
     match enemy_type {
         EnemyType::MeleeChaser => (1.08, 1.0, 1.0, 1.0, 0.0),
+        EnemyType::Lobber => (1.10, 1.0, 0.98, 1.08, 0.0),
         EnemyType::RangedShooter => (1.15, 1.0, 0.96, 1.05, 0.0),
         EnemyType::Charger => (1.20, 1.08, 1.0, 1.0, 80.0),
         EnemyType::Flanker => (1.12, 1.10, 1.0, 1.0, 0.0),
@@ -2177,22 +2291,30 @@ fn effective_enemy_attack_cooldown(base_cooldown_s: f32, buff: Option<&EnemyBuff
     (base_cooldown_s / cooldown_mult.max(0.2)).max(0.28)
 }
 
-fn pick_elite_affix(rng: &mut GameRng) -> EliteAffix {
-    const AFFIXES: [EliteAffix; 6] = [
-        EliteAffix::Swift,
-        EliteAffix::Splitting,
-        EliteAffix::Shielded,
-        EliteAffix::Vampiric,
-        EliteAffix::Berserk,
-        EliteAffix::Teleporting,
-    ];
-    let index = (rng.gen_range_f32(0.0, AFFIXES.len() as f32) as usize).min(AFFIXES.len() - 1);
-    AFFIXES[index]
+const ELITE_AFFIXES: [EliteAffix; 6] = [
+    EliteAffix::Swift,
+    EliteAffix::Splitting,
+    EliteAffix::Shielded,
+    EliteAffix::Vampiric,
+    EliteAffix::Berserk,
+    EliteAffix::Teleporting,
+];
+
+fn elite_affix_count_for_floor(floor_number: u32) -> usize {
+    if floor_number >= 3 { 2 } else { 1 }
+}
+
+fn pick_elite_affixes(floor_number: u32, rng: &mut GameRng) -> Vec<EliteAffix> {
+    let mut affixes = ELITE_AFFIXES.to_vec();
+    rng.shuffle(&mut affixes);
+    affixes.truncate(elite_affix_count_for_floor(floor_number));
+    affixes
 }
 
 fn enemy_color(enemy_type: EnemyType, is_elite: bool) -> Color {
     let (r, g, b) = match enemy_type {
         EnemyType::MeleeChaser => (0.95, 0.45, 0.45),
+        EnemyType::Lobber => (0.74, 0.56, 0.96),
         EnemyType::RangedShooter => (0.55, 0.65, 0.95),
         EnemyType::Charger => (0.95, 0.75, 0.25),
         EnemyType::Flanker => (0.96, 0.56, 0.78),
@@ -2241,5 +2363,27 @@ fn scaled_boss_stats(
         aggro_range: 900.0,
         attack_range: base_range,
         projectile_speed: config.projectile_speed * (1.0 + scaling * 0.12),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phase3_elites_gain_fixed_second_affix_from_floor_three() {
+        let mut rng = GameRng::default();
+        rng.reseed(5);
+
+        assert_eq!(pick_elite_affixes(1, &mut rng).len(), 1);
+        assert_eq!(pick_elite_affixes(2, &mut rng).len(), 1);
+        assert_eq!(pick_elite_affixes(3, &mut rng).len(), 2);
+        assert_eq!(pick_elite_affixes(4, &mut rng).len(), 2);
+    }
+
+    #[test]
+    fn lobber_uses_phase3_warning_window_and_aoe_radius() {
+        assert_eq!(lobber_warning_seconds(), 0.6);
+        assert_eq!(lobber_impact_radius(), 54.0);
     }
 }

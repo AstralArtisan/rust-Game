@@ -662,7 +662,7 @@ pub fn boss_mechanic_hint_system(
 
     if !flags.boss_mirror_warden_mechanic_shown && !decoy_q.is_empty() {
         tutorial_ev.send(TutorialNotification(
-            "找到真身！命中真身会闪光，幻象不会".to_string(),
+            "找到真身！幻象血量较低，会很快消散".to_string(),
         ));
         flags.boss_mirror_warden_mechanic_shown = true;
     }
@@ -1197,6 +1197,16 @@ fn spawn_mirror_decoy(
             },
             ..default()
         },
+        Health {
+            current: mirror_decoy_max_hp(stats),
+            max: mirror_decoy_max_hp(stats),
+        },
+        Hurtbox {
+            team: Team::Enemy,
+            size: Vec2::splat(52.0),
+        },
+        Knockback(Vec2::ZERO),
+        Flash::new(0.0),
         BossDecoy {
             lifetime: Timer::from_seconds(2.8, TimerMode::Once),
         },
@@ -1221,6 +1231,10 @@ fn spawn_mirror_decoy(
             &[-0.22, 0.0, 0.22],
         );
     }
+}
+
+fn mirror_decoy_max_hp(stats: &EnemyStats) -> f32 {
+    stats.max_hp * 0.20
 }
 
 #[allow(dead_code)]
@@ -1523,4 +1537,24 @@ fn clamp_room_position(pos: Vec2, margin: f32) -> Vec2 {
         pos.y
             .clamp(-ROOM_HALF_HEIGHT + margin, ROOM_HALF_HEIGHT - margin),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mirror_decoy_uses_phase3_twenty_percent_hp() {
+        let stats = EnemyStats {
+            max_hp: 500.0,
+            move_speed: 0.0,
+            attack_damage: 0.0,
+            attack_cooldown_s: 0.0,
+            aggro_range: 0.0,
+            attack_range: 0.0,
+            projectile_speed: 0.0,
+        };
+
+        assert_eq!(mirror_decoy_max_hp(&stats), 100.0);
+    }
 }

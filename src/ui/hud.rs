@@ -884,28 +884,38 @@ fn room_distances_from_start(layout: &FloorLayout) -> HashMap<RoomId, u32> {
 }
 
 fn skill_palette(skill: crate::gameplay::player::components::SkillType) -> Color {
+    use crate::gameplay::player::components::SkillType;
     match skill {
-        crate::gameplay::player::components::SkillType::SwordArc => Color::srgb(0.20, 0.54, 0.40),
-        crate::gameplay::player::components::SkillType::MarkedHunt => Color::srgb(0.62, 0.22, 0.26),
-        crate::gameplay::player::components::SkillType::LightningDash => {
-            Color::srgb(0.22, 0.46, 0.72)
-        }
-        crate::gameplay::player::components::SkillType::Relic => Color::srgb(0.32, 0.32, 0.36),
+        SkillType::GroundSlam | SkillType::SwordArc => Color::srgb(0.20, 0.54, 0.40),
+        SkillType::BladeDance => Color::srgb(0.28, 0.62, 0.58),
+        SkillType::ExecutionBlade | SkillType::MarkedHunt => Color::srgb(0.62, 0.22, 0.26),
+        SkillType::BulletBarrage => Color::srgb(0.70, 0.48, 0.22),
+        SkillType::FrostField => Color::srgb(0.30, 0.66, 0.88),
+        SkillType::MeteorFall => Color::srgb(0.78, 0.28, 0.16),
+        SkillType::WarCry => Color::srgb(0.72, 0.58, 0.18),
+        SkillType::LifeDrain => Color::srgb(0.58, 0.18, 0.30),
+        SkillType::TimeRift => Color::srgb(0.42, 0.26, 0.76),
+        SkillType::LightningDash => Color::srgb(0.22, 0.46, 0.72),
+        SkillType::Relic => Color::srgb(0.32, 0.32, 0.36),
     }
 }
 
 fn skill_ready_palette(skill: crate::gameplay::player::components::SkillType, pulse: f32) -> Color {
+    use crate::gameplay::player::components::SkillType;
     match skill {
-        crate::gameplay::player::components::SkillType::SwordArc => {
-            Color::srgb(0.42, 0.86 + pulse * 0.08, 0.68)
-        }
-        crate::gameplay::player::components::SkillType::MarkedHunt => {
+        SkillType::GroundSlam | SkillType::SwordArc => Color::srgb(0.42, 0.86 + pulse * 0.08, 0.68),
+        SkillType::BladeDance => Color::srgb(0.48, 0.92, 0.82),
+        SkillType::ExecutionBlade | SkillType::MarkedHunt => {
             Color::srgb(0.86 + pulse * 0.08, 0.38, 0.42)
         }
-        crate::gameplay::player::components::SkillType::LightningDash => {
-            Color::srgb(0.44, 0.72, 0.98)
-        }
-        crate::gameplay::player::components::SkillType::Relic => Color::srgb(0.74, 0.74, 0.78),
+        SkillType::BulletBarrage => Color::srgb(0.94, 0.70, 0.38),
+        SkillType::FrostField => Color::srgb(0.56, 0.88, 1.0),
+        SkillType::MeteorFall => Color::srgb(1.0, 0.48, 0.28),
+        SkillType::WarCry => Color::srgb(0.98, 0.84, 0.36),
+        SkillType::LifeDrain => Color::srgb(0.88, 0.34, 0.46),
+        SkillType::TimeRift => Color::srgb(0.66, 0.50, 1.0),
+        SkillType::LightningDash => Color::srgb(0.44, 0.72, 0.98),
+        SkillType::Relic => Color::srgb(0.74, 0.74, 0.78),
     }
 }
 
