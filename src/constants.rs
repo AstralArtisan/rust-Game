@@ -28,7 +28,7 @@ mod tests {
 
     #[test]
     fn fullscreen_view_and_room_keep_room_visible() {
-        assert!(ROOM_HALF_HEIGHT * 2.0 <= CAMERA_VIEW_HEIGHT);
+        const { assert!(ROOM_HALF_HEIGHT * 2.0 <= CAMERA_VIEW_HEIGHT) };
         assert_eq!(ROOM_HALF_WIDTH * 2.0, 1280.0);
         assert_eq!(ROOM_HALF_HEIGHT * 2.0, 720.0);
     }

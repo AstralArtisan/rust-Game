@@ -117,7 +117,7 @@ pub fn spawn_drops_on_death(
         let xp_amount: u32 = match kind {
             EnemyType::Boss => 120 + (floor_number.saturating_sub(1) * 15).min(45),
             _ if is_elite => 40 + (floor_number.saturating_sub(1) * 5).min(15),
-            _ => 10 + (floor_number.saturating_sub(1) * 1).min(3),
+            _ => 10 + floor_number.saturating_sub(1).min(3),
         };
 
         let base_gold_drops: u32 = match kind {

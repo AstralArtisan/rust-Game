@@ -166,10 +166,8 @@ pub fn pvp_menu_input_system(
         }
         if let Key::Character(ref s) = ev.logical_key {
             for c in s.chars() {
-                if c.is_ascii_digit() || c == '.' || c == ':' {
-                    if ip.ip.len() < 64 {
-                        ip.ip.push(c);
-                    }
+                if (c.is_ascii_digit() || c == '.' || c == ':') && ip.ip.len() < 64 {
+                    ip.ip.push(c);
                 }
             }
         }

@@ -230,31 +230,29 @@ fn enter_reward_selection(
         room_type: room.room_type,
     });
 
-    if decision.heal_alive_fraction > 0.0 {
-        if let Ok((_, mut health, _)) = player_q.get_single_mut() {
-            let heal = health.max * decision.heal_alive_fraction;
-            health.current = (health.current + heal).min(health.max);
-        }
+    if decision.heal_alive_fraction > 0.0
+        && let Ok((_, mut health, _)) = player_q.get_single_mut()
+    {
+        let heal = health.max * decision.heal_alive_fraction;
+        health.current = (health.current + heal).min(health.max);
     }
 
     let is_boss = room.room_type == RoomType::Boss;
     if !is_boss {
         let is_elite_room = room.room_type == RoomType::Elite;
         let should_offer_augment = is_elite_room || rng.gen_bool(0.40);
-        if should_offer_augment {
-            if let Some(registry) = data.as_deref() {
-                let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
-                let generated = generate_augment_choices(
-                    registry.augments.augments.as_slice(),
-                    &mut rng,
-                    false,
-                    inventory,
-                );
-                if !generated.is_empty() {
-                    augment_choices.options = generated;
-                    augment_choices.return_state = Some(GamePhase::Playing);
-                    next_state.set(GamePhase::AugmentSelect);
-                }
+        if should_offer_augment && let Some(registry) = data.as_deref() {
+            let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
+            let generated = generate_augment_choices(
+                registry.augments.augments.as_slice(),
+                &mut rng,
+                false,
+                inventory,
+            );
+            if !generated.is_empty() {
+                augment_choices.options = generated;
+                augment_choices.return_state = Some(GamePhase::Playing);
+                next_state.set(GamePhase::AugmentSelect);
             }
         }
         return;
@@ -396,9 +394,7 @@ fn apply_reward_choice(
                 );
             }
             1 => {
-                let options = match sanctuary.augment_service {
-                    RewardRoomAugmentService::Forge(options) => options,
-                };
+                let RewardRoomAugmentService::Forge(options) = sanctuary.augment_service;
                 if options.is_empty() {
                     warn!("圣所锻造无可用选项，请检查 augments.ron");
                 } else {
@@ -924,21 +920,22 @@ mod tests {
 
     #[test]
     fn upgrade_service_lists_non_maxed_augments() {
-        let mut inventory = AugmentInventory::default();
-        inventory.augments = vec![
-            HeldAugment {
-                id: AugmentId::GoldBonus,
-                stacks: 1,
-            },
-            HeldAugment {
-                id: AugmentId::Thorns,
-                stacks: 2,
-            },
-            HeldAugment {
-                id: AugmentId::Phoenix,
-                stacks: 3,
-            },
-        ];
+        let inventory = AugmentInventory {
+            augments: vec![
+                HeldAugment {
+                    id: AugmentId::GoldBonus,
+                    stacks: 1,
+                },
+                HeldAugment {
+                    id: AugmentId::Thorns,
+                    stacks: 2,
+                },
+                HeldAugment {
+                    id: AugmentId::Phoenix,
+                    stacks: 3,
+                },
+            ],
+        };
 
         let options = build_upgrade_candidates(&sample_augments(), &inventory);
 

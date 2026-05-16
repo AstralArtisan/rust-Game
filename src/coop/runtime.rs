@@ -422,10 +422,10 @@ fn host_buffer_player_inputs(
             menu_cancel_pressed: input.menu_cancel_pressed,
         };
         // 消费边缘事件后清除，防止跨帧重复触发
-        if *slot == PlayerSlot::P2 {
-            if let Some(stored) = net.latest_inputs.get_mut(&slot_client_id(PlayerSlot::P2)) {
-                stored.clear_edge_events();
-            }
+        if *slot == PlayerSlot::P2
+            && let Some(stored) = net.latest_inputs.get_mut(&slot_client_id(PlayerSlot::P2))
+        {
+            stored.clear_edge_events();
         }
     }
 }
@@ -669,23 +669,22 @@ fn host_process_phase_commands(
             CoopCommandMessage::SelectReward { slot, group, index }
                 if session.phase == CoopPhase::Reward && slot_client_id(slot) == client_id =>
             {
-                if let Some(player_state) = session.reward.players.get_mut(slot_index(slot)) {
-                    if player_state.can_interact {
-                        let target = match group {
+                if let Some(player_state) = session.reward.players.get_mut(slot_index(slot))
+                    && player_state.can_interact
+                {
+                    let target = match group {
+                        CoopRewardSelectionGroup::Heal | CoopRewardSelectionGroup::Primary => {
+                            &player_state.primary_options
+                        }
+                        CoopRewardSelectionGroup::Secondary => &player_state.secondary_options,
+                    };
+                    if let Some(choice) = target.get(index as usize).copied() {
+                        match group {
                             CoopRewardSelectionGroup::Heal | CoopRewardSelectionGroup::Primary => {
-                                &player_state.primary_options
+                                player_state.selected_primary = Some(choice);
                             }
-                            CoopRewardSelectionGroup::Secondary => &player_state.secondary_options,
-                        };
-                        if let Some(choice) = target.get(index as usize).copied() {
-                            match group {
-                                CoopRewardSelectionGroup::Heal
-                                | CoopRewardSelectionGroup::Primary => {
-                                    player_state.selected_primary = Some(choice);
-                                }
-                                CoopRewardSelectionGroup::Secondary => {
-                                    player_state.selected_secondary = Some(choice);
-                                }
+                            CoopRewardSelectionGroup::Secondary => {
+                                player_state.selected_secondary = Some(choice);
                             }
                         }
                     }
@@ -1549,10 +1548,7 @@ fn reward_phase_complete(session: &CoopSessionState) -> bool {
         .iter()
         .filter(|player| player.can_interact)
         .collect::<Vec<_>>();
-    !active.is_empty()
-        && active
-            .into_iter()
-            .all(|player| reward_selection_complete(player))
+    !active.is_empty() && active.into_iter().all(reward_selection_complete)
 }
 
 fn sync_reward_phase_state(
@@ -2050,7 +2046,7 @@ fn try_purchase_shop_item(
         if !apply_shop_item(
             offer.item,
             session.floor_number.max(1),
-            &scaling,
+            scaling,
             &mut health,
             &mut energy,
             &mut move_speed,
@@ -2762,8 +2758,10 @@ mod tests {
             RewardModifiers::default(),
         );
 
-        let mut mods = RewardModifiers::default();
-        mods.shop_attack_power_purchases = 1;
+        let mut mods = RewardModifiers {
+            shop_attack_power_purchases: 1,
+            ..Default::default()
+        };
         let once_bought = shop_item_cost(
             CoopShopItem::IncreaseAttackPower,
             floor_number,

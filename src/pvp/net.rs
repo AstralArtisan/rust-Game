@@ -133,10 +133,12 @@ pub fn pvp_net_tick_system(
     };
 
     // Client side: ensure we keep pinging Hello until connected.
-    if *state.get() == AppState::PvpLobby && config.mode == NetMode::Client && !net.connected {
-        if let Some(peer) = net.peer {
-            try_send_to(&sock, peer, &PvpMsg::Hello);
-        }
+    if *state.get() == AppState::PvpLobby
+        && config.mode == NetMode::Client
+        && !net.connected
+        && let Some(peer) = net.peer
+    {
+        try_send_to(&sock, peer, &PvpMsg::Hello);
     }
 
     let mut buf = [0u8; 2048];

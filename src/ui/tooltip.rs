@@ -69,10 +69,10 @@ fn tooltip_display_system(
     content_q: Query<&TooltipContent>,
     panel_q: Query<Entity, With<TooltipPanel>>,
 ) {
-    if let Some(active) = state.active_entity {
-        if content_q.get(active).is_err() {
-            state.active_entity = None;
-        }
+    if let Some(active) = state.active_entity
+        && content_q.get(active).is_err()
+    {
+        state.active_entity = None;
     }
 
     if !state.is_changed() {
@@ -118,7 +118,12 @@ fn tooltip_display_system(
                 .rarity
                 .map(widgets::rarity_color)
                 .unwrap_or(Color::WHITE);
-            panel.spawn(widgets::accent_text(&assets, &content.title, 14.0, title_color));
+            panel.spawn(widgets::accent_text(
+                &assets,
+                &content.title,
+                14.0,
+                title_color,
+            ));
 
             if let Some(rarity) = content.rarity {
                 panel.spawn(widgets::muted_text(

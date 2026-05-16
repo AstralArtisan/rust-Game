@@ -344,11 +344,7 @@ fn spawn_augment_choice_row(
                         format!(
                             "{}{}",
                             rarity_label(option.rarity),
-                            if option.is_upgrade {
-                                " · 升级"
-                            } else {
-                                ""
-                            }
+                            if option.is_upgrade { " · 升级" } else { "" }
                         ),
                         11.0,
                     ));
@@ -375,7 +371,7 @@ fn spawn_back_button(parent: &mut ChildBuilder, assets: &GameAssets) {
             RewardBackButton,
         ))
         .with_children(|button| {
-            button.spawn(widgets::title_text(&assets, "[Esc] 返回", 16.0));
+            button.spawn(widgets::title_text(assets, "[Esc] 返回", 16.0));
         });
 }
 

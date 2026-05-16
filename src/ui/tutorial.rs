@@ -14,7 +14,7 @@ use crate::gameplay::skills::SkillUnlockedEvent;
 use crate::ui::widgets;
 use crate::utils::entity::safe_despawn_recursive;
 
-#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct TutorialFlags {
     pub movement_hint_shown: bool,
@@ -26,22 +26,6 @@ pub struct TutorialFlags {
     pub boss_mirror_warden_mechanic_shown: bool,
     pub boss_tide_hunter_mechanic_shown: bool,
     pub boss_cube_core_mechanic_shown: bool,
-}
-
-impl Default for TutorialFlags {
-    fn default() -> Self {
-        Self {
-            movement_hint_shown: false,
-            charge_ready_hint_shown: false,
-            shop_hint_shown: false,
-            elite_hint_shown: false,
-            unlock_hints_shown: [false; 4],
-            boss_guardian_mechanic_shown: false,
-            boss_mirror_warden_mechanic_shown: false,
-            boss_tide_hunter_mechanic_shown: false,
-            boss_cube_core_mechanic_shown: false,
-        }
-    }
 }
 
 #[derive(Resource, Debug, Default)]
@@ -250,13 +234,13 @@ pub fn update_tutorial_banner(
         return;
     };
 
-    if queue.active.is_none() {
-        if let Some(next) = queue.pending.pop_front() {
-            queue.active = Some(ActiveBanner {
-                text: next,
-                timer: Timer::from_seconds(3.2, TimerMode::Once),
-            });
-        }
+    if queue.active.is_none()
+        && let Some(next) = queue.pending.pop_front()
+    {
+        queue.active = Some(ActiveBanner {
+            text: next,
+            timer: Timer::from_seconds(3.2, TimerMode::Once),
+        });
     }
 
     let Some(active) = queue.active.as_mut() else {

@@ -70,19 +70,6 @@ pub fn camera_follow_player(
     camera_tf.translation.y = next.y;
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn camera_uses_fullscreen_vertical_view_height() {
-        let ScalingMode::FixedVertical(height) = fullscreen_scaling_mode() else {
-            panic!("camera should use a fixed vertical fullscreen view");
-        };
-        assert_eq!(height, CAMERA_VIEW_HEIGHT);
-    }
-}
-
 pub fn camera_follow_pvp_local(
     player_q: Query<&GlobalTransform, With<PvpLocalPlayer>>,
     mut camera_q: Query<&mut Transform, With<MainCamera>>,
@@ -151,4 +138,17 @@ pub fn apply_screen_shake(
     let offset = shake.update(time.delta_seconds());
     tf.translation.x += offset.x;
     tf.translation.y += offset.y;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn camera_uses_fullscreen_vertical_view_height() {
+        let ScalingMode::FixedVertical(height) = fullscreen_scaling_mode() else {
+            panic!("camera should use a fixed vertical fullscreen view");
+        };
+        assert_eq!(height, CAMERA_VIEW_HEIGHT);
+    }
 }

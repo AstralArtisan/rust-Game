@@ -126,7 +126,11 @@ pub fn build_character_summary(
                                 })
                         })
                         .unwrap_or_else(|| {
-                            ("未知强化".to_string(), AugmentRarity::Common, "效果未配置".to_string())
+                            (
+                                "未知强化".to_string(),
+                                AugmentRarity::Common,
+                                "效果未配置".to_string(),
+                            )
                         });
                     AugmentChip {
                         title: title.clone(),
@@ -175,10 +179,10 @@ pub fn build_character_summary(
         .unwrap_or_else(|| vec!["暂无终结技".to_string()]);
 
     let mut tools = Vec::new();
-    if let Some(mods) = reward_mods {
-        if mods.talisman_charges > 0 {
-            tools.push(format!("护身符 ×{}", mods.talisman_charges));
-        }
+    if let Some(mods) = reward_mods
+        && mods.talisman_charges > 0
+    {
+        tools.push(format!("护身符 ×{}", mods.talisman_charges));
     }
 
     CharacterSummary {

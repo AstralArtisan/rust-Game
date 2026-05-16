@@ -41,7 +41,7 @@ pub fn boss_phase_controller(
     let thresholds = &boss_config(&data, *archetype).phase_thresholds;
     let new_phase = if thresholds.get(1).is_some_and(|t| hp_ratio <= *t) {
         3
-    } else if thresholds.get(0).is_some_and(|t| hp_ratio <= *t) {
+    } else if thresholds.first().is_some_and(|t| hp_ratio <= *t) {
         2
     } else {
         1
@@ -603,10 +603,11 @@ pub fn boss_core_shield_update(
             .iter()
             .filter(|core| core.boss_entity == boss_entity)
             .count() as u8;
-        if alive < shield.cores_alive && shield.cores_alive > 0 {
-            if let Some(mut flash) = flash_opt {
-                flash.trigger(0.25);
-            }
+        if alive < shield.cores_alive
+            && shield.cores_alive > 0
+            && let Some(mut flash) = flash_opt
+        {
+            flash.trigger(0.25);
         }
         shield.cores_alive = alive;
         sprite.color = if alive > 0 {
@@ -814,7 +815,7 @@ fn spawn_tide_hunter_reposition_projectiles(
     }
 }
 
-fn boss_config<'a>(data: &'a GameDataRegistry, archetype: BossArchetype) -> &'a BossFloorConfig {
+fn boss_config(data: &GameDataRegistry, archetype: BossArchetype) -> &BossFloorConfig {
     match archetype {
         BossArchetype::Floor1Guardian => &data.bosses.floor_1,
         BossArchetype::MirrorWarden => &data.bosses.floor_2,
@@ -900,7 +901,7 @@ fn run_floor_2_pattern(
         1 => {
             *timer = Timer::from_seconds(1.18, TimerMode::Once);
             timer.reset();
-            let angles: &[f32] = if cycle.step % 2 == 0 {
+            let angles: &[f32] = if cycle.step.is_multiple_of(2) {
                 &[-0.26, 0.0, 0.26]
             } else {
                 &[-0.44, -0.18, 0.0, 0.18, 0.44]
@@ -923,7 +924,7 @@ fn run_floor_2_pattern(
             spawn_mirror_decoy(commands, assets, boss_pos, stats, dir, phase);
             boss_tf.translation.x = anchor.x;
             boss_tf.translation.y = anchor.y;
-            if cycle.step % 2 == 0 {
+            if cycle.step.is_multiple_of(2) {
                 spawn_cross(
                     commands,
                     assets,
@@ -1006,7 +1007,7 @@ fn run_floor_3_pattern(
         2 => {
             *timer = Timer::from_seconds(1.08, TimerMode::Once);
             timer.reset();
-            if cycle.step % 2 == 0 {
+            if cycle.step.is_multiple_of(2) {
                 perform_charge_burst(commands, assets, boss_tf, boss_pos, dir, stats, 160.0);
                 shake_ev.send(ScreenShakeRequest {
                     strength: 7.0,
@@ -1037,7 +1038,7 @@ fn run_floor_3_pattern(
         _ => {
             *timer = Timer::from_seconds(0.92, TimerMode::Once);
             timer.reset();
-            if cycle.step % 2 == 0 {
+            if cycle.step.is_multiple_of(2) {
                 perform_charge_burst(commands, assets, boss_tf, boss_pos, dir, stats, 195.0);
                 spawn_ring(
                     commands,
@@ -1108,7 +1109,7 @@ fn run_floor_4_pattern(
                 stats.attack_damage * 0.26,
                 &mut cycle.rotation,
             );
-            if cycle.step % 2 == 0 {
+            if cycle.step.is_multiple_of(2) {
                 spawn_aimed_shot(commands, assets, boss_pos, dir, stats, 0.54, 1.12);
             }
         }
@@ -1143,7 +1144,7 @@ fn run_floor_4_pattern(
                 }
                 _ => {
                     if summoned_count < 2 {
-                        let summon_type = if cycle.step % 2 == 0 {
+                        let summon_type = if cycle.step.is_multiple_of(2) {
                             EnemyType::Charger
                         } else {
                             EnemyType::Flanker
@@ -1453,7 +1454,7 @@ fn spawn_bullet_wall(
     lanes: u32,
 ) {
     let gap = (step as u32 % lanes).min(lanes.saturating_sub(1));
-    let vertical = step % 2 == 0;
+    let vertical = step.is_multiple_of(2);
     for lane in 0..lanes {
         if lane == gap {
             continue;

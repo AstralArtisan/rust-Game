@@ -131,14 +131,13 @@ fn enforce_room_rules(mut rooms: Vec<RoomData>) -> Vec<RoomData> {
             layers_with_normal.insert(room.id.0);
         }
     }
-    if layers_with_normal.is_empty() {
-        if let Some(room) = rooms
+    if layers_with_normal.is_empty()
+        && let Some(room) = rooms
             .iter_mut()
             .find(|room| !matches!(room.room_type, RoomType::Start | RoomType::Boss))
-        {
-            room.room_type = RoomType::Normal;
-            room.mystery = false;
-        }
+    {
+        room.room_type = RoomType::Normal;
+        room.mystery = false;
     }
 
     rooms
@@ -379,6 +378,21 @@ fn make_room(
     }
 }
 
+pub(crate) fn reset_player_for_floor(
+    player_q: &mut Query<(&mut Transform, &mut Velocity, &mut DashState), With<Player>>,
+) {
+    let Ok((mut transform, mut velocity, mut dash)) = player_q.get_single_mut() else {
+        return;
+    };
+
+    transform.translation = Vec3::new(-220.0, 0.0, 50.0);
+    velocity.0 = Vec2::ZERO;
+    dash.active = false;
+    dash.dir = Vec2::X;
+    dash.timer.reset();
+    dash.trail_timer.reset();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,19 +468,4 @@ mod tests {
             previous_special = special;
         }
     }
-}
-
-pub(crate) fn reset_player_for_floor(
-    player_q: &mut Query<(&mut Transform, &mut Velocity, &mut DashState), With<Player>>,
-) {
-    let Ok((mut transform, mut velocity, mut dash)) = player_q.get_single_mut() else {
-        return;
-    };
-
-    transform.translation = Vec3::new(-220.0, 0.0, 50.0);
-    velocity.0 = Vec2::ZERO;
-    dash.active = false;
-    dash.dir = Vec2::X;
-    dash.timer.reset();
-    dash.trail_timer.reset();
 }

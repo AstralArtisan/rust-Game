@@ -165,21 +165,20 @@ pub fn update_door_visuals(
     }
 
     for (label, mut text, mut visibility) in &mut labels {
-        if let Some((layout, room)) = layout.as_deref().zip(room) {
-            if let Some((_, to)) = room
+        if let Some((layout, room)) = layout.as_deref().zip(room)
+            && let Some((_, to)) = room
                 .connections
                 .exits
                 .iter()
                 .find(|(dir, _)| *dir == label.0)
-            {
-                let destination = layout.room(*to).map(|room| room.room_type);
-                text.sections[0].value = format!(
-                    "{} (E)",
-                    room_type_label(destination.unwrap_or(RoomType::Normal))
-                );
-                *visibility = Visibility::Visible;
-                continue;
-            }
+        {
+            let destination = layout.room(*to).map(|room| room.room_type);
+            text.sections[0].value = format!(
+                "{} (E)",
+                room_type_label(destination.unwrap_or(RoomType::Normal))
+            );
+            *visibility = Visibility::Visible;
+            continue;
         }
         *visibility = Visibility::Hidden;
     }

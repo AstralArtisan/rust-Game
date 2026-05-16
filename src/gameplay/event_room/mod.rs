@@ -288,7 +288,7 @@ enum EventChoicePayload {
     },
 }
 
-#[derive(Resource, Debug, Clone)]
+#[derive(Resource, Debug, Clone, Default)]
 pub struct ActiveEvent {
     pub event_type: Option<EventType>,
     pub resolved: bool,
@@ -307,22 +307,6 @@ pub struct EventPendingAction(pub Option<EventUiAction>);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventUiAction {
     Select(usize),
-}
-
-impl Default for ActiveEvent {
-    fn default() -> Self {
-        Self {
-            event_type: None,
-            resolved: false,
-            room: None,
-            interaction_ready: false,
-            choices: Vec::new(),
-            choice_payloads: Vec::new(),
-            combat_reward_ready: false,
-            flawless_failed: false,
-            timed_challenge_timer: None,
-        }
-    }
 }
 
 pub fn reset_active_event(active: &mut ActiveEvent) {
@@ -836,11 +820,11 @@ fn apply_puzzle_event_reward(
                 lines.push(format!("等级提升到 {}", level.level));
             }
         }
-        if let Some(pool) = augment_pool_from_puzzle(reward.augment_pool) {
-            if let Some(augment_id) = pick_random_augment_id(data, rng, pool) {
-                let grant = inventory.grant(augment_id);
-                lines.extend(describe_augment_grant(grant, data));
-            }
+        if let Some(pool) = augment_pool_from_puzzle(reward.augment_pool)
+            && let Some(augment_id) = pick_random_augment_id(data, rng, pool)
+        {
+            let grant = inventory.grant(augment_id);
+            lines.extend(describe_augment_grant(grant, data));
         }
     }
 
@@ -1345,10 +1329,10 @@ fn pick_weighted_event(rng: &mut GameRng) -> EventType {
     EventType::BulletMaze
 }
 
-fn puzzle_config_for_event<'a>(
-    data: Option<&'a GameDataRegistry>,
+fn puzzle_config_for_event(
+    data: Option<&GameDataRegistry>,
     event_type: EventType,
-) -> Option<&'a PuzzleEventConfig> {
+) -> Option<&PuzzleEventConfig> {
     data?
         .events
         .events

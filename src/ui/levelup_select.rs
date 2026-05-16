@@ -81,7 +81,7 @@ pub fn setup_levelup_ui(
                 .with_children(|panel| {
                     panel.spawn(widgets::title_text(
                         &assets,
-                        &format!("升级！ Lv.{}", choices.new_level),
+                        format!("升级！ Lv.{}", choices.new_level),
                         26.0,
                     ));
                     panel.spawn(widgets::title_text(

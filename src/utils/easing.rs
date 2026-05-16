@@ -4,7 +4,6 @@ pub fn ease_in_out(t: f32) -> f32 {
 }
 
 #[allow(dead_code)]
-#[allow(dead_code)]
 pub fn ease_out_cubic(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     let inv = 1.0 - t;
@@ -21,7 +20,6 @@ pub fn ease_out_expo(t: f32) -> f32 {
 }
 
 #[allow(dead_code)]
-#[allow(dead_code)]
 pub fn ease_out_elastic(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     if t <= 0.0 || t >= 1.0 {
@@ -31,7 +29,6 @@ pub fn ease_out_elastic(t: f32) -> f32 {
     2.0_f32.powf(-10.0 * t) * ((t * 10.0 - 0.75) * c4).sin() + 1.0
 }
 
-#[allow(dead_code)]
 #[allow(dead_code)]
 pub fn ease_out_back(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);

@@ -509,13 +509,13 @@ pub fn freeze_system(
         let Some(profile) = tuning::freeze_profile(stacks) else {
             continue;
         };
-        if rng.gen_range_f32(0.0, 1.0) < profile.chance {
-            if let Some(mut ec) = commands.get_entity(event.target) {
-                ec.insert(Frozen {
-                    timer: Timer::from_seconds(profile.duration_s, TimerMode::Once),
-                    shatter_damage_bonus: profile.shatter_bonus,
-                });
-            }
+        if rng.gen_range_f32(0.0, 1.0) < profile.chance
+            && let Some(mut ec) = commands.get_entity(event.target)
+        {
+            ec.insert(Frozen {
+                timer: Timer::from_seconds(profile.duration_s, TimerMode::Once),
+                shatter_damage_bonus: profile.shatter_bonus,
+            });
         }
     }
 }

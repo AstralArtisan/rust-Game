@@ -488,9 +488,7 @@ fn memory_blocks_system(
             sprite.color = Color::srgb(0.86, 0.74, 0.26);
         }
     }
-    if handled_input {
-        return;
-    }
+    if handled_input {}
 }
 
 fn memory_round_len(active: &ActivePuzzle) -> usize {

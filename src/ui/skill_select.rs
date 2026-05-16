@@ -414,10 +414,10 @@ fn picked_skill_index(
     };
 
     for (interaction, button, _, _) in button_q.iter() {
-        if *interaction == Interaction::Pressed {
-            if let Some(button) = button {
-                picked = Some(button.index);
-            }
+        if *interaction == Interaction::Pressed
+            && let Some(button) = button
+        {
+            picked = Some(button.index);
         }
     }
     picked
@@ -448,10 +448,10 @@ fn picked_slot(
     };
 
     for (interaction, _, replace, _) in button_q.iter() {
-        if *interaction == Interaction::Pressed {
-            if let Some(replace) = replace {
-                picked = Some(replace.slot);
-            }
+        if *interaction == Interaction::Pressed
+            && let Some(replace) = replace
+        {
+            picked = Some(replace.slot);
         }
     }
     picked

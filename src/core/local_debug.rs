@@ -168,10 +168,10 @@ fn apply_local_debug_window(
         return;
     };
 
-    if let Some(suffix) = config.title_suffix.as_ref() {
-        if !window.title.contains(suffix) {
-            window.title = format!("{} {}", window.title, suffix);
-        }
+    if let Some(suffix) = config.title_suffix.as_ref()
+        && !window.title.contains(suffix)
+    {
+        window.title = format!("{} {}", window.title, suffix);
     }
     if let Some(pos) = config.window_pos {
         window.mode = WindowMode::Windowed;

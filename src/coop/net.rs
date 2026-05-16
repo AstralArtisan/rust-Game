@@ -248,7 +248,6 @@ pub fn is_coop_authority(config: Res<CoopNetConfig>) -> bool {
 }
 
 #[allow(dead_code)]
-#[allow(dead_code)]
 pub fn local_client_id(mode: NetMode) -> ClientId {
     match mode {
         NetMode::Host => ClientId::Netcode(HOST_CLIENT_ID),
@@ -740,6 +739,53 @@ fn capture_server_inputs(
     }
 }
 
+fn receive_coop_command_messages(
+    config: Res<CoopNetConfig>,
+    mut events: EventReader<LyServerMessageEvent<CoopCommandMessage>>,
+    mut net: ResMut<CoopNetState>,
+) {
+    if config.mode != NetMode::Host {
+        events.clear();
+        return;
+    }
+
+    for event in events.read() {
+        net.received_commands
+            .push((*event.context(), event.message().clone()));
+    }
+}
+
+fn flush_pending_client_commands(
+    config: Res<CoopNetConfig>,
+    mut net: ResMut<CoopNetState>,
+    mut connection: ResMut<LyClientConnectionManager>,
+) {
+    if config.mode == NetMode::None || net.pending_commands.is_empty() || !net.connected {
+        return;
+    }
+
+    for mut command in std::mem::take(&mut net.pending_commands) {
+        let _ = connection.send_message::<CoopCommandChannel, _>(&mut command);
+    }
+}
+
+pub fn build_input_state(input: &PlayerInputState) -> CoopInputState {
+    CoopInputState {
+        move_axis: input.move_axis,
+        aim_world: input.aim_world,
+        attack_pressed: input.attack_pressed,
+        attack_held: input.attack_held,
+        ranged_pressed: input.ranged_pressed,
+        ranged_held: input.ranged_held,
+        dash_pressed: input.dash_pressed,
+        interact_pressed: input.interact_pressed,
+        pause_pressed: input.pause_pressed,
+        shop_pressed: input.shop_pressed,
+        menu_confirm_pressed: input.attack_pressed || input.interact_pressed,
+        menu_cancel_pressed: input.pause_pressed,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -836,52 +882,5 @@ mod tests {
             world.resource::<NextState<AppState>>(),
             NextState::Pending(AppState::CoopGame)
         ));
-    }
-}
-
-fn receive_coop_command_messages(
-    config: Res<CoopNetConfig>,
-    mut events: EventReader<LyServerMessageEvent<CoopCommandMessage>>,
-    mut net: ResMut<CoopNetState>,
-) {
-    if config.mode != NetMode::Host {
-        events.clear();
-        return;
-    }
-
-    for event in events.read() {
-        net.received_commands
-            .push((*event.context(), event.message().clone()));
-    }
-}
-
-fn flush_pending_client_commands(
-    config: Res<CoopNetConfig>,
-    mut net: ResMut<CoopNetState>,
-    mut connection: ResMut<LyClientConnectionManager>,
-) {
-    if config.mode == NetMode::None || net.pending_commands.is_empty() || !net.connected {
-        return;
-    }
-
-    for mut command in std::mem::take(&mut net.pending_commands) {
-        let _ = connection.send_message::<CoopCommandChannel, _>(&mut command);
-    }
-}
-
-pub fn build_input_state(input: &PlayerInputState) -> CoopInputState {
-    CoopInputState {
-        move_axis: input.move_axis,
-        aim_world: input.aim_world,
-        attack_pressed: input.attack_pressed,
-        attack_held: input.attack_held,
-        ranged_pressed: input.ranged_pressed,
-        ranged_held: input.ranged_held,
-        dash_pressed: input.dash_pressed,
-        interact_pressed: input.interact_pressed,
-        pause_pressed: input.pause_pressed,
-        shop_pressed: input.shop_pressed,
-        menu_confirm_pressed: input.attack_pressed || input.interact_pressed,
-        menu_cancel_pressed: input.pause_pressed,
     }
 }

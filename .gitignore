@@ -16,8 +16,6 @@ PLANS.md
 # Scripts
 scripts/
 
-# GitHub Actions
-.github/
 
 # Node.js
 node_modules/

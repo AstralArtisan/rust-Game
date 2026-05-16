@@ -87,68 +87,69 @@ pub fn apply_damage_events(
             inv.timer.reset();
         }
 
-        if let Ok(shield) = core_shield_q.get(entity) {
-            if shield.cores_alive > 0 {
-                if !tutorial_flags.boss_cube_core_mechanic_shown {
-                    tutorial_ev.send(TutorialNotification("护盾！先摧毁周围的子核心".to_string()));
-                    tutorial_flags.boss_cube_core_mechanic_shown = true;
-                }
-                continue;
+        if let Ok(shield) = core_shield_q.get(entity)
+            && shield.cores_alive > 0
+        {
+            if !tutorial_flags.boss_cube_core_mechanic_shown {
+                tutorial_ev.send(TutorialNotification("护盾！先摧毁周围的子核心".to_string()));
+                tutorial_flags.boss_cube_core_mechanic_shown = true;
             }
+            continue;
         }
 
         // DashShield: absorb one hit for player
-        if let Some(mut dash_shield) = dash_shield {
-            if hurtbox.is_some_and(|h| h.team == Team::Player) {
-                dash_shield.charges = dash_shield.charges.saturating_sub(1);
-                if dash_shield.charges == 0 {
-                    let _break_damage_fraction = dash_shield.break_damage_fraction;
-                    commands.entity(entity).remove::<DashShieldBuff>();
-                }
-                continue;
+        if let Some(mut dash_shield) = dash_shield
+            && hurtbox.is_some_and(|h| h.team == Team::Player)
+        {
+            dash_shield.charges = dash_shield.charges.saturating_sub(1);
+            if dash_shield.charges == 0 {
+                let _break_damage_fraction = dash_shield.break_damage_fraction;
+                commands.entity(entity).remove::<DashShieldBuff>();
             }
+            continue;
         }
 
         let mut amount = ev.amount;
 
-        if let Some(frozen) = frozen {
-            if ev.team == Team::Player && frozen.shatter_damage_bonus > 0.0 {
-                amount *= 1.0 + frozen.shatter_damage_bonus;
-                commands.entity(entity).remove::<Frozen>();
-            }
+        if let Some(frozen) = frozen
+            && ev.team == Team::Player
+            && frozen.shatter_damage_bonus > 0.0
+        {
+            amount *= 1.0 + frozen.shatter_damage_bonus;
+            commands.entity(entity).remove::<Frozen>();
         }
 
-        if let Some(mut shielded) = shielded_affix {
-            if shielded.charges > 0 {
-                shielded.charges -= 1;
-                if shielded.charges == 0 {
-                    commands.entity(entity).remove::<ShieldedAffixState>();
+        if let Some(mut shielded) = shielded_affix
+            && shielded.charges > 0
+        {
+            shielded.charges -= 1;
+            if shielded.charges == 0 {
+                commands.entity(entity).remove::<ShieldedAffixState>();
+            }
+            continue;
+        }
+
+        if let Ok(defense) = directional_def_q.get(entity)
+            && ev.knockback.length_squared() > f32::EPSILON
+        {
+            let hit_from = -ev.knockback.normalize_or_zero();
+            if hit_from.dot(defense.facing) > 0.4 {
+                amount *= 0.4;
+                if !tutorial_flags.boss_guardian_mechanic_shown {
+                    tutorial_ev.send(TutorialNotification(
+                        "Boss 正面防御极高，绕到背后输出！".to_string(),
+                    ));
+                    tutorial_flags.boss_guardian_mechanic_shown = true;
                 }
-                continue;
+            } else if hit_from.dot(defense.facing) < -0.35 {
+                amount *= 1.35;
             }
         }
 
-        if let Ok(defense) = directional_def_q.get(entity) {
-            if ev.knockback.length_squared() > f32::EPSILON {
-                let hit_from = -ev.knockback.normalize_or_zero();
-                if hit_from.dot(defense.facing) > 0.4 {
-                    amount *= 0.4;
-                    if !tutorial_flags.boss_guardian_mechanic_shown {
-                        tutorial_ev.send(TutorialNotification(
-                            "Boss 正面防御极高，绕到背后输出！".to_string(),
-                        ));
-                        tutorial_flags.boss_guardian_mechanic_shown = true;
-                    }
-                } else if hit_from.dot(defense.facing) < -0.35 {
-                    amount *= 1.35;
-                }
-            }
-        }
-
-        if let Ok(state) = tide_hunter_q.get(entity) {
-            if state.phase == TideHunterPhase::Stunned {
-                amount *= 1.5;
-            }
+        if let Ok(state) = tide_hunter_q.get(entity)
+            && state.phase == TideHunterPhase::Stunned
+        {
+            amount *= 1.5;
         }
 
         if let Some(armor_broken) = armor_broken {

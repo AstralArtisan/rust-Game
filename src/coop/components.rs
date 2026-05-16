@@ -223,8 +223,9 @@ pub struct ReviveChoiceState {
     pub revived: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CoopShopItem {
+    #[default]
     Heal,
     IncreaseMaxHealth,
     IncreaseAttackPower,
@@ -233,12 +234,6 @@ pub enum CoopShopItem {
     IncreaseEnergyMax,
     IncreaseCritChance,
     IncreaseAttackSpeed,
-}
-
-impl Default for CoopShopItem {
-    fn default() -> Self {
-        Self::Heal
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

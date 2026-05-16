@@ -318,10 +318,10 @@ pub fn pvp_host_simulation_system(
 
     // Send snapshot at 20hz.
     match_state.state_send_timer.tick(time.delta());
-    if match_state.state_send_timer.just_finished() {
-        if let Some(st) = build_state_msg(match_state.tick, &mut players) {
-            net.send_state(&st);
-        }
+    if match_state.state_send_timer.just_finished()
+        && let Some(st) = build_state_msg(match_state.tick, &mut players)
+    {
+        net.send_state(&st);
     }
 }
 

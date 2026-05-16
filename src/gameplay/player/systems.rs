@@ -225,10 +225,10 @@ pub fn player_facing_system(
                 continue;
             }
         }
-        if vel.0.length_squared() > 1.0 {
-            if let Some(dir) = vel.0.try_normalize() {
-                facing.0 = dir;
-            }
+        if vel.0.length_squared() > 1.0
+            && let Some(dir) = vel.0.try_normalize()
+        {
+            facing.0 = dir;
         }
     }
 }

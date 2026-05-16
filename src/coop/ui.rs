@@ -178,19 +178,10 @@ pub(crate) enum CoopModalTone {
     Danger,
 }
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Default)]
 pub(crate) struct CoopModalButtonState {
     action: Option<CoopUiAction>,
     enabled: bool,
-}
-
-impl Default for CoopModalButtonState {
-    fn default() -> Self {
-        Self {
-            action: None,
-            enabled: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -2692,11 +2683,9 @@ pub fn predict_local_player_animation(
         } else if input.attack_pressed || input.ranged_pressed {
             pred.predicted_anim = AnimationState::Attack;
             pred.override_timer_s = 0.25;
-        } else if input.move_axis.length_squared() > 0.01 {
-            if pred.override_timer_s <= 0.0 {
-                pred.predicted_anim = AnimationState::Move;
-                pred.override_timer_s = 0.12;
-            }
+        } else if input.move_axis.length_squared() > 0.01 && pred.override_timer_s <= 0.0 {
+            pred.predicted_anim = AnimationState::Move;
+            pred.override_timer_s = 0.12;
         }
     }
 }

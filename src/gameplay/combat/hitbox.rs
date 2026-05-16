@@ -193,20 +193,21 @@ pub fn detect_hitbox_hurtbox_overlap(
 
             // Executioner: melee instant-kill on low HP enemies (not bosses)
             let mut final_amount = amount;
-            if is_melee_arc && !target_is_boss {
-                if let Some(owner) = hb.owner {
-                    let exec_stacks = owner_augments
-                        .get(owner)
-                        .map(|inv| inv.stacks(AugmentId::Executioner))
-                        .unwrap_or(0);
-                    if exec_stacks > 0 {
-                        let threshold = tuning::executioner_threshold(exec_stacks);
-                        if let Ok(target_hp) = target_health_q.get(target) {
-                            if target_hp.max > 0.0 && target_hp.current / target_hp.max < threshold
-                            {
-                                final_amount = target_hp.current + 1.0;
-                            }
-                        }
+            if is_melee_arc
+                && !target_is_boss
+                && let Some(owner) = hb.owner
+            {
+                let exec_stacks = owner_augments
+                    .get(owner)
+                    .map(|inv| inv.stacks(AugmentId::Executioner))
+                    .unwrap_or(0);
+                if exec_stacks > 0 {
+                    let threshold = tuning::executioner_threshold(exec_stacks);
+                    if let Ok(target_hp) = target_health_q.get(target)
+                        && target_hp.max > 0.0
+                        && target_hp.current / target_hp.max < threshold
+                    {
+                        final_amount = target_hp.current + 1.0;
                     }
                 }
             }
@@ -221,78 +222,76 @@ pub fn detect_hitbox_hurtbox_overlap(
                 is_crit,
             });
 
-            if is_melee_arc {
-                if let Some(owner) = hb.owner {
-                    let mods = owner_mods.get(owner).ok().copied();
-                    let lifesteal_slash_stacks = owner_augments
-                        .get(owner)
-                        .map(|inventory| inventory.stacks(AugmentId::LifestealSlash))
-                        .unwrap_or(0);
+            if is_melee_arc && let Some(owner) = hb.owner {
+                let mods = owner_mods.get(owner).ok().copied();
+                let lifesteal_slash_stacks = owner_augments
+                    .get(owner)
+                    .map(|inventory| inventory.stacks(AugmentId::LifestealSlash))
+                    .unwrap_or(0);
 
-                    let mut total_heal = 0.0;
-                    let armor_break_stacks = owner_augments
-                        .get(owner)
-                        .map(|inventory| inventory.stacks(AugmentId::ArmorBreak))
-                        .unwrap_or(0);
-                    if armor_break_stacks > 0 {
-                        if let Some(profile) = tuning::armor_break_profile(armor_break_stacks) {
-                            commands.entity(target).insert(ArmorBroken {
-                                damage_multiplier: profile.damage_multiplier,
-                                crit_taken_bonus: profile.crit_taken_bonus,
-                                timer: Timer::from_seconds(profile.duration_s, TimerMode::Once),
-                            });
-                        }
-                    }
+                let mut total_heal = 0.0;
+                let armor_break_stacks = owner_augments
+                    .get(owner)
+                    .map(|inventory| inventory.stacks(AugmentId::ArmorBreak))
+                    .unwrap_or(0);
+                if armor_break_stacks > 0
+                    && let Some(profile) = tuning::armor_break_profile(armor_break_stacks)
+                {
+                    commands.entity(target).insert(ArmorBroken {
+                        damage_multiplier: profile.damage_multiplier,
+                        crit_taken_bonus: profile.crit_taken_bonus,
+                        timer: Timer::from_seconds(profile.duration_s, TimerMode::Once),
+                    });
+                }
 
-                    if let Some(mods) = mods {
-                        let heal_fraction = mods.melee_on_hit_heal_fraction(target_is_boss);
-                        if heal_fraction > 0.0 {
-                            total_heal += (amount * heal_fraction).min(2.0);
-                        }
+                if let Some(mods) = mods {
+                    let heal_fraction = mods.melee_on_hit_heal_fraction(target_is_boss);
+                    if heal_fraction > 0.0 {
+                        total_heal += (amount * heal_fraction).min(2.0);
                     }
-                    if lifesteal_slash_stacks > 0 {
-                        let heal_fraction = tuning::lifesteal_fraction(lifesteal_slash_stacks);
-                        total_heal += (amount * heal_fraction).min(5.0);
+                }
+                if lifesteal_slash_stacks > 0 {
+                    let heal_fraction = tuning::lifesteal_fraction(lifesteal_slash_stacks);
+                    total_heal += (amount * heal_fraction).min(5.0);
+                }
+                if total_heal > 0.0
+                    && let Ok(mut owner_health) = owner_health_q.get_mut(owner)
+                {
+                    let before = owner_health.current;
+                    owner_health.current =
+                        (owner_health.current + total_heal).min(owner_health.max);
+                    if owner_health.current > before + f32::EPSILON {
+                        particles::spawn_hit_particles(
+                            &mut commands,
+                            &assets,
+                            target_tf.translation().truncate(),
+                            Color::srgba(0.52, 1.0, 0.60, 0.76),
+                        );
                     }
-                    if total_heal > 0.0 {
-                        if let Ok(mut owner_health) = owner_health_q.get_mut(owner) {
-                            let before = owner_health.current;
-                            owner_health.current =
-                                (owner_health.current + total_heal).min(owner_health.max);
-                            if owner_health.current > before + f32::EPSILON {
-                                particles::spawn_hit_particles(
-                                    &mut commands,
-                                    &assets,
-                                    target_tf.translation().truncate(),
-                                    Color::srgba(0.52, 1.0, 0.60, 0.76),
-                                );
-                            }
-                        }
-                    }
+                }
 
-                    if let Some(mods) = mods {
-                        let rupture_fraction = mods.melee_rupture_total_fraction();
-                        if rupture_fraction > 0.0 {
-                            let per_tick = (amount * rupture_fraction / 3.0).max(0.1);
-                            let should_refresh = existing_ruptures
-                                .get(target)
-                                .map(|current| per_tick > current.damage_per_tick)
-                                .unwrap_or(true);
-                            if should_refresh {
-                                let rupture = RuptureDot {
-                                    source: Some(owner),
-                                    damage_per_tick: per_tick,
-                                    ticks_remaining: 3,
-                                    timer: Timer::from_seconds(0.5, TimerMode::Repeating),
-                                };
-                                commands.entity(target).insert(rupture);
-                                particles::spawn_hit_particles(
-                                    &mut commands,
-                                    &assets,
-                                    target_tf.translation().truncate(),
-                                    Color::srgba(1.0, 0.42, 0.46, 0.80),
-                                );
-                            }
+                if let Some(mods) = mods {
+                    let rupture_fraction = mods.melee_rupture_total_fraction();
+                    if rupture_fraction > 0.0 {
+                        let per_tick = (amount * rupture_fraction / 3.0).max(0.1);
+                        let should_refresh = existing_ruptures
+                            .get(target)
+                            .map(|current| per_tick > current.damage_per_tick)
+                            .unwrap_or(true);
+                        if should_refresh {
+                            let rupture = RuptureDot {
+                                source: Some(owner),
+                                damage_per_tick: per_tick,
+                                ticks_remaining: 3,
+                                timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+                            };
+                            commands.entity(target).insert(rupture);
+                            particles::spawn_hit_particles(
+                                &mut commands,
+                                &assets,
+                                target_tf.translation().truncate(),
+                                Color::srgba(1.0, 0.42, 0.46, 0.80),
+                            );
                         }
                     }
                 }
@@ -301,11 +300,11 @@ pub fn detect_hitbox_hurtbox_overlap(
             if let Some(hit_targets) = hit_targets.as_mut() {
                 hit_targets.set.insert(target);
             }
-            if let Some(pierce_count) = pierce_count.as_mut() {
-                if pierce_count.remaining > 0 {
-                    pierce_count.remaining -= 1;
-                    continue;
-                }
+            if let Some(pierce_count) = pierce_count.as_mut()
+                && pierce_count.remaining > 0
+            {
+                pierce_count.remaining -= 1;
+                continue;
             }
 
             safe_despawn_recursive(&mut commands, hb_entity);
