@@ -396,6 +396,7 @@ fn pcm_to_wav(samples: &[f32], sample_rate: u32) -> Vec<u8> {
 }
 
 #[derive(Resource, Default)]
+#[allow(dead_code)]
 pub struct SfxHandles {
     pub melee_attack: Handle<bevy_kira_audio::AudioSource>,
     pub ranged_attack: Handle<bevy_kira_audio::AudioSource>,
@@ -412,6 +413,7 @@ pub struct SfxHandles {
     pub shop_purchase: Handle<bevy_kira_audio::AudioSource>,
 }
 
+#[allow(dead_code)]
 impl SfxHandles {
     pub fn get(&self, kind: SfxKind) -> &Handle<bevy_kira_audio::AudioSource> {
         match kind {
@@ -638,17 +640,14 @@ pub fn bgm_state_sync_system(
         base_volume
     };
 
-    let desired_track = bgm_track_for_state(
-        app_state.get(),
-        room_state.as_deref(),
-        floor.as_deref(),
-    );
+    let desired_track =
+        bgm_track_for_state(app_state.get(), room_state.as_deref(), floor.as_deref());
 
     if desired_track != bgm.current_track {
-        if let Some(ref instance_handle) = bgm.instance {
-            if let Some(instance) = audio_instances.get_mut(instance_handle) {
-                instance.stop(AudioTween::linear(std::time::Duration::from_millis(500)));
-            }
+        if let Some(ref instance_handle) = bgm.instance
+            && let Some(instance) = audio_instances.get_mut(instance_handle)
+        {
+            instance.stop(AudioTween::linear(std::time::Duration::from_millis(500)));
         }
         bgm.instance = None;
 
@@ -673,13 +672,13 @@ pub fn bgm_state_sync_system(
         bgm.target_volume = target_vol;
         bgm.paused_duck = is_paused;
     } else if bgm.paused_duck != is_paused {
-        if let Some(ref instance_handle) = bgm.instance {
-            if let Some(instance) = audio_instances.get_mut(instance_handle) {
-                instance.set_volume(
-                    Volume::Amplitude(target_vol),
-                    AudioTween::linear(std::time::Duration::from_millis(300)),
-                );
-            }
+        if let Some(ref instance_handle) = bgm.instance
+            && let Some(instance) = audio_instances.get_mut(instance_handle)
+        {
+            instance.set_volume(
+                Volume::Amplitude(target_vol),
+                AudioTween::linear(std::time::Duration::from_millis(300)),
+            );
         }
         bgm.target_volume = target_vol;
         bgm.paused_duck = is_paused;
