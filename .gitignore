@@ -57,6 +57,10 @@ logs/
 *.dll
 *.dylib
 *.zip
+release/
+
+# Save files
+saves/
 
 # Configuration files that might contain sensitive info
 .env

@@ -1,7 +1,0 @@
-(
-  normal_gold: (3, 6),
-  elite_gold: (12, 20),
-  boss_gold: (30, 50),
-  floor_income: (100, 180),
-  xp_curve: [0, 50, 120, 210, 320, 450, 600, 780, 980, 1200],
-)
