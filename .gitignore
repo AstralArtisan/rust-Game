@@ -58,6 +58,7 @@ logs/
 *.dylib
 *.zip
 release/
+dist/
 
 # Save files
 saves/
