@@ -10,6 +10,10 @@ Cargo.lock
 !.claude/settings.json
 .agents/
 .omx/
+AGENTS.md
+CLAUDE.md
+prompt.md
+PLANS.md
 
 # Node.js
 node_modules/
