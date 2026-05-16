@@ -958,3 +958,22 @@ Phase 3 内容由 Codex 实现（30+ 文件 + 新配置）。Claude 按用户指
 - Charger"撞墙眩晕 1.5s"为细粒度行为，未在本轮深核（设计结构无偏差，列后续打磨）
 - Phase 4+（成长/NG+/coop 重写等）后续推进
 - 验证：`cargo check` 通过（仅 3 个既有 audio dead-code 警告，无新增），`cargo test` **67/67 通过**（含新回归测试）
+
+---
+
+## 2026-05-16 Clippy 全量警告清零
+
+**改动内容：**
+- `Cargo.toml` 新增 `[lints.clippy]` 段，allow `type_complexity` 和 `too_many_arguments`
+- `src/core/audio.rs` 的 `SfxHandles` 结构体及其 `impl` 块添加 `#[allow(dead_code)]`
+
+**目的与动机：**
+项目积累了 187 个 clippy 警告（126 type_complexity + 59 too_many_arguments + 2 dead_code），全部是 Bevy ECS 架构固有特征或待重设计模块的预留代码。统一配置 lint allow 使 `cargo clippy` 输出干净，后续新增的真正代码问题不会被淹没。
+
+**关键决策：**
+- 选择 `Cargo.toml [lints.clippy]` 全局配置而非逐函数 `#[allow(...)]`，因为 Bevy 系统函数天然需要多参数和复杂 Query 类型，逐一标注无意义
+- `SfxHandles` 保留代码（已构建并插入为 Resource），待音效系统重设计后移除 allow
+
+**验证：**
+- `cargo clippy`：0 警告
+- `cargo test`：86/86 通过
