@@ -142,10 +142,7 @@ pub fn pvp_net_tick_system(
     }
 
     let mut buf = [0u8; 2048];
-    loop {
-        let Ok((n, from)) = sock.recv_from(&mut buf) else {
-            break;
-        };
+    while let Ok((n, from)) = sock.recv_from(&mut buf) {
         let Ok(msg) = bincode::deserialize::<PvpMsg>(&buf[..n]) else {
             continue;
         };
