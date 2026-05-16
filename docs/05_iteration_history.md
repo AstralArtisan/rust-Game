@@ -977,3 +977,22 @@ Phase 3 内容由 Codex 实现（30+ 文件 + 新配置）。Claude 按用户指
 **验证：**
 - `cargo clippy`：0 警告
 - `cargo test`：86/86 通过
+
+---
+
+## 2026-05-16 Rust 2024 Edition 代码现代化
+
+**改动内容：**
+- 30 个文件使用 let chains 合并嵌套 if-let 条件
+- `#[derive(Default)]` + `#[default]` 替换手写 `impl Default`
+- 移除重复的 `#[allow(dead_code)]` 注解
+- 编译期断言改用 const block
+- 单臂 match 改为 irrefutable let 解构
+- `.gitignore` 解除 `.github/` 目录排除（配合新增的 CI 工作流）
+
+**目的与动机：**
+项目已使用 `edition = "2024"`，但代码中仍保留大量旧版写法（嵌套 if-let、手写 Default 等）。统一升级为 2024 惯用写法，净减 58 行，提升可读性。
+
+**关键决策：**
+- 等价重构，不改变任何运行时行为
+- let chains 是 Rust 2024 稳定特性，减少嵌套层次使控制流更清晰
