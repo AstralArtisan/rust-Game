@@ -5,15 +5,19 @@ Cargo.lock
 
 # Claude Code
 .claude/
-!.claude/hooks/
-!.claude/hooks/**
-!.claude/settings.json
 .agents/
 .omx/
+.superpowers/
 AGENTS.md
 CLAUDE.md
 prompt.md
 PLANS.md
+
+# Scripts
+scripts/
+
+# GitHub Actions
+.github/
 
 # Node.js
 node_modules/
