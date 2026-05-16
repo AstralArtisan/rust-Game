@@ -1,0 +1,19 @@
+(
+  difficulty_per_floor: 0.16,
+  enemy_count_normal_room: 4,
+  reward_rooms_give_choice: true,
+  boss_room_gives_victory: false,
+  total_floors: 4,
+  floor_rooms: 10,
+  enemy_pools_by_floor: [
+    [MeleeChaser, Lobber, Charger],
+    [RangedShooter, Flanker, Bomber],
+    [Sniper, Shielder],
+    [SupportCaster, Summoner],
+  ],
+  elite_chance: 0.18,
+  elite_hp_mult: 2.0,
+  elite_damage_mult: 1.55,
+  elite_gold_bonus: 12,
+  use_sprite_textures: false,
+)

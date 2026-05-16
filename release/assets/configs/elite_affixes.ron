@@ -1,0 +1,10 @@
+(
+  affixes: [
+    (affix: Swift, title: "迅捷", description: "移速 +40%，攻击间隔 -30%，减速效果减半。"),
+    (affix: Splitting, title: "分裂", description: "死亡分裂 2 个 50% HP 弱化体。"),
+    (affix: Shielded, title: "铁壁", description: "受伤 -25%，免疫击退和冰冻。"),
+    (affix: Vampiric, title: "吸血", description: "命中回复 30% 伤害 HP，每 5s 回 3% 最大 HP。"),
+    (affix: Berserk, title: "狂暴", description: "HP<40% 时伤害 +50%，攻速 +40%，移速 +20%。"),
+    (affix: Teleporting, title: "闪现", description: "每 4s 瞬移到玩家侧面或背后，首次攻击 +30%。"),
+  ],
+)
