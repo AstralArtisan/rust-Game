@@ -1,9 +1,12 @@
 use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
+use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory, AugmentRarity};
 use crate::gameplay::player::components::Player;
 use crate::states::GamePhase;
+use crate::ui::character_panel::{self, CharacterSummaryItem};
+use crate::ui::feedback::{UiFeedbackEvent, UiFeedbackSeverity};
 use crate::ui::widgets;
 
 /// Resource: holds the augment choices offered to the player.
@@ -51,36 +54,52 @@ pub fn setup_augment_select_ui(
     mut commands: Commands,
     assets: Res<GameAssets>,
     choices: Res<AugmentChoices>,
+    data: Option<Res<GameDataRegistry>>,
+    summary_q: Query<CharacterSummaryItem<'_>, With<Player>>,
 ) {
+    let summary = character_panel::character_summary_from_query(&summary_q, data.as_deref());
     commands
         .spawn((
-            widgets::root_node(),
+            widgets::overlay_root_node(),
             AugmentSelectUi,
             Name::new("AugmentSelectRoot"),
         ))
         .with_children(|root| {
-            root.spawn(widgets::panel_node(Color::srgba(0.02, 0.02, 0.06, 0.94)))
-                .with_children(|panel| {
-                    panel.spawn(widgets::title_text(&assets, "获得强化", 30.0));
-                    panel.spawn(widgets::title_text(
+            root.spawn(widgets::adventure_panel_node(960.0))
+                .with_children(|shell| {
+                    shell.spawn(widgets::title_text(&assets, "获得强化", 26.0));
+                    shell.spawn(widgets::muted_text(
                         &assets,
-                        "按 1 / 2 / 3 选择一项强化",
-                        16.0,
+                        "按 1 / 2 / 3 或点击卡片选择。重复获得同名强化会提升层数。",
+                        13.0,
                     ));
-                    panel
-                        .spawn(NodeBundle {
-                            style: Style {
-                                column_gap: Val::Px(16.0),
-                                align_items: AlignItems::FlexStart,
-                                margin: UiRect::top(Val::Px(12.0)),
-                                ..default()
-                            },
-                            ..default()
-                        })
+                    shell
+                        .spawn(widgets::content_row_node())
                         .with_children(|row| {
-                            for (i, opt) in choices.options.iter().enumerate() {
-                                spawn_augment_card(row, &assets, i, opt);
-                            }
+                            character_panel::spawn_character_summary(row, &assets, &summary);
+                            row.spawn(widgets::card_node(
+                                600.0,
+                                300.0,
+                                widgets::rarity_color(AugmentRarity::Elite),
+                            ))
+                            .with_children(|panel| {
+                                panel.spawn(widgets::section_heading(&assets, "强化候选"));
+                                panel
+                                    .spawn(NodeBundle {
+                                        style: Style {
+                                            column_gap: Val::Px(12.0),
+                                            align_items: AlignItems::FlexStart,
+                                            margin: UiRect::top(Val::Px(8.0)),
+                                            ..default()
+                                        },
+                                        ..default()
+                                    })
+                                    .with_children(|row| {
+                                        for (i, opt) in choices.options.iter().enumerate() {
+                                            spawn_augment_card(row, &assets, i, opt);
+                                        }
+                                    });
+                            });
                         });
                 });
         });
@@ -99,11 +118,11 @@ fn spawn_augment_card(
         .spawn((
             ButtonBundle {
                 style: Style {
-                    width: Val::Px(220.0),
-                    min_height: Val::Px(160.0),
+                    width: Val::Px(185.0),
+                    min_height: Val::Px(135.0),
                     flex_direction: FlexDirection::Column,
-                    padding: UiRect::all(Val::Px(12.0)),
-                    row_gap: Val::Px(6.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    row_gap: Val::Px(4.0),
                     border: UiRect::all(Val::Px(2.0)),
                     ..default()
                 },
@@ -119,7 +138,7 @@ fn spawn_augment_card(
                 format!("[{}]", index + 1),
                 TextStyle {
                     font: assets.font.clone(),
-                    font_size: 14.0,
+                    font_size: 12.0,
                     color: Color::srgb(0.6, 0.6, 0.7),
                 },
             ));
@@ -128,7 +147,7 @@ fn spawn_augment_card(
                 format!("{}{}", rarity_label(opt.rarity), upgrade_tag),
                 TextStyle {
                     font: assets.font.clone(),
-                    font_size: 13.0,
+                    font_size: 12.0,
                     color: border_color,
                 },
             ));
@@ -137,7 +156,7 @@ fn spawn_augment_card(
                 &opt.title,
                 TextStyle {
                     font: assets.font.clone(),
-                    font_size: 20.0,
+                    font_size: 17.0,
                     color: Color::WHITE,
                 },
             ));
@@ -146,7 +165,7 @@ fn spawn_augment_card(
                 &opt.description,
                 TextStyle {
                     font: assets.font.clone(),
-                    font_size: 14.0,
+                    font_size: 12.0,
                     color: Color::srgb(0.78, 0.80, 0.86),
                 },
             ));
@@ -156,8 +175,10 @@ fn spawn_augment_card(
 pub fn augment_select_input(
     keys: Res<ButtonInput<KeyCode>>,
     choices: Res<AugmentChoices>,
+    data: Option<Res<GameDataRegistry>>,
     mut player_q: Query<&mut AugmentInventory, With<Player>>,
     mut next_state: ResMut<NextState<GamePhase>>,
+    mut feedback: EventWriter<UiFeedbackEvent>,
     button_q: Query<(&Interaction, &AugmentButton), Changed<Interaction>>,
 ) {
     let mut picked: Option<usize> = None;
@@ -185,7 +206,13 @@ pub fn augment_select_input(
 
     // Apply augment to player
     if let Ok(mut inventory) = player_q.get_single_mut() {
-        inventory.add(opt.id);
+        let result = inventory.grant(opt.id);
+        feedback.send(UiFeedbackEvent::card(
+            "强化已获得",
+            crate::ui::feedback::augment_grant_lines(result, data.as_deref()),
+            UiFeedbackSeverity::Success,
+            choices.return_state.unwrap_or(GamePhase::Playing),
+        ));
     }
 
     let return_to = choices.return_state.unwrap_or(GamePhase::Playing);

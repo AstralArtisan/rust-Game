@@ -52,4 +52,54 @@ mod tests {
         assert!(!slots.state(SkillSlot::Three).unlocked);
         assert!(!slots.state(SkillSlot::Four).unlocked);
     }
+
+    #[test]
+    fn equip_empty_slot_unlocks_empty_slot_without_replacing_existing_skill() {
+        let mut slots = SkillSlots::default();
+
+        let equipped = slots.equip_empty_slot(SkillType::FrostField);
+
+        assert_eq!(equipped, Some(SkillSlot::Two));
+        assert_eq!(
+            slots.state(SkillSlot::One).skill,
+            Some(SkillType::GroundSlam)
+        );
+        assert_eq!(
+            slots.state(SkillSlot::Two).skill,
+            Some(SkillType::FrostField)
+        );
+        assert!(slots.state(SkillSlot::Two).unlocked);
+    }
+
+    #[test]
+    fn full_slots_require_explicit_replacement() {
+        let mut slots = SkillSlots::default();
+        assert_eq!(
+            slots.equip_empty_slot(SkillType::WarCry),
+            Some(SkillSlot::Two)
+        );
+        assert_eq!(
+            slots.equip_empty_slot(SkillType::BulletBarrage),
+            Some(SkillSlot::Three)
+        );
+        assert_eq!(
+            slots.equip_empty_slot(SkillType::MeteorFall),
+            Some(SkillSlot::Four)
+        );
+
+        let equipped = slots.equip_empty_slot(SkillType::FrostField);
+
+        assert_eq!(equipped, None);
+        assert_eq!(
+            slots.state(SkillSlot::One).skill,
+            Some(SkillType::GroundSlam)
+        );
+        assert_eq!(slots.state(SkillSlot::Two).skill, Some(SkillType::WarCry));
+
+        assert!(slots.replace_slot(SkillSlot::Two, SkillType::FrostField));
+        assert_eq!(
+            slots.state(SkillSlot::Two).skill,
+            Some(SkillType::FrostField)
+        );
+    }
 }

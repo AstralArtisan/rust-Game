@@ -19,9 +19,17 @@ use crate::states::{AppState, GamePhase};
 
 pub struct SavePlugin;
 
+#[derive(Event)]
+pub struct SaveRequestEvent;
+
+#[derive(Event)]
+pub struct LoadRequestEvent;
+
 impl Plugin for SavePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingLoad>()
+            .add_event::<SaveRequestEvent>()
+            .add_event::<LoadRequestEvent>()
             .add_systems(Update, (save_hotkey_system, load_hotkey_system).chain())
             .add_systems(
                 Update,
@@ -97,6 +105,7 @@ fn read_save_file() -> Result<SaveData> {
 
 fn save_hotkey_system(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mut save_events: EventReader<SaveRequestEvent>,
     floor: Option<Res<FloorNumber>>,
     spawn_count: Option<Res<EnemySpawnCount>>,
     achievements: Option<Res<Achievements>>,
@@ -119,7 +128,7 @@ fn save_hotkey_system(
         With<Player>,
     >,
 ) {
-    if !keyboard.just_pressed(KeyCode::F5) {
+    if !keyboard.just_pressed(KeyCode::F5) && save_events.read().next().is_none() {
         return;
     }
     let Ok((
@@ -178,11 +187,12 @@ fn save_hotkey_system(
 
 fn load_hotkey_system(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mut load_events: EventReader<LoadRequestEvent>,
     mut pending: ResMut<PendingLoad>,
     state: Res<State<AppState>>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    if !keyboard.just_pressed(KeyCode::F9) {
+    if !keyboard.just_pressed(KeyCode::F9) && load_events.read().next().is_none() {
         return;
     }
 

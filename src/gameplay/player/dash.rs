@@ -8,7 +8,6 @@ use crate::core::assets::GameAssets;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::augment::tuning;
 use crate::gameplay::combat::components::{DamageKind, Hitbox, Lifetime, Team};
-use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
 use crate::gameplay::effects::{afterimage, particles};
 use crate::gameplay::map::InGameEntity;
 
@@ -138,7 +137,6 @@ pub fn update_dash_state(
     mut commands: Commands,
     time: Res<Time>,
     assets: Res<GameAssets>,
-    mut shake_events: EventWriter<ScreenShakeRequest>,
     mut q: Query<
         (
             Entity,
@@ -164,25 +162,8 @@ pub fn update_dash_state(
             continue;
         }
 
-        let dash_mode = dash.mode;
         dash.timer.tick(time.delta());
         if dash.timer.just_finished() {
-            let end_pos = tf.translation().truncate();
-            if dash_mode == DashMode::LightningSkill && dash.burst_damage > 0.0 {
-                spawn_dash_burst_hitbox(
-                    &mut commands,
-                    &assets,
-                    player_e,
-                    end_pos,
-                    dash.burst_radius.max(100.0),
-                    dash.burst_damage,
-                );
-                particles::spawn_dash_particles(&mut commands, &assets, end_pos);
-                shake_events.send(ScreenShakeRequest {
-                    strength: 8.0,
-                    duration: 0.18,
-                });
-            }
             // DashShield: grant shield on dash end
             if let Some(inv) = inventory.as_ref() {
                 let shield_stacks = inv.stacks(AugmentId::DashShield);
@@ -209,17 +190,7 @@ pub fn update_dash_state(
         }
 
         dash.trail_timer.tick(time.delta());
-        if dash_mode == DashMode::LightningSkill {
-            if dash.trail_timer.just_finished() {
-                spawn_dash_skill_hitbox(
-                    &mut commands,
-                    &assets,
-                    player_e,
-                    tf.translation().truncate(),
-                    dash.impact_damage.max(attack_power.0 * 4.0),
-                );
-            }
-        } else if dash.trail_timer.just_finished() {
+        if dash.trail_timer.just_finished() {
             let trail_damage = tuning::dash_trail_damage_fraction(
                 inventory
                     .map(|value| value.stacks(AugmentId::DashTrail))
@@ -281,77 +252,5 @@ fn spawn_dash_trail_hitbox(
         Lifetime(Timer::from_seconds(0.08, TimerMode::Once)),
         InGameEntity,
         Name::new("DashTrailHitbox"),
-    ));
-}
-
-fn spawn_dash_skill_hitbox(
-    commands: &mut Commands,
-    assets: &GameAssets,
-    owner: Entity,
-    pos: Vec2,
-    damage: f32,
-) {
-    commands.spawn((
-        SpriteBundle {
-            texture: assets.textures.white.clone(),
-            transform: Transform::from_translation(pos.extend(54.0)),
-            sprite: Sprite {
-                color: Color::srgba(0.62, 0.95, 1.0, 0.22),
-                custom_size: Some(Vec2::new(72.0, 48.0)),
-                ..default()
-            },
-            ..default()
-        },
-        Hitbox {
-            owner: Some(owner),
-            team: Team::Player,
-            damage_kind: DamageKind::PlayerSkill,
-            size: Vec2::new(72.0, 48.0),
-            damage,
-            knockback: 280.0,
-            can_crit: false,
-            crit_chance: 0.0,
-            crit_multiplier: 1.0,
-        },
-        Lifetime(Timer::from_seconds(0.05, TimerMode::Once)),
-        InGameEntity,
-        Name::new("LightningDashTrail"),
-    ));
-}
-
-fn spawn_dash_burst_hitbox(
-    commands: &mut Commands,
-    assets: &GameAssets,
-    owner: Entity,
-    pos: Vec2,
-    radius: f32,
-    damage: f32,
-) {
-    let size = Vec2::splat(radius * 2.0);
-    commands.spawn((
-        SpriteBundle {
-            texture: assets.textures.white.clone(),
-            transform: Transform::from_translation(pos.extend(55.0)),
-            sprite: Sprite {
-                color: Color::srgba(0.80, 0.96, 1.0, 0.18),
-                custom_size: Some(size),
-                ..default()
-            },
-            ..default()
-        },
-        Hitbox {
-            owner: Some(owner),
-            team: Team::Player,
-            damage_kind: DamageKind::PlayerSkill,
-            size,
-            damage,
-            knockback: 340.0,
-            can_crit: false,
-            crit_chance: 0.0,
-            crit_multiplier: 1.0,
-        },
-        Lifetime(Timer::from_seconds(0.08, TimerMode::Once)),
-        InGameEntity,
-        Name::new("LightningDashBurst"),
     ));
 }

@@ -536,55 +536,158 @@ pub fn sfx_bridge_system(
     }
 }
 
-// --- BGM system framework ---
+// --- BGM system ---
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BgmTrack {
     None,
     Menu,
-    Exploration,
-    Combat,
-    Boss,
+    Floor(u32),
+    Boss(u32),
 }
 
-#[allow(dead_code)]
+#[derive(Resource)]
+pub struct BgmHandles {
+    pub menu: Handle<bevy_kira_audio::AudioSource>,
+    pub floors: [Handle<bevy_kira_audio::AudioSource>; 4],
+    pub bosses: [Handle<bevy_kira_audio::AudioSource>; 4],
+}
+
 #[derive(Resource)]
 pub struct BgmState {
-    pub current: BgmTrack,
-    pub target: BgmTrack,
-    pub fade_timer: Timer,
-    pub volume: f32,
+    pub current_track: BgmTrack,
+    pub instance: Option<Handle<AudioInstance>>,
+    pub target_volume: f64,
+    pub paused_duck: bool,
 }
 
 impl Default for BgmState {
     fn default() -> Self {
         Self {
-            current: BgmTrack::None,
-            target: BgmTrack::None,
-            fade_timer: Timer::from_seconds(1.0, TimerMode::Once),
-            volume: 0.0,
+            current_track: BgmTrack::None,
+            instance: None,
+            target_volume: 0.5,
+            paused_duck: false,
         }
     }
 }
 
-impl BgmState {
-    pub fn request(&mut self, track: BgmTrack) {
-        if self.target != track {
-            self.target = track;
-            self.fade_timer.reset();
+fn load_bgm_assets(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let handles = BgmHandles {
+        menu: asset_server.load("bgm/menu.mp3"),
+        floors: [
+            asset_server.load("bgm/floor1.mp3"),
+            asset_server.load("bgm/floor2.mp3"),
+            asset_server.load("bgm/floor3.mp3"),
+            asset_server.load("bgm/floor4.mp3"),
+        ],
+        bosses: [
+            asset_server.load("bgm/boss1.mp3"),
+            asset_server.load("bgm/boss2.mp3"),
+            asset_server.load("bgm/boss3.mp3"),
+            asset_server.load("bgm/boss4.mp3"),
+        ],
+    };
+    commands.insert_resource(handles);
+}
+
+fn bgm_track_for_state(
+    app_state: &AppState,
+    room_state: Option<&RoomState>,
+    floor: Option<&FloorNumber>,
+) -> BgmTrack {
+    use crate::states::AppState::*;
+    match app_state {
+        MainMenu | MultiplayerMenu | CoopMenu | PvpMenu => BgmTrack::Menu,
+        InGame | CoopGame => {
+            let f = floor.map(|f| f.0).unwrap_or(1).clamp(1, 4);
+            if let Some(RoomState::BossFight) = room_state {
+                BgmTrack::Boss(f)
+            } else {
+                BgmTrack::Floor(f)
+            }
         }
+        _ => BgmTrack::None,
     }
 }
 
 pub fn bgm_state_sync_system(
-    state: Res<State<crate::states::AppState>>,
+    app_state: Res<State<crate::states::AppState>>,
+    game_phase: Option<Res<State<crate::states::GamePhase>>>,
     room_state: Option<Res<crate::states::RoomState>>,
+    floor: Option<Res<FloorNumber>>,
+    audio: Res<bevy_kira_audio::Audio>,
+    bgm_handles: Option<Res<BgmHandles>>,
     mut bgm: ResMut<BgmState>,
+    registry: Option<Res<GameDataRegistry>>,
+    mut audio_instances: ResMut<Assets<AudioInstance>>,
 ) {
-    // BGM disabled — pending redesign
-    let _ = (&state, &room_state);
-    bgm.request(BgmTrack::None);
+    let Some(handles) = bgm_handles else { return };
+
+    let base_volume = registry
+        .as_ref()
+        .map(|r| (r.audio.master_volume * r.audio.bgm_volume) as f64)
+        .unwrap_or(0.35);
+
+    let phase = game_phase.as_ref().map(|p| p.get());
+    let is_paused = phase == Some(&GamePhase::Paused);
+
+    let target_vol = if is_paused {
+        base_volume * 0.4
+    } else {
+        base_volume
+    };
+
+    let desired_track = bgm_track_for_state(
+        app_state.get(),
+        room_state.as_deref(),
+        floor.as_deref(),
+    );
+
+    if desired_track != bgm.current_track {
+        if let Some(ref instance_handle) = bgm.instance {
+            if let Some(instance) = audio_instances.get_mut(instance_handle) {
+                instance.stop(AudioTween::linear(std::time::Duration::from_millis(500)));
+            }
+        }
+        bgm.instance = None;
+
+        let handle = match desired_track {
+            BgmTrack::None => None,
+            BgmTrack::Menu => Some(handles.menu.clone()),
+            BgmTrack::Floor(f) => Some(handles.floors[(f - 1).min(3) as usize].clone()),
+            BgmTrack::Boss(f) => Some(handles.bosses[(f - 1).min(3) as usize].clone()),
+        };
+
+        if let Some(h) = handle {
+            let instance_handle = audio
+                .play(h)
+                .looped()
+                .with_volume(Volume::Amplitude(target_vol))
+                .fade_in(AudioTween::linear(std::time::Duration::from_millis(800)))
+                .handle();
+            bgm.instance = Some(instance_handle);
+        }
+
+        bgm.current_track = desired_track;
+        bgm.target_volume = target_vol;
+        bgm.paused_duck = is_paused;
+    } else if bgm.paused_duck != is_paused {
+        if let Some(ref instance_handle) = bgm.instance {
+            if let Some(instance) = audio_instances.get_mut(instance_handle) {
+                instance.set_volume(
+                    Volume::Amplitude(target_vol),
+                    AudioTween::linear(std::time::Duration::from_millis(300)),
+                );
+            }
+        }
+        bgm.target_volume = target_vol;
+        bgm.paused_duck = is_paused;
+    }
 }
+
+use crate::gameplay::progression::floor::FloorNumber;
+use crate::states::{AppState, GamePhase, RoomState};
 
 pub struct AudioPlugin;
 
@@ -592,7 +695,7 @@ impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy_kira_audio::AudioPlugin)
             .init_resource::<BgmState>()
-            .add_systems(Startup, generate_sfx_assets)
+            .add_systems(Startup, (generate_sfx_assets, load_bgm_assets))
             .add_systems(
                 Update,
                 (

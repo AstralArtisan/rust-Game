@@ -568,22 +568,31 @@ pub fn tick_dash_shield_system(
     assets: Res<GameAssets>,
     time: Res<Time>,
     mut q: Query<(Entity, &mut DashShieldBuff), (With<Player>, Without<Replicated>)>,
-    visual_q: Query<Entity, With<crate::gameplay::effects::particles::ShieldVisual>>,
+    visual_q: Query<(Entity, &crate::gameplay::effects::particles::ShieldVisual)>,
 ) {
-    let has_shield = !q.is_empty();
     for (entity, mut shield) in &mut q {
         shield.timer.tick(time.delta());
         if shield.timer.finished() {
             commands.entity(entity).remove::<DashShieldBuff>();
-            // Despawn visual
-            for vis in &visual_q {
-                crate::utils::entity::safe_despawn_recursive(&mut commands, vis);
+            for (vis, visual) in &visual_q {
+                if visual.owner == entity {
+                    crate::utils::entity::safe_despawn_recursive(&mut commands, vis);
+                }
             }
         }
     }
-    // Spawn visual if shield active but no visual exists
-    if has_shield && visual_q.is_empty() {
-        if let Ok((player_entity, _)) = q.get_single() {
+
+    for (vis, visual) in &visual_q {
+        if q.get(visual.owner).is_err() {
+            crate::utils::entity::safe_despawn_recursive(&mut commands, vis);
+        }
+    }
+
+    for (player_entity, _) in &mut q {
+        let has_visual = visual_q
+            .iter()
+            .any(|(_, visual)| visual.owner == player_entity);
+        if !has_visual {
             commands.entity(player_entity).with_children(|parent| {
                 parent.spawn((
                     SpriteBundle {
@@ -596,7 +605,9 @@ pub fn tick_dash_shield_system(
                         },
                         ..default()
                     },
-                    crate::gameplay::effects::particles::ShieldVisual,
+                    crate::gameplay::effects::particles::ShieldVisual {
+                        owner: player_entity,
+                    },
                     Name::new("ShieldVisual"),
                 ));
             });

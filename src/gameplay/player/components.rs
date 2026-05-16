@@ -167,11 +167,6 @@ pub enum SkillType {
     WarCry,
     LifeDrain,
     TimeRift,
-    // Legacy save-compatible variants.
-    SwordArc,
-    MarkedHunt,
-    LightningDash,
-    Relic,
 }
 
 impl SkillType {
@@ -186,10 +181,6 @@ impl SkillType {
             Self::WarCry => "战吼",
             Self::LifeDrain => "生命汲取",
             Self::TimeRift => "时空裂隙",
-            Self::SwordArc => "剑气斩",
-            Self::MarkedHunt => "标记猎杀",
-            Self::LightningDash => "闪电冲刺",
-            Self::Relic => "遗物主动",
         }
     }
 }
@@ -214,15 +205,15 @@ impl Default for SkillSlots {
                     unlocked: true,
                 },
                 SkillSlotState {
-                    skill: Some(SkillType::BulletBarrage),
+                    skill: None,
                     unlocked: false,
                 },
                 SkillSlotState {
-                    skill: Some(SkillType::WarCry),
+                    skill: None,
                     unlocked: false,
                 },
                 SkillSlotState {
-                    skill: Some(SkillType::MeteorFall),
+                    skill: None,
                     unlocked: false,
                 },
             ],
@@ -242,21 +233,34 @@ impl SkillSlots {
         was_locked
     }
 
-    pub fn equip_first_available(&mut self, skill: SkillType) -> SkillSlot {
-        let target = SkillSlot::ALL
+    pub fn first_empty_unlocked_slot(&self) -> Option<SkillSlot> {
+        SkillSlot::ALL.into_iter().find(|slot| {
+            let state = self.slots[slot.index()];
+            state.unlocked && state.skill.is_none()
+        })
+    }
+
+    pub fn first_empty_slot(&self) -> Option<SkillSlot> {
+        SkillSlot::ALL
             .into_iter()
-            .find(|slot| {
-                let state = self.slots[slot.index()];
-                state.unlocked && state.skill.is_none()
-            })
-            .or_else(|| {
-                SkillSlot::ALL
-                    .into_iter()
-                    .find(|slot| self.slots[slot.index()].unlocked)
-            })
-            .unwrap_or(SkillSlot::One);
-        self.slots[target.index()].skill = Some(skill);
-        target
+            .find(|slot| self.slots[slot.index()].skill.is_none())
+    }
+
+    pub fn equip_empty_slot(&mut self, skill: SkillType) -> Option<SkillSlot> {
+        let target = self.first_empty_slot()?;
+        let state = &mut self.slots[target.index()];
+        state.skill = Some(skill);
+        state.unlocked = true;
+        Some(target)
+    }
+
+    pub fn replace_slot(&mut self, slot: SkillSlot, skill: SkillType) -> bool {
+        let state = &mut self.slots[slot.index()];
+        if !state.unlocked {
+            return false;
+        }
+        state.skill = Some(skill);
+        true
     }
 }
 
@@ -525,16 +529,6 @@ pub struct DashState {
     pub speed: f32,
     pub base_speed: f32,
     pub base_duration_s: f32,
-    pub mode: DashMode,
-    pub impact_damage: f32,
-    pub burst_damage: f32,
-    pub burst_radius: f32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DashMode {
-    Normal,
-    LightningSkill,
 }
 
 impl DashState {
@@ -547,42 +541,14 @@ impl DashState {
             speed,
             base_speed: speed,
             base_duration_s: duration_s,
-            mode: DashMode::Normal,
-            impact_damage: 0.0,
-            burst_damage: 0.0,
-            burst_radius: 0.0,
         }
     }
 
     pub fn reset_to_base(&mut self) {
         self.active = false;
-        self.mode = DashMode::Normal;
         self.speed = self.base_speed;
-        self.impact_damage = 0.0;
-        self.burst_damage = 0.0;
-        self.burst_radius = 0.0;
         self.timer = Timer::from_seconds(self.base_duration_s, TimerMode::Once);
         self.trail_timer = Timer::from_seconds(0.05, TimerMode::Repeating);
-    }
-
-    pub fn activate_lightning(
-        &mut self,
-        dir: Vec2,
-        speed: f32,
-        duration_s: f32,
-        impact_damage: f32,
-        burst_damage: f32,
-        burst_radius: f32,
-    ) {
-        self.active = true;
-        self.dir = dir;
-        self.speed = speed;
-        self.mode = DashMode::LightningSkill;
-        self.impact_damage = impact_damage;
-        self.burst_damage = burst_damage;
-        self.burst_radius = burst_radius;
-        self.timer = Timer::from_seconds(duration_s, TimerMode::Once);
-        self.trail_timer = Timer::from_seconds(0.04, TimerMode::Repeating);
     }
 }
 

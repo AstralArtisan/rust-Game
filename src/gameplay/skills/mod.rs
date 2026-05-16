@@ -31,9 +31,6 @@ impl Plugin for SkillsPlugin {
                     consume_charge_events,
                     slots::sync_skill_unlocks,
                     execute::activate_skill_inputs,
-                    execute::advance_lock_on_mode,
-                    execute::update_mark_indicators,
-                    execute::update_homing_projectiles,
                 )
                     .run_if(in_state(AppState::InGame).and_then(in_state(GamePhase::Playing))),
             );

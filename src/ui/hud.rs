@@ -129,18 +129,18 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                     position_type: PositionType::Absolute,
                     left: Val::Px(16.0),
                     top: Val::Px(12.0),
-                    row_gap: Val::Px(8.0),
+                    row_gap: Val::Px(6.0),
                     flex_direction: FlexDirection::Column,
                     ..default()
                 },
                 ..default()
             })
             .with_children(|col| {
-                col.spawn(widgets::title_text(&assets, "生命", 16.0));
+                col.spawn(widgets::title_text(&assets, "生命", 14.0));
                 col.spawn(NodeBundle {
                     style: Style {
-                        width: Val::Px(240.0),
-                        height: Val::Px(18.0),
+                        width: Val::Px(210.0),
+                        height: Val::Px(16.0),
                         ..default()
                     },
                     background_color: BackgroundColor(Color::srgb(0.15, 0.15, 0.18)),
@@ -169,10 +169,10 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                     HealthText,
                 ));
                 // Experience bar
-                col.spawn((widgets::title_text(&assets, "Lv.1", 16.0), LevelText));
+                col.spawn((widgets::title_text(&assets, "Lv.1", 14.0), LevelText));
                 col.spawn(NodeBundle {
                     style: Style {
-                        width: Val::Px(200.0),
+                        width: Val::Px(180.0),
                         height: Val::Px(8.0),
                         ..default()
                     },
@@ -197,11 +197,11 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                         },
                     ));
                 });
-                col.spawn((widgets::body_text(&assets, "0 / 40", 14.0), ExperienceText));
+                col.spawn((widgets::body_text(&assets, "0 / 40", 12.0), ExperienceText));
                 col.spawn(NodeBundle {
                     style: Style {
                         margin: UiRect::top(Val::Px(6.0)),
-                        padding: UiRect::all(Val::Px(10.0)),
+                        padding: UiRect::all(Val::Px(8.0)),
                         row_gap: Val::Px(4.0),
                         flex_direction: FlexDirection::Column,
                         ..default()
@@ -210,17 +210,17 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                     ..default()
                 })
                 .with_children(|panel| {
-                    panel.spawn(widgets::title_text(&assets, "属性", 15.0));
-                    panel.spawn((widgets::title_text(&assets, "金币: 0", 14.0), GoldText));
+                    panel.spawn(widgets::title_text(&assets, "属性", 13.0));
+                    panel.spawn((widgets::title_text(&assets, "金币: 0", 12.0), GoldText));
                     panel.spawn((
-                        widgets::title_text(&assets, "能量: 100 / 100（暂未启用）", 14.0),
+                        widgets::title_text(&assets, "能量: 100 / 100（暂未启用）", 12.0),
                         EnergyText,
                     ));
                     panel
                         .spawn(NodeBundle {
                             style: Style {
-                                width: Val::Px(220.0),
-                                height: Val::Px(14.0),
+                                width: Val::Px(190.0),
+                                height: Val::Px(12.0),
                                 margin: UiRect::top(Val::Px(2.0)),
                                 ..default()
                             },
@@ -261,8 +261,8 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                 .with_children(|row| {
                     row.spawn(NodeBundle {
                         style: Style {
-                            width: Val::Px(46.0),
-                            height: Val::Px(46.0),
+                            width: Val::Px(40.0),
+                            height: Val::Px(40.0),
                             justify_content: JustifyContent::Center,
                             align_items: AlignItems::Center,
                             ..default()
@@ -286,16 +286,16 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                             },
                             DashIconFill,
                         ));
-                        icon.spawn(widgets::title_text(&assets, ">>", 18.0));
+                        icon.spawn(widgets::title_text(&assets, ">>", 16.0));
                     });
 
-                    row.spawn((widgets::title_text(&assets, "冲刺：就绪", 16.0), DashText));
+                    row.spawn((widgets::title_text(&assets, "冲刺：就绪", 14.0), DashText));
                 });
 
                 col.spawn(NodeBundle {
                     style: Style {
                         margin: UiRect::top(Val::Px(4.0)),
-                        column_gap: Val::Px(8.0),
+                        column_gap: Val::Px(6.0),
                         ..default()
                     },
                     ..default()
@@ -305,8 +305,8 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                         row.spawn((
                             NodeBundle {
                                 style: Style {
-                                    width: Val::Px(74.0),
-                                    height: Val::Px(60.0),
+                                    width: Val::Px(62.0),
+                                    height: Val::Px(52.0),
                                     padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)),
                                     flex_direction: FlexDirection::Column,
                                     justify_content: JustifyContent::SpaceBetween,
@@ -319,11 +319,11 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                         ))
                         .with_children(|slot_ui| {
                             slot_ui.spawn((
-                                widgets::title_text(&assets, "LOCK", 13.0),
+                                widgets::title_text(&assets, "LOCK", 11.0),
                                 SkillSlotName(slot),
                             ));
                             slot_ui.spawn((
-                                widgets::title_text(&assets, slot.key_label(), 12.0),
+                                widgets::title_text(&assets, slot.key_label(), 11.0),
                                 SkillSlotKey(slot),
                             ));
                         });
@@ -331,19 +331,19 @@ pub fn setup_hud(mut commands: Commands, assets: Res<GameAssets>) {
                 });
 
                 col.spawn((
-                    widgets::title_text(&assets, "楼层：第 1 层", 16.0),
+                    widgets::title_text(&assets, "楼层：第 1 层", 14.0),
                     FloorText,
                 ));
-                col.spawn((widgets::title_text(&assets, "房间：起始", 16.0), RoomText));
+                col.spawn((widgets::title_text(&assets, "房间：起始", 14.0), RoomText));
                 col.spawn((
-                    widgets::title_text(&assets, "敌人：0", 16.0),
+                    widgets::title_text(&assets, "敌人：0", 14.0),
                     EnemyCountText,
                 ));
                 col.spawn((
                     widgets::title_text(
                         &assets,
                         "提示：长按鼠标左右键持续攻击，靠近门后按 E 交互",
-                        16.0,
+                        14.0,
                     ),
                     HintText,
                 ));
@@ -886,36 +886,30 @@ fn room_distances_from_start(layout: &FloorLayout) -> HashMap<RoomId, u32> {
 fn skill_palette(skill: crate::gameplay::player::components::SkillType) -> Color {
     use crate::gameplay::player::components::SkillType;
     match skill {
-        SkillType::GroundSlam | SkillType::SwordArc => Color::srgb(0.20, 0.54, 0.40),
+        SkillType::GroundSlam => Color::srgb(0.20, 0.54, 0.40),
         SkillType::BladeDance => Color::srgb(0.28, 0.62, 0.58),
-        SkillType::ExecutionBlade | SkillType::MarkedHunt => Color::srgb(0.62, 0.22, 0.26),
+        SkillType::ExecutionBlade => Color::srgb(0.62, 0.22, 0.26),
         SkillType::BulletBarrage => Color::srgb(0.70, 0.48, 0.22),
         SkillType::FrostField => Color::srgb(0.30, 0.66, 0.88),
         SkillType::MeteorFall => Color::srgb(0.78, 0.28, 0.16),
         SkillType::WarCry => Color::srgb(0.72, 0.58, 0.18),
         SkillType::LifeDrain => Color::srgb(0.58, 0.18, 0.30),
         SkillType::TimeRift => Color::srgb(0.42, 0.26, 0.76),
-        SkillType::LightningDash => Color::srgb(0.22, 0.46, 0.72),
-        SkillType::Relic => Color::srgb(0.32, 0.32, 0.36),
     }
 }
 
 fn skill_ready_palette(skill: crate::gameplay::player::components::SkillType, pulse: f32) -> Color {
     use crate::gameplay::player::components::SkillType;
     match skill {
-        SkillType::GroundSlam | SkillType::SwordArc => Color::srgb(0.42, 0.86 + pulse * 0.08, 0.68),
+        SkillType::GroundSlam => Color::srgb(0.42, 0.86 + pulse * 0.08, 0.68),
         SkillType::BladeDance => Color::srgb(0.48, 0.92, 0.82),
-        SkillType::ExecutionBlade | SkillType::MarkedHunt => {
-            Color::srgb(0.86 + pulse * 0.08, 0.38, 0.42)
-        }
+        SkillType::ExecutionBlade => Color::srgb(0.86 + pulse * 0.08, 0.38, 0.42),
         SkillType::BulletBarrage => Color::srgb(0.94, 0.70, 0.38),
         SkillType::FrostField => Color::srgb(0.56, 0.88, 1.0),
         SkillType::MeteorFall => Color::srgb(1.0, 0.48, 0.28),
         SkillType::WarCry => Color::srgb(0.98, 0.84, 0.36),
         SkillType::LifeDrain => Color::srgb(0.88, 0.34, 0.46),
         SkillType::TimeRift => Color::srgb(0.66, 0.50, 1.0),
-        SkillType::LightningDash => Color::srgb(0.44, 0.72, 0.98),
-        SkillType::Relic => Color::srgb(0.74, 0.74, 0.78),
     }
 }
 

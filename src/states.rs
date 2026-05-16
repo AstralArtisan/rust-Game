@@ -35,6 +35,7 @@ pub enum GamePhase {
     LevelUpSelect,
     Shop,
     EventRoom,
+    Feedback,
     GameOver,
     Victory,
 }

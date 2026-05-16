@@ -2,12 +2,11 @@ use bevy::prelude::*;
 use lightyear::prelude::Replicated;
 
 use crate::core::assets::GameAssets;
+use crate::core::events::DamageEvent;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::augment::tuning;
-use crate::gameplay::combat::components::{
-    ArcHitbox, DamageKind, Hitbox, Lifetime, Projectile, Team,
-};
+use crate::gameplay::combat::components::{ArcHitbox, DamageKind, Hitbox, Lifetime, Team};
 use crate::gameplay::combat::projectiles;
 use crate::gameplay::effects::particles;
 use crate::gameplay::effects::screen_shake::ScreenShakeRequest;
@@ -15,67 +14,51 @@ use crate::gameplay::enemy::components::{Enemy, EnemyBuffState};
 use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::combat::MeleeSlashEffect;
 use crate::gameplay::player::components::{
-    ActiveSkill, AttackPower, DashState, Energy, FacingDirection, Health, InvincibilityTimer,
-    Player, PlayerDriveInput, PlayerSkillState, SkillSlot, SkillSlots, SkillType,
+    AttackPower, DashState, Energy, FacingDirection, Health, InvincibilityTimer, Player,
+    PlayerDriveInput, PlayerSkillState, SkillSlot, SkillSlots, SkillType,
 };
-use crate::utils::entity::safe_despawn_recursive;
 
-const LOCK_ON_DURATION_S: f32 = 2.0;
-const LOCK_ON_DAMAGE_MULT: f32 = 8.0;
-const LIGHTNING_DASH_DISTANCE: f32 = 600.0;
-const LIGHTNING_DASH_SPEED: f32 = 2000.0;
 const BARRAGE_PROJECTILE_COUNT: usize = 14;
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct MarkedTarget;
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct SkillMarkerVisual {
-    pub target: Entity,
-}
-
-#[derive(Component, Debug, Clone, Copy)]
-pub struct HomingProjectile {
-    pub target: Entity,
-    pub speed: f32,
-    pub turn_rate: f32,
-}
 
 pub fn activate_skill_inputs(
     mut commands: Commands,
     data: Option<Res<GameDataRegistry>>,
     assets: Res<GameAssets>,
     mut shake_events: EventWriter<ScreenShakeRequest>,
-    enemy_q: Query<(Entity, &GlobalTransform), (With<Enemy>, Without<Replicated>)>,
+    mut damage_events: EventWriter<DamageEvent>,
+    enemy_q: Query<
+        (Entity, &GlobalTransform, &Health),
+        (With<Enemy>, Without<Player>, Without<Replicated>),
+    >,
     mut player_q: Query<
         (
             Entity,
             &PlayerDriveInput,
-            &GlobalTransform,
+            &mut Transform,
             &FacingDirection,
             &AttackPower,
             &mut Health,
             &mut Energy,
             &SkillSlots,
-            &mut PlayerSkillState,
-            &mut DashState,
+            &PlayerSkillState,
+            &DashState,
             &mut InvincibilityTimer,
             Option<&AugmentInventory>,
         ),
-        (With<Player>, Without<Replicated>),
+        (With<Player>, Without<Enemy>, Without<Replicated>),
     >,
 ) {
     let Ok((
         player_e,
         input,
-        player_tf,
+        mut player_tf,
         facing,
         attack_power,
         mut health,
         mut energy,
         slots,
-        mut skill_state,
-        mut dash,
+        skill_state,
+        dash,
         mut invincibility,
         inventory,
     )) = player_q.get_single_mut()
@@ -109,20 +92,16 @@ pub fn activate_skill_inputs(
     let Some(skill) = slot_state.skill else {
         return;
     };
-    if skill == SkillType::Relic {
-        return;
-    }
-
     let Some(energy_cost) = skill_energy_cost(data.as_deref(), skill, energy.current) else {
         return;
     };
 
-    let player_pos = player_tf.translation().truncate();
+    let player_pos = player_tf.translation.truncate();
     let direction = facing.0.try_normalize().unwrap_or(Vec2::X);
 
     match skill {
-        SkillType::GroundSlam | SkillType::SwordArc => {
-            spawn_sword_arc_skill(
+        SkillType::GroundSlam => {
+            spawn_ground_slam_arc(
                 &mut commands,
                 &assets,
                 player_e,
@@ -150,24 +129,44 @@ pub fn activate_skill_inputs(
                 duration: 0.20,
             });
         }
-        SkillType::ExecutionBlade | SkillType::MarkedHunt => {
-            let mut marked_any = false;
-            for (target, target_tf) in &enemy_q {
-                commands.entity(target).insert(MarkedTarget);
-                spawn_mark_indicator(
-                    &mut commands,
-                    &assets,
-                    target,
-                    target_tf.translation().truncate(),
-                );
-                marked_any = true;
-            }
-            if !marked_any {
+        SkillType::ExecutionBlade => {
+            let Some((target, target_pos)) = enemy_q
+                .iter()
+                .filter(|(_, _, target_health)| target_health.current > 0.0)
+                .min_by(|(_, _, a), (_, _, b)| a.current.total_cmp(&b.current))
+                .map(|(target, target_tf, _)| (target, target_tf.translation().truncate()))
+            else {
                 return;
-            }
-            skill_state.active = ActiveSkill::LockOn {
-                timer: Timer::from_seconds(LOCK_ON_DURATION_S, TimerMode::Once),
             };
+
+            let strike_dir = (target_pos - player_pos)
+                .try_normalize()
+                .unwrap_or(direction);
+            let blink_pos = target_pos - strike_dir * 44.0;
+            particles::spawn_dash_particles(&mut commands, &assets, player_pos);
+            player_tf.translation.x = blink_pos.x;
+            player_tf.translation.y = blink_pos.y;
+            invincibility.timer = Timer::from_seconds(0.20, TimerMode::Once);
+            invincibility.timer.reset();
+            damage_events.send(DamageEvent {
+                target,
+                source: Some(player_e),
+                amount: attack_power.0 * 5.0,
+                knockback: strike_dir * 650.0,
+                team: Team::Player,
+                kind: DamageKind::PlayerSkill,
+                is_crit: false,
+            });
+            particles::spawn_hit_particles(
+                &mut commands,
+                &assets,
+                target_pos,
+                Color::srgba(1.0, 0.14, 0.18, 0.95),
+            );
+            shake_events.send(ScreenShakeRequest {
+                strength: 8.0,
+                duration: 0.18,
+            });
         }
         SkillType::BulletBarrage => {
             spawn_bullet_barrage_skill(
@@ -265,7 +264,7 @@ pub fn activate_skill_inputs(
             );
             invincibility.timer = Timer::from_seconds(3.0, TimerMode::Once);
             invincibility.timer.reset();
-            for (enemy, _) in &enemy_q {
+            for (enemy, _, _) in &enemy_q {
                 commands.entity(enemy).insert(EnemyBuffState {
                     speed_mult: 0.30,
                     cooldown_mult: 0.30,
@@ -273,25 +272,6 @@ pub fn activate_skill_inputs(
                 });
             }
         }
-        SkillType::LightningDash => {
-            let duration_s = LIGHTNING_DASH_DISTANCE / LIGHTNING_DASH_SPEED;
-            dash.activate_lightning(
-                direction,
-                LIGHTNING_DASH_SPEED,
-                duration_s,
-                attack_power.0 * 4.0,
-                attack_power.0 * 2.0,
-                100.0,
-            );
-            invincibility.timer = Timer::from_seconds(duration_s + 0.05, TimerMode::Once);
-            invincibility.timer.reset();
-            particles::spawn_dash_particles(&mut commands, &assets, player_pos);
-            shake_events.send(ScreenShakeRequest {
-                strength: 5.0,
-                duration: 0.14,
-            });
-        }
-        SkillType::Relic => {}
     }
     energy.current = (energy.current - energy_cost).max(0.0);
 
@@ -347,18 +327,12 @@ fn skill_energy_cost(
     }
 
     let (fallback_cost, fallback_required) = match skill {
-        SkillType::GroundSlam
-        | SkillType::BulletBarrage
-        | SkillType::WarCry
-        | SkillType::SwordArc => (60.0, 60.0),
+        SkillType::GroundSlam | SkillType::BulletBarrage | SkillType::WarCry => (60.0, 60.0),
         SkillType::BladeDance
         | SkillType::ExecutionBlade
         | SkillType::FrostField
-        | SkillType::LifeDrain
-        | SkillType::MarkedHunt
-        | SkillType::LightningDash => (80.0, 80.0),
+        | SkillType::LifeDrain => (80.0, 80.0),
         SkillType::MeteorFall | SkillType::TimeRift => (current_energy, 80.0),
-        SkillType::Relic => return None,
     };
     if current_energy + f32::EPSILON < fallback_required {
         None
@@ -367,110 +341,7 @@ fn skill_energy_cost(
     }
 }
 
-pub fn advance_lock_on_mode(
-    mut commands: Commands,
-    assets: Res<GameAssets>,
-    time: Res<Time>,
-    mut shake_events: EventWriter<ScreenShakeRequest>,
-    mut marker_visuals: Query<(Entity, &SkillMarkerVisual)>,
-    marked_targets: Query<Entity, (With<MarkedTarget>, Without<Replicated>)>,
-    mut player_q: Query<
-        (
-            Entity,
-            &GlobalTransform,
-            &AttackPower,
-            &mut PlayerSkillState,
-        ),
-        (With<Player>, Without<Replicated>),
-    >,
-) {
-    let Ok((player_e, player_tf, attack_power, mut skill_state)) = player_q.get_single_mut() else {
-        return;
-    };
-
-    let ActiveSkill::LockOn { timer } = &mut skill_state.active else {
-        return;
-    };
-    timer.tick(time.delta());
-    if !timer.finished() {
-        return;
-    }
-
-    let targets = marked_targets.iter().collect::<Vec<_>>();
-    let projectile_count = targets.len().max(1) as f32;
-    let per_projectile_damage = attack_power.0 * LOCK_ON_DAMAGE_MULT / projectile_count;
-    for target in targets {
-        commands.entity(target).remove::<MarkedTarget>();
-        spawn_homing_skill_projectile(
-            &mut commands,
-            &assets,
-            player_e,
-            player_tf.translation().truncate(),
-            target,
-            per_projectile_damage,
-        );
-    }
-
-    for (entity, _) in &mut marker_visuals {
-        safe_despawn_recursive(&mut commands, entity);
-    }
-
-    skill_state.active = ActiveSkill::Idle;
-    shake_events.send(ScreenShakeRequest {
-        strength: 4.0,
-        duration: 0.12,
-    });
-}
-
-pub fn update_mark_indicators(
-    mut commands: Commands,
-    time: Res<Time>,
-    target_q: Query<(&GlobalTransform, Option<&MarkedTarget>)>,
-    mut marker_q: Query<(Entity, &SkillMarkerVisual, &mut Transform, &mut Sprite)>,
-) {
-    for (entity, marker, mut transform, mut sprite) in &mut marker_q {
-        let Ok((target_tf, marked)) = target_q.get(marker.target) else {
-            safe_despawn_recursive(&mut commands, entity);
-            continue;
-        };
-        if marked.is_none() {
-            safe_despawn_recursive(&mut commands, entity);
-            continue;
-        }
-
-        let pulse = (time.elapsed_seconds() * 8.0).sin().abs();
-        transform.translation = target_tf.translation() + Vec3::new(0.0, 28.0 + pulse * 6.0, 80.0);
-        sprite.color = Color::srgba(1.0, 0.20 + pulse * 0.18, 0.22, 0.78 + pulse * 0.16);
-        sprite.custom_size = Some(Vec2::splat(14.0 + pulse * 6.0));
-    }
-}
-
-pub fn update_homing_projectiles(
-    target_q: Query<&GlobalTransform, (With<Enemy>, Without<Replicated>)>,
-    mut projectile_q: Query<
-        (&HomingProjectile, &mut Projectile, &mut Transform),
-        Without<Replicated>,
-    >,
-) {
-    for (homing, mut projectile, mut transform) in &mut projectile_q {
-        let Ok(target_tf) = target_q.get(homing.target) else {
-            continue;
-        };
-        let current_dir = projectile.velocity.try_normalize().unwrap_or(Vec2::X);
-        let desired_dir = (target_tf.translation().truncate() - transform.translation.truncate())
-            .try_normalize()
-            .unwrap_or(current_dir);
-        let steer = homing.turn_rate.clamp(0.0, 1.0);
-        let next_dir = current_dir
-            .lerp(desired_dir, steer)
-            .try_normalize()
-            .unwrap_or(desired_dir);
-        projectile.velocity = next_dir * homing.speed;
-        transform.rotation = Quat::from_rotation_z(next_dir.y.atan2(next_dir.x));
-    }
-}
-
-fn spawn_sword_arc_skill(
+fn spawn_ground_slam_arc(
     commands: &mut Commands,
     assets: &GameAssets,
     owner: Entity,
@@ -508,7 +379,7 @@ fn spawn_sword_arc_skill(
         },
         Lifetime(Timer::from_seconds(0.10, TimerMode::Once)),
         InGameEntity,
-        Name::new("SwordArcSkillHitbox"),
+        Name::new("GroundSlamSkillHitbox"),
     ));
 
     commands.spawn((
@@ -537,7 +408,7 @@ fn spawn_sword_arc_skill(
             frame_count: 9,
         },
         InGameEntity,
-        Name::new("SwordArcSkillVisual"),
+        Name::new("GroundSlamSkillVisual"),
     ));
 }
 
@@ -551,7 +422,7 @@ fn spawn_blade_dance_skill(
     for i in 0..8 {
         let angle = std::f32::consts::TAU * i as f32 / 8.0;
         let dir = Vec2::new(angle.cos(), angle.sin());
-        spawn_sword_arc_skill(commands, assets, owner, pos, dir, attack_power * 0.60);
+        spawn_ground_slam_arc(commands, assets, owner, pos, dir, attack_power * 0.60);
     }
     crate::gameplay::effects::particles::spawn_burst_ring(commands, assets, pos);
 }
@@ -629,52 +500,10 @@ fn spawn_radial_skill_hitbox(
     ));
 }
 
-fn spawn_mark_indicator(commands: &mut Commands, assets: &GameAssets, target: Entity, pos: Vec2) {
-    commands.spawn((
-        SpriteBundle {
-            texture: assets.textures.white.clone(),
-            transform: Transform::from_translation((pos + Vec2::new(0.0, 28.0)).extend(80.0)),
-            sprite: Sprite {
-                color: Color::srgba(1.0, 0.24, 0.28, 0.82),
-                custom_size: Some(Vec2::splat(14.0)),
-                ..default()
-            },
-            ..default()
-        },
-        SkillMarkerVisual { target },
-        InGameEntity,
-        Name::new("MarkedTargetIndicator"),
-    ));
-}
-
-fn spawn_homing_skill_projectile(
-    commands: &mut Commands,
-    assets: &GameAssets,
-    owner: Entity,
-    pos: Vec2,
-    target: Entity,
-    damage: f32,
-) {
-    let entity = projectiles::spawn_player_projectile_with_kind(
-        commands,
-        assets,
-        owner,
-        pos,
-        Vec2::new(1.0, 0.0) * 520.0,
-        damage,
-        0.0,
-        DamageKind::PlayerSkill,
-    );
-    commands.entity(entity).insert(HomingProjectile {
-        target,
-        speed: 520.0,
-        turn_rate: 0.24,
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::assets::{AudioHandles, TextureHandles};
 
     #[test]
     fn fallback_skill_energy_costs_match_phase3_tiers() {
@@ -695,6 +524,20 @@ mod tests {
             skill_energy_cost(None, SkillType::MeteorFall, 100.0),
             Some(100.0)
         );
-        assert_eq!(skill_energy_cost(None, SkillType::Relic, 100.0), None);
+    }
+
+    #[test]
+    fn activate_skill_inputs_system_params_are_disjoint() {
+        let mut app = App::new();
+        app.insert_resource(GameAssets {
+            font: Handle::default(),
+            textures: TextureHandles::default(),
+            audio: AudioHandles::default(),
+        });
+        app.add_event::<DamageEvent>()
+            .add_event::<ScreenShakeRequest>()
+            .add_systems(Update, activate_skill_inputs);
+
+        app.update();
     }
 }

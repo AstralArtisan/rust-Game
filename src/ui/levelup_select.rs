@@ -7,6 +7,8 @@ use crate::gameplay::player::components::*;
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::rewards::apply::heal_amount;
 use crate::states::GamePhase;
+use crate::ui::character_panel::{self, CharacterSummaryItem};
+use crate::ui::feedback::{UiFeedbackEvent, UiFeedbackSeverity};
 use crate::ui::widgets;
 
 /// One attribute option offered on level up.
@@ -49,9 +51,11 @@ pub fn setup_levelup_ui(
     assets: Res<GameAssets>,
     choices: Res<LevelUpChoices>,
     health_q: Query<&Health, With<Player>>,
+    summary_q: Query<CharacterSummaryItem<'_>, With<Player>>,
     floor: Option<Res<FloorNumber>>,
     data: Option<Res<GameDataRegistry>>,
 ) {
+    let summary = character_panel::character_summary_from_query(&summary_q, data.as_deref());
     let max_health = health_q
         .get_single()
         .map(|health| health.max)
@@ -68,48 +72,50 @@ pub fn setup_levelup_ui(
 
     commands
         .spawn((
-            widgets::root_node(),
+            widgets::overlay_root_node(),
             LevelUpSelectUi,
             Name::new("LevelUpRoot"),
         ))
         .with_children(|root| {
-            root.spawn(widgets::panel_node(Color::srgba(0.02, 0.04, 0.02, 0.94)))
+            root.spawn(widgets::adventure_panel_node(980.0))
                 .with_children(|panel| {
                     panel.spawn(widgets::title_text(
                         &assets,
                         &format!("升级！ Lv.{}", choices.new_level),
-                        30.0,
+                        26.0,
                     ));
                     panel.spawn(widgets::title_text(
                         &assets,
                         "选择回血恢复状态，或选择一项属性提升",
-                        16.0,
+                        14.0,
                     ));
                     panel
-                        .spawn(NodeBundle {
-                            style: Style {
-                                column_gap: Val::Px(18.0),
-                                align_items: AlignItems::FlexStart,
-                                margin: UiRect::top(Val::Px(12.0)),
-                                ..default()
-                            },
-                            ..default()
-                        })
+                        .spawn(widgets::content_row_node())
                         .with_children(|row| {
-                            row.spawn(widgets::panel_node(Color::srgba(0.12, 0.16, 0.12, 0.95)))
-                                .with_children(|col| {
-                                    col.spawn(widgets::title_text(&assets, "回血", 24.0));
-                                    spawn_levelup_heal_card(col, &assets, heal_value);
-                                });
+                            character_panel::spawn_character_summary(row, &assets, &summary);
+                            row.spawn(widgets::card_node(620.0, 320.0, widgets::energy_color()))
+                                .with_children(|choices_panel| {
+                                    choices_panel
+                                        .spawn(widgets::panel_node(widgets::section_color()))
+                                        .with_children(|col| {
+                                            col.spawn(widgets::title_text(&assets, "回血", 21.0));
+                                            spawn_levelup_heal_card(col, &assets, heal_value);
+                                        });
 
-                            row.spawn(widgets::panel_node(Color::srgba(0.12, 0.12, 0.18, 0.95)))
-                                .with_children(|col| {
-                                    col.spawn(widgets::title_text(&assets, "属性强化", 24.0));
-                                    for (i, opt) in
-                                        choices.options.iter().enumerate().skip(1).take(3)
-                                    {
-                                        spawn_levelup_card(col, &assets, i, opt);
-                                    }
+                                    choices_panel
+                                        .spawn(widgets::panel_node(widgets::section_alt_color()))
+                                        .with_children(|col| {
+                                            col.spawn(widgets::title_text(
+                                                &assets,
+                                                "属性强化",
+                                                21.0,
+                                            ));
+                                            for (i, opt) in
+                                                choices.options.iter().enumerate().skip(1).take(3)
+                                            {
+                                                spawn_levelup_card(col, &assets, i, opt);
+                                            }
+                                        });
                                 });
                         });
                 });
@@ -122,12 +128,12 @@ fn spawn_levelup_heal_card(parent: &mut ChildBuilder, assets: &GameAssets, heal_
             ButtonBundle {
                 style: Style {
                     width: Val::Px(250.0),
-                    height: Val::Px(250.0),
+                    height: Val::Px(170.0),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
                     flex_direction: FlexDirection::Column,
                     padding: UiRect::all(Val::Px(12.0)),
-                    row_gap: Val::Px(8.0),
+                    row_gap: Val::Px(6.0),
                     border: UiRect::all(Val::Px(2.0)),
                     ..default()
                 },
@@ -138,13 +144,13 @@ fn spawn_levelup_heal_card(parent: &mut ChildBuilder, assets: &GameAssets, heal_
             LevelUpButton { index: 0 },
         ))
         .with_children(|button| {
-            button.spawn(widgets::title_text(assets, "1. 回血", 24.0));
+            button.spawn(widgets::title_text(assets, "1. 回血", 21.0));
             button.spawn(widgets::title_text(
                 assets,
                 format!("恢复 {:.0} 生命", heal_value),
-                22.0,
+                19.0,
             ));
-            button.spawn(widgets::body_text(assets, "稳住当前状态后继续推进", 15.0));
+            button.spawn(widgets::body_text(assets, "稳住当前状态后继续推进", 13.0));
         });
 }
 
@@ -158,11 +164,11 @@ fn spawn_levelup_card(
         .spawn((
             ButtonBundle {
                 style: Style {
-                    width: Val::Px(320.0),
-                    min_height: Val::Px(84.0),
+                    width: Val::Px(280.0),
+                    min_height: Val::Px(68.0),
                     flex_direction: FlexDirection::Column,
-                    padding: UiRect::all(Val::Px(12.0)),
-                    row_gap: Val::Px(6.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    row_gap: Val::Px(4.0),
                     border: UiRect::all(Val::Px(2.0)),
                     ..default()
                 },
@@ -177,7 +183,7 @@ fn spawn_levelup_card(
                 format!("[{}]", index + 1),
                 TextStyle {
                     font: assets.font.clone(),
-                    font_size: 14.0,
+                    font_size: 12.0,
                     color: Color::srgb(0.6, 0.7, 0.6),
                 },
             ));
@@ -185,7 +191,7 @@ fn spawn_levelup_card(
                 &opt.label,
                 TextStyle {
                     font: assets.font.clone(),
-                    font_size: 20.0,
+                    font_size: 17.0,
                     color: Color::srgb(0.40, 0.90, 0.40),
                 },
             ));
@@ -193,7 +199,7 @@ fn spawn_levelup_card(
                 &opt.description,
                 TextStyle {
                     font: assets.font.clone(),
-                    font_size: 14.0,
+                    font_size: 12.0,
                     color: Color::srgb(0.78, 0.82, 0.78),
                 },
             ));
@@ -215,6 +221,7 @@ pub fn levelup_input(
         With<Player>,
     >,
     mut next_state: ResMut<NextState<GamePhase>>,
+    mut feedback: EventWriter<UiFeedbackEvent>,
     button_q: Query<(&Interaction, &LevelUpButton), Changed<Interaction>>,
 ) {
     let mut picked: Option<usize> = None;
@@ -240,36 +247,57 @@ pub fn levelup_input(
         return;
     };
 
+    let mut feedback_line = opt.label.clone();
     if let Ok((mut health, mut atk, mut spd, mut crit, mut atk_cd, mut dash_cd)) =
         player_q.get_single_mut()
     {
         match opt.apply {
-            LevelUpStat::AttackPower(v) => atk.0 += v,
+            LevelUpStat::AttackPower(v) => {
+                atk.0 += v;
+                feedback_line = format!("攻击力 +{v:.0}，当前 {:.0}", atk.0);
+            }
             LevelUpStat::MaxHealth(v) => {
                 health.max += v;
                 health.current += v;
+                feedback_line = format!("生命上限 +{v:.0}，当前 {:.0}", health.max);
             }
             LevelUpStat::RecoverHealth(amount) => {
+                let before = health.current;
                 health.current = (health.current + amount).min(health.max);
+                feedback_line = format!("生命: {:.0} -> {:.0}", before, health.current);
             }
-            LevelUpStat::MoveSpeed(v) => spd.0 += v,
-            LevelUpStat::CritChance(v) => crit.0 = (crit.0 + v).min(0.80),
+            LevelUpStat::MoveSpeed(v) => {
+                spd.0 += v;
+                feedback_line = format!("移动速度 +{v:.0}，当前 {:.0}", spd.0);
+            }
+            LevelUpStat::CritChance(v) => {
+                crit.0 = (crit.0 + v).min(0.80);
+                feedback_line = format!("暴击率 +{:.0}%，当前 {:.0}%", v * 100.0, crit.0 * 100.0);
+            }
             LevelUpStat::AttackSpeed(v) => {
                 let new_dur = (atk_cd.timer.duration().as_secs_f32() - v).max(0.15);
                 atk_cd
                     .timer
                     .set_duration(std::time::Duration::from_secs_f32(new_dur));
+                feedback_line = format!("近战冷却缩短，当前 {:.2}s", new_dur);
             }
             LevelUpStat::DashCooldown(v) => {
                 let new_dur = (dash_cd.timer.duration().as_secs_f32() - v).max(0.3);
                 dash_cd
                     .timer
                     .set_duration(std::time::Duration::from_secs_f32(new_dur));
+                feedback_line = format!("冲刺冷却缩短，当前 {:.2}s", new_dur);
             }
         }
     }
 
     let return_to = choices.return_state.unwrap_or(GamePhase::Playing);
+    feedback.send(UiFeedbackEvent::card(
+        "升级结算",
+        vec![feedback_line],
+        UiFeedbackSeverity::Success,
+        return_to,
+    ));
     next_state.set(return_to);
 }
 

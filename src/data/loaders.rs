@@ -430,6 +430,22 @@ mod tests {
                 .count(),
             4
         );
+        for (id, gold, xp) in [
+            ("bullet_maze", 30, 0),
+            ("memory_blocks", 0, 35),
+            ("timed_collect", 25, 25),
+        ] {
+            let puzzle = events
+                .events
+                .iter()
+                .find(|event| event.id == id)
+                .and_then(|event| event.puzzle.as_ref())
+                .unwrap_or_else(|| panic!("missing puzzle config for {id}"));
+            assert!(puzzle.target_count > 0);
+            assert!(puzzle.time_limit_s > 0.0);
+            assert_eq!(puzzle.gold_reward, gold);
+            assert_eq!(puzzle.xp_reward, xp);
+        }
 
         let shop: ShopConfig = load_ron("assets/configs/shop.ron").unwrap();
         assert_eq!(shop.heal_price, 40);
@@ -463,7 +479,11 @@ mod tests {
         assert_eq!(balance.enemy_pools_by_floor.len(), 4);
         assert_eq!(
             balance.enemy_pools_by_floor[0],
-            vec![EnemyType::MeleeChaser, EnemyType::Lobber, EnemyType::Charger]
+            vec![
+                EnemyType::MeleeChaser,
+                EnemyType::Lobber,
+                EnemyType::Charger
+            ]
         );
 
         let affixes: EliteAffixesConfig = load_ron("assets/configs/elite_affixes.ron").unwrap();

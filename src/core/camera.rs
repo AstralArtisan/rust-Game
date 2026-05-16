@@ -1,7 +1,9 @@
 use bevy::prelude::*;
+use bevy::render::camera::ScalingMode;
 use lightyear::prelude::Replicated;
 use lightyear::shared::replication::components::Controlled;
 
+use crate::constants::CAMERA_VIEW_HEIGHT;
 use crate::coop::components::LocalControlled;
 use crate::gameplay::effects::screen_shake::{ScreenShake, ScreenShakeRequest};
 use crate::gameplay::player::components::Player;
@@ -39,7 +41,13 @@ impl Plugin for CameraPlugin {
 }
 
 pub fn setup_camera(mut commands: Commands) {
-    commands.spawn((Camera2dBundle::default(), MainCamera));
+    let mut camera = Camera2dBundle::default();
+    camera.projection.scaling_mode = fullscreen_scaling_mode();
+    commands.spawn((camera, MainCamera));
+}
+
+pub fn fullscreen_scaling_mode() -> ScalingMode {
+    ScalingMode::FixedVertical(CAMERA_VIEW_HEIGHT)
 }
 
 pub fn camera_follow_player(
@@ -60,6 +68,19 @@ pub fn camera_follow_player(
     let next = current.lerp(target, lerp);
     camera_tf.translation.x = next.x;
     camera_tf.translation.y = next.y;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn camera_uses_fullscreen_vertical_view_height() {
+        let ScalingMode::FixedVertical(height) = fullscreen_scaling_mode() else {
+            panic!("camera should use a fixed vertical fullscreen view");
+        };
+        assert_eq!(height, CAMERA_VIEW_HEIGHT);
+    }
 }
 
 pub fn camera_follow_pvp_local(

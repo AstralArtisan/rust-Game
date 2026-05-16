@@ -1,0 +1,171 @@
+<h2>游戏内 UI 布局设计</h2>
+<p class="subtitle">升级选择、暂停菜单、强化选择的界面布局</p>
+
+<!-- 升级选择 UI -->
+<div class="section">
+  <h3>1. 升级选择界面（通关战斗房后）</h3>
+  <p class="label">保留你要求的两列设计：左列休息，右列三个强化</p>
+  <div class="mockup">
+    <div class="mockup-header">升级选择 — 游戏暂停，背景半透明模糊</div>
+    <div style="background: rgba(15,15,25,0.95); padding: 2rem; display: flex; gap: 1.5rem; min-height: 320px;">
+      <!-- 左列：休息 -->
+      <div style="flex: 0 0 35%; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="color: #aaa; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px;">休息</div>
+        <div style="background: #1a2a1a; border: 2px solid #2d5a2d; border-radius: 8px; padding: 1rem; cursor: pointer; transition: all 0.2s;" onmouseover="this.style.borderColor='#4caf50'" onmouseout="this.style.borderColor='#2d5a2d'">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+            <div style="width: 32px; height: 32px; background: #2d5a2d; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">🔥</div>
+            <div style="color: #4caf50; font-weight: bold; font-size: 0.95rem;">篝火休息</div>
+          </div>
+          <div style="color: #8aaa8a; font-size: 0.8rem;">恢复 30% 最大生命值</div>
+        </div>
+        <div style="background: #1a1a2a; border: 2px solid #2d2d5a; border-radius: 8px; padding: 1rem; cursor: pointer;" onmouseover="this.style.borderColor='#5c6bc0'" onmouseout="this.style.borderColor='#2d2d5a'">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+            <div style="width: 32px; height: 32px; background: #2d2d5a; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">⚡</div>
+            <div style="color: #7986cb; font-weight: bold; font-size: 0.95rem;">冥想恢复</div>
+          </div>
+          <div style="color: #8a8aaa; font-size: 0.8rem;">恢复 50 点能量</div>
+        </div>
+      </div>
+      <!-- 右列：强化 -->
+      <div style="flex: 1; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div style="color: #aaa; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px;">强化选择</div>
+        <div style="background: #2a1a1a; border: 2px solid #5a2d2d; border-radius: 8px; padding: 1rem; cursor: pointer;" onmouseover="this.style.borderColor='#ef5350'" onmouseout="this.style.borderColor='#5a2d2d'">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+            <div style="width: 32px; height: 32px; background: #5a2d2d; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">⚔️</div>
+            <div>
+              <div style="color: #ef5350; font-weight: bold; font-size: 0.9rem;">吸血斩</div>
+              <div style="color: #666; font-size: 0.65rem;">普通 · 近战</div>
+            </div>
+          </div>
+          <div style="color: #aa8a8a; font-size: 0.8rem;">近战命中回复 3% 伤害为生命值</div>
+        </div>
+        <div style="background: #2a2a1a; border: 2px solid #5a5a2d; border-radius: 8px; padding: 1rem; cursor: pointer;" onmouseover="this.style.borderColor='#ffd54f'" onmouseout="this.style.borderColor='#5a5a2d'">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+            <div style="width: 32px; height: 32px; background: #5a5a2d; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">💰</div>
+            <div>
+              <div style="color: #ffd54f; font-weight: bold; font-size: 0.9rem;">金币加成</div>
+              <div style="color: #666; font-size: 0.65rem;">普通 · 通用</div>
+            </div>
+          </div>
+          <div style="color: #aaaa8a; font-size: 0.8rem;">金币掉落量提升 20%</div>
+        </div>
+        <div style="background: #1a2a2a; border: 2px solid #2d5a5a; border-radius: 8px; padding: 1rem; cursor: pointer;" onmouseover="this.style.borderColor='#4dd0e1'" onmouseout="this.style.borderColor='#2d5a5a'">
+          <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+            <div style="width: 32px; height: 32px; background: #2d5a5a; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">💨</div>
+            <div>
+              <div style="color: #4dd0e1; font-weight: bold; font-size: 0.9rem;">冲刺留痕</div>
+              <div style="color: #666; font-size: 0.65rem;">普通 · 机动</div>
+            </div>
+          </div>
+          <div style="color: #8aaaaa; font-size: 0.8rem;">冲刺留下伤害轨迹，造成攻击力×50%伤害</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 暂停菜单 UI -->
+<div class="section">
+  <h3>2. 暂停菜单（ESC）</h3>
+  <p class="label">左侧选项菜单 + 右侧角色面板（RPG Maker 风格）</p>
+  <div class="mockup">
+    <div class="mockup-header">暂停菜单 — ESC 打开/关闭</div>
+    <div style="background: rgba(15,15,25,0.95); padding: 1.5rem; display: flex; gap: 1.5rem; min-height: 300px;">
+      <!-- 左侧：菜单选项 -->
+      <div style="flex: 0 0 200px; display: flex; flex-direction: column; gap: 0.5rem;">
+        <div style="color: #aaa; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 0.25rem;">菜单</div>
+        <div style="background: #4fc3f7; color: #111; padding: 0.6rem 1rem; border-radius: 6px; font-weight: bold; font-size: 0.85rem;">继续游戏</div>
+        <div style="background: #2d2d2f; color: #ccc; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.85rem;">存档</div>
+        <div style="background: #2d2d2f; color: #ccc; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.85rem;">读档</div>
+        <div style="background: #2d2d2f; color: #ccc; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.85rem;">查看成就</div>
+        <div style="background: #2d2d2f; color: #888; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.85rem;">回到主菜单</div>
+      </div>
+      <!-- 右侧：角色面板 -->
+      <div style="flex: 1; background: #1a1a2a; border: 1px solid #333; border-radius: 8px; padding: 1rem;">
+        <div style="color: #aaa; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 0.75rem;">角色面板</div>
+        <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+          <!-- 角色头像 -->
+          <div style="width: 64px; height: 64px; background: #4fc3f7; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+            <div style="width: 24px; height: 24px; background: #fff; border-radius: 2px;"></div>
+          </div>
+          <!-- 基础数值 -->
+          <div style="flex: 1;">
+            <div style="color: #fff; font-weight: bold; margin-bottom: 0.5rem;">Lv.5 冒险者</div>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.25rem;">
+              <div style="flex:1; background: #1a1a1a; border-radius: 4px; overflow: hidden; height: 14px; position: relative;">
+                <div style="background: #4caf50; height: 100%; width: 65%;"></div>
+                <div style="position: absolute; top: 0; left: 4px; color: #fff; font-size: 0.6rem; line-height: 14px;">HP 78/120</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+              <div style="flex:1; background: #1a1a1a; border-radius: 4px; overflow: hidden; height: 14px; position: relative;">
+                <div style="background: #2196f3; height: 100%; width: 40%;"></div>
+                <div style="position: absolute; top: 0; left: 4px; color: #fff; font-size: 0.6rem; line-height: 14px;">能量 40/100</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 属性列表 -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
+          <div style="color: #888;">攻击力 <span style="color: #fff;">28</span></div>
+          <div style="color: #888;">暴击率 <span style="color: #fff;">12%</span></div>
+          <div style="color: #888;">移动速度 <span style="color: #fff;">220</span></div>
+          <div style="color: #888;">暴击伤害 <span style="color: #fff;">150%</span></div>
+          <div style="color: #888;">攻击速度 <span style="color: #fff;">1.2/s</span></div>
+          <div style="color: #888;">冲刺CD <span style="color: #fff;">1.0s</span></div>
+        </div>
+        <!-- 已装备强化 -->
+        <div style="color: #aaa; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.4rem;">已装备强化</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+          <div style="background: #2d2d2d; border: 1px solid #555; border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; color: #4caf50;">吸血斩 Lv2</div>
+          <div style="background: #2d2d2d; border: 1px solid #ffd54f; border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; color: #ffd54f;">追踪弹 Lv1</div>
+          <div style="background: #2d2d2d; border: 1px solid #555; border-radius: 4px; padding: 2px 8px; font-size: 0.7rem; color: #4fc3f7;">冲刺回能 Lv1</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Boss 宝箱 UI -->
+<div class="section">
+  <h3>3. Boss 宝箱奖励界面</h3>
+  <p class="label">击败 Boss 后打开宝箱，展示终结技 + 强化选择</p>
+  <div class="mockup">
+    <div class="mockup-header">Boss 宝箱 — 两排奖励</div>
+    <div style="background: rgba(15,15,25,0.95); padding: 2rem; text-align: center; min-height: 280px;">
+      <div style="color: #ffd54f; font-size: 1.2rem; font-weight: bold; margin-bottom: 0.25rem;">&#9733; Boss 宝箱 &#9733;</div>
+      <div style="color: #888; font-size: 0.8rem; margin-bottom: 1.5rem;">选择一个终结技和一个强化</div>
+      <!-- 终结技选择 -->
+      <div style="color: #aaa; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 0.5rem;">终结技（选择一个）</div>
+      <div style="display: flex; gap: 0.75rem; justify-content: center; margin-bottom: 1.25rem;">
+        <div style="background: #2a1a2a; border: 2px solid #7b1fa2; border-radius: 8px; padding: 0.75rem; width: 160px; cursor: pointer; text-align: left;">
+          <div style="color: #ce93d8; font-weight: bold; font-size: 0.85rem;">裂地斩</div>
+          <div style="color: #666; font-size: 0.65rem; margin-bottom: 0.3rem;">近战系 · 消耗 60</div>
+          <div style="color: #999; font-size: 0.75rem;">前方扇形重击，ATK×300%</div>
+        </div>
+        <div style="background: #1a1a2a; border: 2px solid #1565c0; border-radius: 8px; padding: 0.75rem; width: 160px; cursor: pointer; text-align: left;">
+          <div style="color: #64b5f6; font-weight: bold; font-size: 0.85rem;">冰晶领域</div>
+          <div style="color: #666; font-size: 0.65rem; margin-bottom: 0.3rem;">远程系 · 消耗 80</div>
+          <div style="color: #999; font-size: 0.75rem;">冰冻冲击波，冻结 2 秒</div>
+        </div>
+      </div>
+      <!-- 强化选择 -->
+      <div style="color: #aaa; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 0.5rem;">强化（选择一个）</div>
+      <div style="display: flex; gap: 0.75rem; justify-content: center;">
+        <div style="background: #2a2a1a; border: 2px solid #f57f17; border-radius: 8px; padding: 0.75rem; width: 140px; cursor: pointer; text-align: left;">
+          <div style="color: #ffb74d; font-weight: bold; font-size: 0.85rem;">旋风斩</div>
+          <div style="color: #666; font-size: 0.65rem;">精英 · 近战</div>
+        </div>
+        <div style="background: #2a1a1a; border: 2px solid #c62828; border-radius: 8px; padding: 0.75rem; width: 140px; cursor: pointer; text-align: left;">
+          <div style="color: #ef9a9a; font-weight: bold; font-size: 0.85rem;">连锁闪电</div>
+          <div style="color: #666; font-size: 0.65rem;">精英 · 远程</div>
+        </div>
+        <div style="background: #1a2a1a; border: 2px solid #2e7d32; border-radius: 8px; padding: 0.75rem; width: 140px; cursor: pointer; text-align: left;">
+          <div style="color: #81c784; font-weight: bold; font-size: 0.85rem;">暴击强化</div>
+          <div style="color: #666; font-size: 0.65rem;">精英 · 通用</div>
+        </div>
+      </div>
+      <div style="color: #ffd54f; font-size: 0.8rem; margin-top: 1rem;">+ 42 金币</div>
+    </div>
+  </div>
+</div>

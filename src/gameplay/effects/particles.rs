@@ -316,4 +316,6 @@ pub fn spawn_burst_ring(commands: &mut Commands, assets: &GameAssets, pos: Vec2)
 // --- DashShield visual marker ---
 
 #[derive(Component)]
-pub struct ShieldVisual;
+pub struct ShieldVisual {
+    pub owner: Entity,
+}

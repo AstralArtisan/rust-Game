@@ -2,21 +2,29 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 
 use crate::core::assets::GameAssets;
-use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Gold,
-    Health, MoveSpeed, Player, RangedCooldown, RangedVolleyPattern, RewardModifiers,
-};
+use crate::core::save::{LoadRequestEvent, SaveRequestEvent};
+use crate::data::registry::GameDataRegistry;
+use crate::gameplay::player::components::Player;
 use crate::states::{AppState, GamePhase};
+use crate::ui::character_panel::{self, CharacterSummaryItem};
 use crate::ui::widgets;
 
 #[derive(Component)]
 pub struct PauseUi;
 
 #[derive(Component)]
-pub struct PauseCharacterPanel;
+pub struct PauseActionButton {
+    action: PauseAction,
+}
 
-#[derive(Component)]
-pub struct PauseCharacterText;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PauseAction {
+    Resume,
+    Save,
+    Load,
+    MainMenu,
+    Quit,
+}
 
 pub fn toggle_pause(
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -36,43 +44,79 @@ pub fn toggle_pause(
     }
 }
 
-pub fn setup_pause_menu(mut commands: Commands, assets: Res<GameAssets>) {
+pub fn setup_pause_menu(
+    mut commands: Commands,
+    assets: Res<GameAssets>,
+    data: Option<Res<GameDataRegistry>>,
+    summary_q: Query<CharacterSummaryItem<'_>, With<Player>>,
+) {
+    let summary = character_panel::character_summary_from_query(&summary_q, data.as_deref());
     commands
-        .spawn((widgets::root_node(), PauseUi, Name::new("PauseRoot")))
+        .spawn((
+            widgets::overlay_root_node(),
+            PauseUi,
+            Name::new("PauseRoot"),
+        ))
         .with_children(|root| {
-            root.spawn(widgets::panel_node(Color::srgba(0.0, 0.0, 0.0, 0.78)))
+            root.spawn(widgets::responsive_panel_node(78.0, 85.0))
                 .with_children(|panel| {
-                    panel.spawn(widgets::title_text(&assets, "游戏暂停", 48.0));
-                    panel.spawn(widgets::body_text(&assets, "ESC：继续游戏", 20.0));
-                    panel.spawn(widgets::body_text(&assets, "M：回到主菜单", 20.0));
-                    panel.spawn(widgets::body_text(&assets, "C：查看角色面板", 20.0));
-                    panel.spawn(widgets::body_text(&assets, "Q：退出游戏", 20.0));
+                    panel.spawn(widgets::title_text(&assets, "游戏暂停", 32.0));
                     panel
-                        .spawn((
-                            NodeBundle {
+                        .spawn(widgets::content_row_node())
+                        .with_children(|row| {
+                            row.spawn(NodeBundle {
                                 style: Style {
-                                    width: Val::Px(430.0),
-                                    margin: UiRect::top(Val::Px(14.0)),
-                                    padding: UiRect::all(Val::Px(14.0)),
-                                    flex_direction: FlexDirection::Column,
+                                    width: Val::Px(240.0),
+                                    padding: UiRect::all(Val::Px(12.0)),
                                     row_gap: Val::Px(8.0),
+                                    flex_direction: FlexDirection::Column,
+                                    align_items: AlignItems::Stretch,
+                                    border: UiRect::all(Val::Px(2.0)),
                                     ..default()
                                 },
-                                background_color: BackgroundColor(Color::srgba(
-                                    0.10, 0.12, 0.18, 0.94,
-                                )),
-                                visibility: Visibility::Hidden,
+                                background_color: BackgroundColor(widgets::section_color()),
+                                border_color: BorderColor(widgets::gold_color()),
                                 ..default()
-                            },
-                            PauseCharacterPanel,
-                            Name::new("PauseCharacterPanel"),
-                        ))
-                        .with_children(|stats| {
-                            stats.spawn(widgets::title_text(&assets, "角色面板", 24.0));
-                            stats.spawn((
-                                widgets::body_text(&assets, "加载中...", 18.0),
-                                PauseCharacterText,
-                            ));
+                            })
+                                .with_children(|menu| {
+                                    menu.spawn(widgets::section_heading(&assets, "操作"));
+                                    spawn_pause_button(
+                                        menu,
+                                        &assets,
+                                        "继续游戏",
+                                        PauseAction::Resume,
+                                    );
+                                    spawn_pause_button(
+                                        menu,
+                                        &assets,
+                                        "保存进度 (F5)",
+                                        PauseAction::Save,
+                                    );
+                                    spawn_pause_button(
+                                        menu,
+                                        &assets,
+                                        "读取进度 (F9)",
+                                        PauseAction::Load,
+                                    );
+                                    spawn_pause_button(
+                                        menu,
+                                        &assets,
+                                        "回到主菜单",
+                                        PauseAction::MainMenu,
+                                    );
+                                    spawn_pause_button(
+                                        menu,
+                                        &assets,
+                                        "退出游戏",
+                                        PauseAction::Quit,
+                                    );
+                                    menu.spawn(widgets::muted_text(
+                                        &assets,
+                                        "ESC 继续 · M 主菜单 · Q 退出",
+                                        11.0,
+                                    ));
+                                });
+                            character_panel::spawn_character_summary(row, &assets, &summary);
                         });
                 });
         });
@@ -83,95 +127,57 @@ pub fn pause_menu_keyboard_system(
     mut next_phase: ResMut<NextState<GamePhase>>,
     mut next_app: ResMut<NextState<AppState>>,
     mut exit: EventWriter<AppExit>,
-    mut panel_q: Query<&mut Visibility, With<PauseCharacterPanel>>,
+    mut save_events: EventWriter<SaveRequestEvent>,
+    mut load_events: EventWriter<LoadRequestEvent>,
+    mut button_q: Query<
+        (&Interaction, &PauseActionButton, &mut BackgroundColor),
+        Changed<Interaction>,
+    >,
 ) {
+    let mut action = None;
     if keyboard.just_pressed(KeyCode::Escape) {
-        next_phase.set(GamePhase::Playing);
-        return;
+        action = Some(PauseAction::Resume);
+    } else if keyboard.just_pressed(KeyCode::KeyM) {
+        action = Some(PauseAction::MainMenu);
+    } else if keyboard.just_pressed(KeyCode::KeyQ) {
+        action = Some(PauseAction::Quit);
     }
-    if keyboard.just_pressed(KeyCode::KeyM) {
-        next_app.set(AppState::MainMenu);
-        return;
+
+    for (interaction, button, mut color) in &mut button_q {
+        match *interaction {
+            Interaction::Hovered => color.0 = widgets::button_hover_color(),
+            Interaction::None => color.0 = widgets::button_base_color(),
+            Interaction::Pressed => action = Some(button.action),
+        }
     }
-    if keyboard.just_pressed(KeyCode::KeyQ) {
-        let _ = exit.send(AppExit::Success);
-        return;
-    }
-    if keyboard.just_pressed(KeyCode::KeyC) {
-        let Ok(mut visibility) = panel_q.get_single_mut() else {
-            return;
-        };
-        *visibility = if *visibility == Visibility::Visible {
-            Visibility::Hidden
-        } else {
-            Visibility::Visible
-        };
+
+    match action {
+        Some(PauseAction::Resume) => next_phase.set(GamePhase::Playing),
+        Some(PauseAction::Save) => {
+            save_events.send(SaveRequestEvent);
+        }
+        Some(PauseAction::Load) => {
+            load_events.send(LoadRequestEvent);
+        }
+        Some(PauseAction::MainMenu) => next_app.set(AppState::MainMenu),
+        Some(PauseAction::Quit) => {
+            let _ = exit.send(AppExit::Success);
+        }
+        None => {}
     }
 }
 
-pub fn update_pause_character_panel(
-    player_q: Query<
-        (
-            &Health,
-            &Energy,
-            &Gold,
-            &MoveSpeed,
-            &AttackPower,
-            &CritChance,
-            &AttackCooldown,
-            &RangedCooldown,
-            &DashCooldown,
-            &RewardModifiers,
-        ),
-        With<Player>,
-    >,
-    mut text_q: Query<&mut Text, With<PauseCharacterText>>,
+fn spawn_pause_button(
+    parent: &mut ChildBuilder,
+    assets: &GameAssets,
+    label: &str,
+    action: PauseAction,
 ) {
-    let Ok((hp, energy, gold, move_speed, attack_power, crit, atk_cd, ranged_cd, dash_cd, mods)) =
-        player_q.get_single()
-    else {
-        return;
-    };
-    let Ok(mut text) = text_q.get_single_mut() else {
-        return;
-    };
-
-    let ranged_mode = match mods.ranged_volley_pattern() {
-        RangedVolleyPattern::Single => "单发",
-        RangedVolleyPattern::Double => "双发",
-        RangedVolleyPattern::Triple => "三向",
-        RangedVolleyPattern::Nova => "环射",
-    };
-    let melee_skill = if mods.melee_projectile_reflect_unlocked() {
-        "已进入 4 阶以上"
-    } else {
-        "仍在积累"
-    };
-    let energy_text = if ENERGY_SYSTEM_ENABLED {
-        format!("{:.0} / {:.0}", energy.current, energy.max)
-    } else {
-        "暂未启用".to_string()
-    };
-
-    text.sections[0].value = format!(
-        "生命：{:.0} / {:.0}\n金币：{}\n能量：{}\n攻击力：{:.1}\n暴击率：{:.0}%\n移速：{:.0}\n近战冷却：{:.2}s\n远程冷却：{:.2}s\n冲刺冷却：{:.2}s\n近战精通：{} 层（{}，已解锁：{}）\n远程改装：{} 层（当前：{}）\n击杀回血：{:.0}",
-        hp.current,
-        hp.max,
-        gold.0,
-        energy_text,
-        attack_power.0,
-        crit.0 * 100.0,
-        move_speed.0,
-        atk_cd.timer.duration().as_secs_f32(),
-        ranged_cd.timer.duration().as_secs_f32(),
-        dash_cd.timer.duration().as_secs_f32(),
-        mods.melee_mastery_stacks,
-        melee_skill,
-        mods.melee_feature_summary(),
-        mods.ranged_mastery_stacks,
-        ranged_mode,
-        mods.lifesteal_on_kill,
-    );
+    parent
+        .spawn((widgets::button_bundle(), PauseActionButton { action }))
+        .with_children(|button| {
+            button.spawn(widgets::title_text(assets, label, 16.0));
+        });
 }
 
 pub fn cleanup_pause_menu(mut commands: Commands, q: Query<Entity, With<PauseUi>>) {

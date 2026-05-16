@@ -1,6 +1,7 @@
 use bevy::prelude::*;
+use bevy::window::{PrimaryWindow, WindowMode};
 
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 #[derive(Resource, Debug, Default, Clone, Copy)]
 pub struct PlayerInputState {
@@ -25,30 +26,62 @@ pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PlayerInputState>().add_systems(
-            Update,
-            collect_player_input.run_if(
-                in_state(AppState::InGame)
-                    .or_else(in_state(AppState::PvpMenu))
-                    .or_else(in_state(AppState::PvpLobby))
-                    .or_else(in_state(AppState::PvpGame))
-                    .or_else(in_state(AppState::PvpResult))
-                    .or_else(in_state(AppState::MultiplayerMenu))
-                    .or_else(in_state(AppState::CoopMenu))
-                    .or_else(in_state(AppState::CoopGame)),
-            ),
-        );
+        app.init_resource::<PlayerInputState>()
+            .add_systems(Update, toggle_fullscreen)
+            .add_systems(
+                Update,
+                collect_player_input.run_if(
+                    in_state(AppState::InGame)
+                        .or_else(in_state(AppState::PvpMenu))
+                        .or_else(in_state(AppState::PvpLobby))
+                        .or_else(in_state(AppState::PvpGame))
+                        .or_else(in_state(AppState::PvpResult))
+                        .or_else(in_state(AppState::MultiplayerMenu))
+                        .or_else(in_state(AppState::CoopMenu))
+                        .or_else(in_state(AppState::CoopGame)),
+                ),
+            );
+    }
+}
+
+pub fn toggle_fullscreen(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if !keyboard.just_pressed(KeyCode::F11) {
+        return;
+    }
+    let Ok(mut window) = windows.get_single_mut() else {
+        return;
+    };
+    window.mode = toggled_window_mode(window.mode);
+}
+
+pub fn toggled_window_mode(mode: WindowMode) -> WindowMode {
+    match mode {
+        WindowMode::BorderlessFullscreen | WindowMode::SizedFullscreen | WindowMode::Fullscreen => {
+            WindowMode::Windowed
+        }
+        WindowMode::Windowed => WindowMode::BorderlessFullscreen,
     }
 }
 
 pub fn collect_player_input(
     mut input: ResMut<PlayerInputState>,
+    app_state: Res<State<AppState>>,
+    phase: Option<Res<State<GamePhase>>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
 ) {
     *input = PlayerInputState::default();
+    let in_session = matches!(*app_state.get(), AppState::InGame | AppState::CoopGame);
+    if in_session && phase.as_ref().map(|phase| *phase.get()) != Some(GamePhase::Playing) {
+        input.aim_world = map_mouse_to_aim_world(windows, camera_q);
+        return;
+    }
+
     input.move_axis = map_keyboard_to_movement(&keyboard);
 
     input.attack_pressed =
@@ -103,4 +136,29 @@ pub fn map_mouse_to_aim_world(
     let ray = camera.viewport_to_world(camera_transform, cursor)?;
     let world_cursor = ray.origin.truncate();
     Some(world_cursor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn f11_toggle_switches_between_windowed_and_fullscreen() {
+        assert_eq!(
+            toggled_window_mode(WindowMode::Windowed),
+            WindowMode::BorderlessFullscreen
+        );
+        assert_eq!(
+            toggled_window_mode(WindowMode::BorderlessFullscreen),
+            WindowMode::Windowed
+        );
+        assert_eq!(
+            toggled_window_mode(WindowMode::Fullscreen),
+            WindowMode::Windowed
+        );
+        assert_eq!(
+            toggled_window_mode(WindowMode::SizedFullscreen),
+            WindowMode::Windowed
+        );
+    }
 }

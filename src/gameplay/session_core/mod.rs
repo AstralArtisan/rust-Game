@@ -469,7 +469,7 @@ mod tests {
     fn boss_clear_goes_to_next_floor_before_final_floor() {
         let decision = on_room_cleared(SessionRuleContext {
             mode: SessionMode::Solo,
-            floor: 2,
+            floor: 3,
             total_floors: 4,
             boss_gives_victory: false,
             room_type: RoomType::Boss,

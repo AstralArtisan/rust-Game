@@ -27,6 +27,7 @@ pub struct TextureHandles {
     pub enemy_sprites: HashMap<EnemyType, Handle<Image>>,
     pub boss_sprites: HashMap<BossArchetype, Handle<Image>>,
     pub room_background: Handle<Image>,
+    pub menu_background: Handle<Image>,
 }
 
 #[allow(dead_code)]
@@ -85,7 +86,8 @@ pub fn load_game_assets(
         asset_server.load("textures/bosses/floor1_guardian.png"),
     );
 
-    let room_background = asset_server.load("textures/backgrounds/room_bg_default.jpg");
+    let room_background = images.add(make_room_background_image());
+    let menu_background = asset_server.load("textures/menu.png");
 
     let white = images.add(Image::new_fill(
         Extent3d {
@@ -111,6 +113,7 @@ pub fn load_game_assets(
             enemy_sprites,
             boss_sprites,
             room_background,
+            menu_background,
         },
         audio: AudioHandles::default(),
     });
@@ -124,6 +127,7 @@ pub fn check_assets_ready(
     if asset_server.is_loaded_with_dependencies(&assets.font)
         && asset_server.is_loaded_with_dependencies(&assets.textures.player)
         && asset_server.is_loaded_with_dependencies(&assets.textures.slash)
+        && asset_server.is_loaded_with_dependencies(&assets.textures.menu_background)
     {
         next_state.set(AppState::MainMenu);
     }
@@ -197,6 +201,20 @@ fn make_crosshair_image() -> Image {
         },
         TextureDimension::D2,
         data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    )
+}
+
+fn make_room_background_image() -> Image {
+    Image::new_fill(
+        Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[34, 36, 44, 255],
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     )

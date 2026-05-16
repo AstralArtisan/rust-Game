@@ -1,6 +1,8 @@
 pub mod augment_select;
+pub mod character_panel;
 pub mod cursor;
 pub mod event_room;
+pub mod feedback;
 pub mod game_over;
 pub mod hud;
 pub mod levelup_select;
@@ -10,6 +12,7 @@ pub mod pause;
 pub mod reward_select;
 pub mod shop;
 pub mod skill_select;
+pub mod tooltip;
 pub mod tutorial;
 pub mod widgets;
 
@@ -22,7 +25,13 @@ pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(tutorial::TutorialPlugin)
+        app.add_event::<skill_select::SkillEquippedEvent>()
+            .add_event::<skill_select::SkillEquipCancelledEvent>()
+            .add_event::<feedback::UiFeedbackEvent>()
+            .init_resource::<feedback::ActiveUiFeedback>()
+            .add_plugins(tutorial::TutorialPlugin)
+            .add_plugins(tooltip::TooltipPlugin)
+            .init_resource::<menu::MainMenuScreen>()
             .add_systems(
                 Update,
                 (
@@ -35,17 +44,29 @@ impl Plugin for UiPlugin {
             .add_systems(OnEnter(AppState::MainMenu), menu::setup_main_menu)
             .add_systems(
                 Update,
-                menu::menu_button_system.run_if(in_state(AppState::MainMenu)),
+                (menu::menu_button_system, menu::update_main_menu_content)
+                    .run_if(in_state(AppState::MainMenu)),
             )
             .add_systems(OnExit(AppState::MainMenu), menu::cleanup_main_menu)
             .add_systems(Update, notifications::ensure_notification_root)
             .add_systems(Update, notifications::handle_achievement_notifications)
             .add_systems(Update, notifications::update_notifications)
+            .add_systems(Update, feedback::ensure_feedback_root)
+            .add_systems(
+                Update,
+                feedback::handle_ui_feedback_events
+                    .run_if(in_state(AppState::InGame).or_else(in_state(AppState::CoopGame))),
+            )
+            .add_systems(Update, feedback::update_feedback_toasts)
             .add_systems(OnEnter(AppState::InGame), hud::setup_hud)
             .add_systems(OnEnter(AppState::CoopGame), hud::setup_hud)
             .add_systems(
                 OnEnter(GamePhase::EventRoom),
                 event_room::setup_event_room_ui,
+            )
+            .add_systems(
+                Update,
+                event_room::event_room_ui_input_system.run_if(in_state(GamePhase::EventRoom)),
             )
             .add_systems(
                 Update,
@@ -77,13 +98,15 @@ impl Plugin for UiPlugin {
             .add_systems(OnEnter(GamePhase::Paused), pause::setup_pause_menu)
             .add_systems(
                 Update,
-                (
-                    pause::pause_menu_keyboard_system,
-                    pause::update_pause_character_panel,
-                )
-                    .run_if(in_state(GamePhase::Paused)),
+                pause::pause_menu_keyboard_system.run_if(in_state(GamePhase::Paused)),
             )
             .add_systems(OnExit(GamePhase::Paused), pause::cleanup_pause_menu)
+            .add_systems(OnEnter(GamePhase::Feedback), feedback::setup_feedback_card)
+            .add_systems(
+                Update,
+                feedback::feedback_input_system.run_if(in_state(GamePhase::Feedback)),
+            )
+            .add_systems(OnExit(GamePhase::Feedback), feedback::cleanup_feedback_card)
             .add_systems(OnEnter(GamePhase::Shop), shop::setup_shop_ui)
             .add_systems(
                 Update,

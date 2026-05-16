@@ -329,6 +329,26 @@ pub enum EventCategory {
     Combat,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum PuzzleRewardPool {
+    #[default]
+    None,
+    Any,
+    Elite,
+    Legendary,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PuzzleEventConfig {
+    pub time_limit_s: f32,
+    pub target_count: u32,
+    pub lives: u32,
+    pub gold_reward: u32,
+    pub xp_reward: u32,
+    #[serde(default)]
+    pub augment_pool: PuzzleRewardPool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventChoiceConfig {
     pub label: String,
@@ -341,6 +361,8 @@ pub struct EventDefinitionConfig {
     pub category: EventCategory,
     pub title: String,
     pub description: String,
+    #[serde(default)]
+    pub puzzle: Option<PuzzleEventConfig>,
     #[serde(default)]
     pub choices: Vec<EventChoiceConfig>,
 }

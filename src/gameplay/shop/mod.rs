@@ -11,7 +11,7 @@ use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Gold, Health, MoveSpeed, Player,
-    RangedCooldown, RewardModifiers, SkillSlots,
+    RangedCooldown, RewardModifiers,
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::session_core::{
@@ -20,6 +20,10 @@ use crate::gameplay::session_core::{
     refresh_shop_draft,
 };
 use crate::states::{AppState, GamePhase};
+use crate::ui::feedback::{UiFeedbackEvent, UiFeedbackSeverity};
+use crate::ui::skill_select::{
+    SkillChoiceOption, SkillChoices, SkillEquipCancelledEvent, SkillEquippedEvent, SkillSelectStep,
+};
 use crate::utils::rng::GameRng;
 
 pub struct ShopPlugin;
@@ -30,6 +34,8 @@ impl Plugin for ShopPlugin {
         app.init_resource::<ShopOffers>()
             .init_resource::<ShopOfferCache>()
             .init_resource::<ShopSeenRooms>()
+            .init_resource::<PendingShopSkillPurchase>()
+            .init_resource::<ShopPendingAction>()
             .add_systems(
                 Update,
                 (
@@ -43,6 +49,12 @@ impl Plugin for ShopPlugin {
             .add_systems(
                 Update,
                 handle_shop_purchase_input.run_if(in_state(GamePhase::Shop)),
+            )
+            .add_systems(
+                Update,
+                handle_shop_skill_equip_result
+                    .run_if(in_state(GamePhase::SkillSelect))
+                    .after(crate::ui::skill_select::skill_select_input),
             );
     }
 }
@@ -130,11 +142,31 @@ pub enum ShopItem {
     Talisman,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum ShopSection {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShopSection {
     Attributes,
     Augments,
     Utilities,
+}
+
+#[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct PendingShopSkillPurchase(pub Option<PendingShopSkillPurchaseInfo>);
+
+#[derive(Debug, Clone, Copy)]
+pub struct PendingShopSkillPurchaseInfo {
+    pub section: ShopSection,
+    pub index: usize,
+    pub cost: u32,
+}
+
+#[derive(Resource, Debug, Default, Clone, Copy)]
+pub struct ShopPendingAction(pub Option<ShopUiAction>);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShopUiAction {
+    Select(ShopSection, usize),
+    Refresh,
+    Exit,
 }
 
 pub fn spawn_shop_kiosk_if_needed(
@@ -398,13 +430,17 @@ fn player_near_shop_kiosk(
 
 pub fn handle_shop_purchase_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mut pending_action: ResMut<ShopPendingAction>,
     mut offers: ResMut<ShopOffers>,
     mut cache: ResMut<ShopOfferCache>,
+    mut pending_skill: ResMut<PendingShopSkillPurchase>,
+    mut skill_choices: ResMut<SkillChoices>,
     floor: Option<Res<FloorNumber>>,
     data: Option<Res<GameDataRegistry>>,
     mut rng: ResMut<GameRng>,
     mut next: ResMut<NextState<GamePhase>>,
     mut shop_purchase: EventWriter<ShopPurchaseEvent>,
+    mut feedback: EventWriter<UiFeedbackEvent>,
     mut player_q: Query<
         (
             &mut Gold,
@@ -417,7 +453,6 @@ pub fn handle_shop_purchase_input(
             &mut AttackCooldown,
             &mut RangedCooldown,
             &mut RewardModifiers,
-            &mut SkillSlots,
             Option<&mut AugmentInventory>,
         ),
         With<Player>,
@@ -426,13 +461,18 @@ pub fn handle_shop_purchase_input(
     // Esc leaves the shop without buying. Without this the only exit is a
     // successful purchase, trapping a player who has no gold or wants to
     // leave. Offers/cache are preserved so re-entering shows the same state.
-    if keyboard.just_pressed(KeyCode::Escape) {
+    let action = pending_action.0.take();
+    if keyboard.just_pressed(KeyCode::Escape) || action == Some(ShopUiAction::Exit) {
         next.set(GamePhase::Playing);
         return;
     }
 
-    let refresh_pressed = keyboard.just_pressed(KeyCode::KeyR);
-    let selection = shop_selection_from_keyboard(&keyboard);
+    let refresh_pressed =
+        keyboard.just_pressed(KeyCode::KeyR) || action == Some(ShopUiAction::Refresh);
+    let selection = match action {
+        Some(ShopUiAction::Select(section, index)) => Some((section, index)),
+        _ => shop_selection_from_keyboard(&keyboard),
+    };
     let Ok((
         mut gold,
         mut hp,
@@ -444,7 +484,6 @@ pub fn handle_shop_purchase_input(
         mut atk_cd,
         mut ranged_cd,
         mut mods,
-        mut skill_slots,
         augment_inventory,
     )) = player_q.get_single_mut()
     else {
@@ -459,6 +498,7 @@ pub fn handle_shop_purchase_input(
         let cost = next_refresh_cost(offers.refresh_count);
         if gold.0 < cost {
             warn!("金币不足：需要 {}，当前 {}", cost, gold.0);
+            feedback.send(shop_warning_feedback(cost, gold.0));
             return;
         }
         gold.0 -= cost;
@@ -471,6 +511,10 @@ pub fn handle_shop_purchase_input(
             floor_number,
             *mods,
         );
+        feedback.send(UiFeedbackEvent::toast(
+            "商店已刷新",
+            vec![format!("-{} 金币", cost)],
+        ));
         return;
     }
 
@@ -481,20 +525,31 @@ pub fn handle_shop_purchase_input(
         return;
     };
     if line.purchased {
+        feedback.send(UiFeedbackEvent::toast(
+            "已经购买",
+            vec![format!("{} 已经售出。", line.title)],
+        ));
         return;
     }
 
     if gold.0 < line.cost {
         warn!("金币不足：需要 {}，当前 {}", line.cost, gold.0);
+        feedback.send(shop_warning_feedback(line.cost, gold.0));
         return;
     }
 
+    let mut purchase_lines = vec![format!("-{} 金币", line.cost), line.title.clone()];
     let applied = match line.item {
         ShopItem::Augment(augment_id) => {
             let Some(mut inventory) = augment_inventory else {
                 return;
             };
-            inventory.add(augment_id);
+            let grant = inventory.grant(augment_id);
+            purchase_lines = vec![format!("-{} 金币", line.cost)];
+            purchase_lines.extend(crate::ui::feedback::augment_grant_lines(
+                grant,
+                data.as_deref(),
+            ));
             true
         }
         ShopItem::UpgradeAugment => {
@@ -509,14 +564,42 @@ pub fn handle_shop_purchase_input(
             else {
                 return;
             };
-            inventory.add(held.id);
+            let grant = inventory.grant(held.id);
+            purchase_lines = vec![format!("-{} 金币", line.cost)];
+            purchase_lines.extend(crate::ui::feedback::augment_grant_lines(
+                grant,
+                data.as_deref(),
+            ));
             true
         }
         ShopItem::Skill(skill) => {
-            skill_slots.equip_first_available(skill);
-            true
+            pending_skill.0 = Some(PendingShopSkillPurchaseInfo {
+                section,
+                index: i,
+                cost: line.cost,
+            });
+            skill_choices.options = vec![SkillChoiceOption {
+                skill,
+                title: line.title.clone(),
+                description: line.description.clone(),
+                energy_cost: data
+                    .as_deref()
+                    .and_then(|registry| registry.skills.get(skill))
+                    .map(|config| config.energy_cost)
+                    .unwrap_or(0.0),
+                cooldown_s: data
+                    .as_deref()
+                    .and_then(|registry| registry.skills.get(skill))
+                    .map(|config| config.cooldown_s)
+                    .unwrap_or(0.0),
+            }];
+            skill_choices.return_state = Some(GamePhase::Playing);
+            skill_choices.step = SkillSelectStep::ChooseSkill;
+            next.set(GamePhase::SkillSelect);
+            return;
         }
         _ => {
+            purchase_lines.push(line.description.clone());
             let mut effects = PlayerRuleEffects {
                 health: &mut hp,
                 energy: &mut energy,
@@ -542,6 +625,10 @@ pub fn handle_shop_purchase_input(
         }
     };
     if !applied {
+        feedback.send(UiFeedbackEvent::toast(
+            "购买未完成",
+            vec![format!("{} 暂时无法生效。", line.title)],
+        ));
         return;
     }
     gold.0 -= line.cost;
@@ -553,7 +640,85 @@ pub fn handle_shop_purchase_input(
     }
 
     shop_purchase.send(ShopPurchaseEvent);
+    feedback.send(UiFeedbackEvent::card(
+        "购买成功",
+        purchase_lines,
+        UiFeedbackSeverity::Success,
+        GamePhase::Playing,
+    ));
     next.set(GamePhase::Playing);
+}
+
+fn handle_shop_skill_equip_result(
+    mut pending: ResMut<PendingShopSkillPurchase>,
+    mut equipped_events: EventReader<SkillEquippedEvent>,
+    mut cancelled_events: EventReader<SkillEquipCancelledEvent>,
+    mut offers: ResMut<ShopOffers>,
+    mut cache: ResMut<ShopOfferCache>,
+    mut shop_purchase: EventWriter<ShopPurchaseEvent>,
+    mut feedback: EventWriter<UiFeedbackEvent>,
+    mut player_q: Query<&mut Gold, With<Player>>,
+) {
+    if cancelled_events.read().next().is_some() {
+        feedback.send(UiFeedbackEvent::toast(
+            "终结技购买已取消",
+            vec!["未扣除金币，原槽位保持不变。".to_string()],
+        ));
+        pending.0 = None;
+        return;
+    }
+
+    let Some(equipped) = equipped_events.read().next() else {
+        return;
+    };
+    let _ = (equipped.skill, equipped.slot);
+
+    let Some(info) = pending.0.take() else {
+        return;
+    };
+    let Ok(mut gold) = player_q.get_single_mut() else {
+        return;
+    };
+    if gold.0 < info.cost {
+        warn!(
+            "终结技已装入但金币不足以完成商店结算：需要 {}，当前 {}",
+            info.cost, gold.0
+        );
+        feedback.send(shop_warning_feedback(info.cost, gold.0));
+        return;
+    }
+
+    gold.0 -= info.cost;
+    let title = shop_lines_for_section(&offers, info.section)
+        .get(info.index)
+        .map(|line| line.title.clone())
+        .unwrap_or_else(|| equipped.skill.label().to_string());
+    if let Some(slot) = shop_lines_for_section_mut(&mut offers, info.section).get_mut(info.index) {
+        slot.purchased = true;
+    }
+    if let Some(room) = offers.room {
+        sync_shop_cache(&offers, &mut cache, room);
+    }
+    shop_purchase.send(ShopPurchaseEvent);
+    feedback.send(UiFeedbackEvent::card(
+        "终结技购买成功",
+        vec![
+            format!("-{} 金币", info.cost),
+            format!("{} 已装入 {} 槽。", title, equipped.slot.key_label()),
+        ],
+        UiFeedbackSeverity::Success,
+        GamePhase::Playing,
+    ));
+}
+
+fn shop_warning_feedback(cost: u32, current: u32) -> UiFeedbackEvent {
+    UiFeedbackEvent {
+        title: "金币不足".to_string(),
+        lines: vec![format!("需要 {} 金币，当前只有 {}。", cost, current)],
+        severity: UiFeedbackSeverity::Warning,
+        requires_ack: false,
+        return_phase: GamePhase::Shop,
+    }
 }
 
 fn build_shop_lines_from_draft(
@@ -712,5 +877,21 @@ fn shared_shop_item_from_shop_item(item: ShopItem) -> SharedShopItem {
         ShopItem::HealingPotion => SharedShopItem::HealingPotion,
         ShopItem::EnergyPotion => SharedShopItem::EnergyPotion,
         ShopItem::Talisman => SharedShopItem::Talisman,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shop_warning_feedback_keeps_player_in_shop() {
+        let feedback = shop_warning_feedback(50, 20);
+
+        assert_eq!(feedback.title, "金币不足");
+        assert!(!feedback.requires_ack);
+        assert_eq!(feedback.severity, UiFeedbackSeverity::Warning);
+        assert_eq!(feedback.return_phase, GamePhase::Shop);
+        assert!(feedback.lines.iter().any(|line| line.contains("50")));
     }
 }

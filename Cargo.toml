@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0"
 bevy = { version = "0.14", features = ["serialize"] }
-bevy_kira_audio = { version = "0.20", features = ["ogg", "wav"] }
+bevy_kira_audio = { version = "0.20", features = ["ogg", "wav", "mp3"] }
 bevy_rapier2d = "0.27"
 rand = "0.8"
 ron = "0.8"

@@ -6,6 +6,7 @@ use crate::core::events::{RoomClearedEvent, SpawnEnemyEvent};
 use crate::data::definitions::{AugmentConfig, RewardScalingConfig};
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentInventory, AugmentRarity};
+use crate::gameplay::augment::effects::{ArmorBroken, Frozen};
 use crate::gameplay::enemy::systems::{ClearGrace, EnemySpawnCount, SpawnedForRoom};
 use crate::gameplay::map::generator::{build_rooms, reset_player_for_floor, spawn_current_room};
 use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
@@ -21,6 +22,7 @@ use crate::gameplay::session_core::{
 };
 use crate::states::{AppState, GamePhase, RoomState};
 use crate::ui::augment_select::{AugmentChoiceOption, AugmentChoices};
+use crate::ui::feedback::{UiFeedbackEvent, UiFeedbackSeverity};
 use crate::ui::levelup_select::LevelUpChoices;
 use crate::ui::skill_select::{SkillChoiceOption, SkillChoices};
 use crate::utils::entity::safe_despawn_recursive;
@@ -33,8 +35,7 @@ pub struct RewardRoomClaims {
 
 #[derive(Debug, Clone)]
 pub enum RewardRoomAugmentService {
-    Upgrade(Vec<AugmentChoiceOption>),
-    Awakening(Vec<AugmentChoiceOption>),
+    Forge(Vec<AugmentChoiceOption>),
 }
 
 #[derive(Debug, Clone)]
@@ -47,8 +48,7 @@ pub enum RewardFlowStep {
     #[default]
     Inactive,
     Sanctuary(SanctuaryDraft),
-    UpgradePick(Vec<AugmentChoiceOption>),
-    AwakeningPick(Vec<AugmentChoiceOption>),
+    ForgePick(Vec<AugmentChoiceOption>),
 }
 
 #[derive(Resource, Debug, Default, Clone)]
@@ -171,7 +171,7 @@ fn offer_reward_in_reward_room(
             build_sanctuary_draft(registry.augments.augments.as_slice(), &mut rng, inventory)
         })
         .unwrap_or_else(|| SanctuaryDraft {
-            augment_service: RewardRoomAugmentService::Awakening(Vec::new()),
+            augment_service: RewardRoomAugmentService::Forge(Vec::new()),
         });
 
     *room_state = RoomState::Locked;
@@ -195,18 +195,19 @@ fn enter_reward_selection(
     floor: Option<Res<FloorNumber>>,
     mut player_q: Query<(&RewardModifiers, &mut Health, Option<&AugmentInventory>), With<Player>>,
 ) {
-    let Some(ev) = room_cleared.read().next() else {
-        return;
-    };
-
-    pending_action.0 = None;
-
     let (Some(layout), Some(current)) = (layout.as_deref(), current.as_deref()) else {
         return;
     };
-    if ev.room != current.0 {
+
+    if room_cleared
+        .read()
+        .find(|ev| ev.room == current.0)
+        .is_none()
+    {
         return;
     }
+
+    pending_action.0 = None;
 
     let Some(room) = layout.room(current.0) else {
         return;
@@ -316,7 +317,7 @@ fn handle_reward_choice_input(
                 pending_action.0 = Some(RewardUiAction::Select(2));
             }
         }
-        RewardFlowStep::UpgradePick(options) | RewardFlowStep::AwakeningPick(options) => {
+        RewardFlowStep::ForgePick(options) => {
             if keyboard.just_pressed(KeyCode::Escape) {
                 pending_action.0 = Some(RewardUiAction::Back);
                 return;
@@ -342,25 +343,22 @@ fn handle_reward_choice_input(
 }
 
 fn apply_reward_choice(
+    mut commands: Commands,
     mut next_state: ResMut<NextState<GamePhase>>,
     mut flow: ResMut<RewardFlow>,
     mut pending_action: ResMut<RewardPendingAction>,
     mut room_state: ResMut<RoomState>,
     mut cleared: EventWriter<RoomClearedEvent>,
+    mut feedback: EventWriter<UiFeedbackEvent>,
     mut levelup_choices: ResMut<LevelUpChoices>,
     floor: Option<Res<FloorNumber>>,
     data: Option<Res<GameDataRegistry>>,
     mut rng: ResMut<GameRng>,
-    mut player_q: Query<
-        (
-            &mut Health,
-            &mut Energy,
-            &mut AugmentInventory,
-            &mut PlayerLevel,
-            &mut Gold,
-        ),
-        With<Player>,
-    >,
+    mut player_q: ParamSet<(
+        Query<(Entity, &mut Health, &mut Energy), With<Player>>,
+        Query<&mut AugmentInventory, With<Player>>,
+        Query<(&Health, &mut PlayerLevel, &mut Gold), With<Player>>,
+    )>,
 ) {
     let Some(action) = pending_action.0.take() else {
         return;
@@ -372,8 +370,22 @@ fn apply_reward_choice(
         (RewardFlowStep::Sanctuary(_), RewardUiAction::Back) => {}
         (RewardFlowStep::Sanctuary(sanctuary), RewardUiAction::Select(index)) => match index {
             0 => {
-                if let Ok((mut health, mut energy, _, _, _)) = player_q.get_single_mut() {
+                if let Ok((entity, mut health, mut energy)) = player_q.p0().get_single_mut() {
+                    let before_hp = health.current;
+                    let before_energy = energy.current;
                     full_restore(&mut health, &mut energy);
+                    commands.entity(entity).remove::<ArmorBroken>();
+                    commands.entity(entity).remove::<Frozen>();
+                    feedback.send(UiFeedbackEvent::card(
+                        "圣所疗愈",
+                        vec![
+                            format!("HP: {:.0} -> {:.0}", before_hp, health.current),
+                            format!("能量: {:.0} -> {:.0}", before_energy, energy.current),
+                            "负面状态已清除。".to_string(),
+                        ],
+                        UiFeedbackSeverity::Success,
+                        GamePhase::Playing,
+                    ));
                 }
                 finish_reward_room(
                     &mut flow,
@@ -384,28 +396,13 @@ fn apply_reward_choice(
                 );
             }
             1 => {
-                let (options, is_upgrade) = match sanctuary.augment_service {
-                    RewardRoomAugmentService::Upgrade(options) => (options, true),
-                    RewardRoomAugmentService::Awakening(options) => (options, false),
+                let options = match sanctuary.augment_service {
+                    RewardRoomAugmentService::Forge(options) => options,
                 };
                 if options.is_empty() {
-                    // Degenerate state (augments config empty/broken, or every
-                    // elite/legendary already owned): never leave the forge
-                    // option as a silent dead button. Resolve the room so the
-                    // run continues. Phase 3 (§4.6) replaces this with a
-                    // guaranteed legendary grant.
-                    warn!("圣所强化锻造无可用选项，安全收敛奖励房");
-                    finish_reward_room(
-                        &mut flow,
-                        &mut room_state,
-                        &mut cleared,
-                        &mut next_state,
-                        GamePhase::Playing,
-                    );
-                } else if is_upgrade {
-                    flow.step = RewardFlowStep::UpgradePick(options);
+                    warn!("圣所锻造无可用选项，请检查 augments.ron");
                 } else {
-                    flow.step = RewardFlowStep::AwakeningPick(options);
+                    flow.step = RewardFlowStep::ForgePick(options);
                 }
             }
             2 => {
@@ -418,17 +415,21 @@ fn apply_reward_choice(
                     &default_scaling
                 };
 
-                if let Ok((health, _energy, _inventory, mut level, mut gold)) =
-                    player_q.get_single_mut()
-                {
+                if let Ok((health, mut level, mut gold)) = player_q.p2().get_single_mut() {
+                    let max_health = health.max;
+                    let new_level = level.level + 1;
                     apply_revelation_reward(&mut level, &mut gold);
+                    feedback.send(UiFeedbackEvent::toast(
+                        "圣所启示",
+                        vec![format!("等级提升到 {}，+50 金币。", new_level)],
+                    ));
                     configure_revelation_choices(
                         &mut levelup_choices,
                         &mut rng,
                         scaling,
-                        health.max,
+                        max_health,
                         floor_number,
-                        level.level,
+                        new_level,
                     );
                     finish_reward_room(
                         &mut flow,
@@ -441,26 +442,28 @@ fn apply_reward_choice(
             }
             _ => {}
         },
-        (RewardFlowStep::UpgradePick(options), RewardUiAction::Back) => {
+        (RewardFlowStep::ForgePick(options), RewardUiAction::Back) => {
             // Return to the sanctuary preserving the SAME options. Never
             // rebuild via RNG here, otherwise Esc-then-reselect would let the
-            // player re-roll the forge/awakening offers for free.
+            // player re-roll the forge offers for free.
             flow.step = RewardFlowStep::Sanctuary(SanctuaryDraft {
-                augment_service: RewardRoomAugmentService::Upgrade(options),
+                augment_service: RewardRoomAugmentService::Forge(options),
             });
         }
-        (RewardFlowStep::AwakeningPick(options), RewardUiAction::Back) => {
-            flow.step = RewardFlowStep::Sanctuary(SanctuaryDraft {
-                augment_service: RewardRoomAugmentService::Awakening(options),
-            });
-        }
-        (RewardFlowStep::UpgradePick(options), RewardUiAction::Select(index))
-        | (RewardFlowStep::AwakeningPick(options), RewardUiAction::Select(index)) => {
+        (RewardFlowStep::ForgePick(options), RewardUiAction::Select(index)) => {
             let Some(choice) = options.get(index) else {
                 return;
             };
-            if let Ok((_, _, mut inventory, _, _)) = player_q.get_single_mut() {
-                inventory.add(choice.id);
+            if let Ok(mut inventory) = player_q.p1().get_single_mut() {
+                let grant = inventory.grant(choice.id);
+                let mut lines = crate::ui::feedback::augment_grant_lines(grant, data.as_deref());
+                lines.insert(0, "锻造完成。".to_string());
+                feedback.send(UiFeedbackEvent::card(
+                    "圣所锻造",
+                    lines,
+                    UiFeedbackSeverity::Success,
+                    GamePhase::Playing,
+                ));
                 finish_reward_room(
                     &mut flow,
                     &mut room_state,
@@ -614,13 +617,15 @@ fn build_sanctuary_draft(
     let upgrade_options = inventory
         .map(|inventory| build_upgrade_candidates(augments, inventory))
         .unwrap_or_default();
-    let augment_service = if upgrade_options.is_empty() {
-        RewardRoomAugmentService::Awakening(build_awakening_choices(augments, rng, inventory))
+    let forge_options = if upgrade_options.is_empty() {
+        build_legendary_forge_choices(augments, rng, inventory)
     } else {
-        RewardRoomAugmentService::Upgrade(upgrade_options)
+        upgrade_options
     };
 
-    SanctuaryDraft { augment_service }
+    SanctuaryDraft {
+        augment_service: RewardRoomAugmentService::Forge(forge_options),
+    }
 }
 
 fn build_upgrade_candidates(
@@ -653,7 +658,7 @@ fn build_upgrade_candidates(
         .collect()
 }
 
-fn build_awakening_choices(
+fn build_legendary_forge_choices(
     augments: &[AugmentConfig],
     rng: &mut GameRng,
     inventory: Option<&AugmentInventory>,
@@ -944,14 +949,14 @@ mod tests {
     }
 
     #[test]
-    fn sanctuary_falls_back_to_awakening_when_no_upgrade_exists() {
+    fn sanctuary_forge_offers_legendary_candidates_when_no_upgrade_exists() {
         let mut rng = seeded_rng(9);
         let inventory = AugmentInventory::default();
 
         let draft = build_sanctuary_draft(&sample_augments(), &mut rng, Some(&inventory));
 
         match draft.augment_service {
-            RewardRoomAugmentService::Awakening(options) => {
+            RewardRoomAugmentService::Forge(options) => {
                 assert_eq!(options.len(), 2);
                 assert!(
                     options
@@ -959,7 +964,6 @@ mod tests {
                         .all(|option| option.rarity == AugmentRarity::Legendary)
                 );
             }
-            RewardRoomAugmentService::Upgrade(_) => panic!("expected awakening fallback"),
         }
     }
 

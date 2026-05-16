@@ -1,7 +1,7 @@
 use std::env;
 
 use bevy::prelude::*;
-use bevy::window::{PrimaryWindow, WindowPosition};
+use bevy::window::{PrimaryWindow, WindowMode, WindowPosition};
 
 use crate::coop::net::{
     CoopNetConfig, CoopNetState, CoopSessionFlow, NetMode as CoopNetMode, begin_coop_lobby_session,
@@ -174,6 +174,7 @@ fn apply_local_debug_window(
         }
     }
     if let Some(pos) = config.window_pos {
+        window.mode = WindowMode::Windowed;
         window.position = WindowPosition::At(pos);
     }
     runtime.window_applied = true;
