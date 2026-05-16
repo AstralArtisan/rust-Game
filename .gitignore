@@ -1,1 +1,70 @@
+# Rust
 /target
+**/*.rs.bk
+Cargo.lock
+
+# Claude Code
+.claude/
+!.claude/hooks/
+!.claude/hooks/**
+!.claude/settings.json
+.agents/
+.omx/
+AGENTS.md
+CLAUDE.md
+prompt.md
+PLANS.md
+
+# Node.js
+node_modules/
+package-lock.json
+skills-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Build artifacts
+*.o
+*.a
+*.so
+
+# Debug files
+.dSYM/
+*.pdb
+
+# Release artifacts
+*.exe
+*.dll
+*.dylib
+
+# Configuration files that might contain sensitive info
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache
+.cache/
+*.cache

@@ -1,50 +1,109 @@
-# 迷雾回响（Echoes in the Fog）
+# 勇闯方块城 / Block City Adventure
 
-一个用 Rust + Bevy 编写的 2D 俯视角轻度 Roguelike 小游戏（课程项目 / MVP）。
+- 适用版本：当前工作树（branch `claude-playground`）
+- 最后校验：2026-04-11；`cargo check` 通过，`cargo test` 44 项通过
+- 源码文件数：110 个 Rust 源文件
+- 关联源码：`src/main.rs`、`src/app.rs`、`src/states.rs`、`src/core/`、`src/gameplay/`、`src/coop/`、`src/pvp/`、`src/ui/`
+- 实验性内容：包含。`Coop` 与 `PVP` 仍按”原型/持续完善”维护
 
-## 运行方式
+> [历史快照] 本文档前一版本基于 tag `saved-version-20260330-161713`（24 项测试）。以下内容已更新至当前代码状态。
 
-本项目入口是 `src/main.rs`，运行时直接运行它即可。
+`勇闯方块城` 是一个基于 Rust + Bevy 的 2D 俯视角动作 Roguelike 课程项目。当前仓库已经形成“单机可玩 + 合作联机原型 + PVP 原型”的总体结构，重点不在素材堆砌，而在玩法闭环、模块拆分、配置驱动和后续扩展能力。
 
-也可以使用标准 Rust 方式运行（推荐）：
+## 技术栈
+- Rust 2024
+- Bevy 0.14
+- `bevy_rapier2d` 0.27
+- `bevy_kira_audio` 0.20
+- `serde` + `ron`
+- `bincode`
+- `lightyear = 0.17.1`
 
+## 快速开始
 ```bash
 cargo run
 ```
 
-## 游戏怎么玩
+发布构建：
 
-### 目标
+```bash
+cargo run --release
+```
 
-- 依次探索房间、击败敌人并通关 Boss 房。
-- 清理 Boss 房后会出现“奖励三选一”，选择后进入结算（胜利）。
+常用校验命令：
 
-### 操作
+```bash
+cargo check
+cargo test
+```
 
-- `WASD`：移动
-- 鼠标左键：近战攻击
+默认二进制名为 `block_city_adventure`。
+
+## 基本操作
+- `WASD` / 方向键：移动
+- 鼠标左键 / `J`：近战攻击
 - 鼠标右键：远程攻击
-- `Space`：冲刺/位移
-- `E`：与门交互（切换房间）
-- `Esc`：暂停/继续
-- 奖励选择界面：按 `1` / `2` / `3` 选择奖励
+- `Space`：冲刺
+- `E`：交互、进门、确认关键对象
+- `B`：在商店房内打开商店
+- `Esc`：暂停 / 返回
+- `F5`：保存当前进度
+- `F9`：读取存档
 
-### 提示
+## 当前能力矩阵
+| 领域 | 当前状态 | 说明 |
+| --- | --- | --- |
+| 单机主循环 | 稳定 | `MainMenu -> InGame -> Reward/Shop -> Boss -> 下一层/结算` 已闭环 |
+| 战斗与成长 | 稳定 | 玩家近战/远程/冲刺、敌人 AI、Boss、多类奖励、商店、成就、存档均已接入 |
+| 增强/诅咒/技能 | 稳定 | 30 种被动增强、5 种诅咒、4 种主动技能、事件房系统 |
+| 配置驱动 | 稳定 | `assets/configs/*.ron` 驱动基础数值，`GameDataRegistry` 统一加载 |
+| 合作联机 `Coop` | 原型 | Lightyear 主机权威模拟，Host 同进程运行 server + local client |
+| 对战联机 `PVP` | 原型 | 手写 UDP 协议，独立于 `Coop` 的网络实现 |
+| 本地联调 | 可用 | 通过 `LOCAL_NET_DEBUG*` 环境变量快速启动多人调试 |
 
-- 进入新房间后可能会锁门；击败房间内敌人即可解锁并继续前进。
-- 奖励会永久影响当前局的属性与战斗能力（例如移速、暴击、攻击间隔等）。
-- 失败会进入失败界面；胜利会进入胜利界面；两者都可按 `Enter` 返回主菜单。
+## 目录概览
+- `src/main.rs`：程序入口与窗口初始化
+- `src/app.rs`：总插件装配点 `GamePlugin`
+- `src/states.rs`：全局状态 `AppState` 与房间状态 `RoomState`
+- `src/core/`：资源、输入、音频、事件、相机、存档、成就、本地联调
+- `src/data/`：配置定义、加载器、全局注册表
+- `src/gameplay/`：地图、玩家、战斗、敌人、奖励、商店、解谜、成长、共享规则、增强、铭文、诅咒、技能、掉落物、事件房
+- `src/coop/`：合作模式组件、网络协议、权威运行时、联机 UI
+- `src/pvp/`：PVP 网络、系统、UI
+- `src/ui/`：主菜单、HUD、暂停、通知、奖励页、商店页、结算页
+- `assets/`：字体、贴图、特效、配置文件
+- `docs/`：完整工程交接文档
 
-## 配置（可选）
+## 文档导航
+- [`docs/00_index.md`](docs/00_index.md)：文档总索引、术语表、阅读顺序
+- [`docs/01_build_and_run.md`](docs/01_build_and_run.md)：构建、运行、联调、配置、存档
+- [`docs/02_architecture.md`](docs/02_architecture.md)：框架结构、状态机、数据流、插件树
+- [`docs/03_module_design.md`](docs/03_module_design.md)：模块职责、依赖、复杂度热点
+- [`docs/04_api_and_data_model.md`](docs/04_api_and_data_model.md)：内部接口契约与数据模型
+- [`docs/05_iteration_history.md`](docs/05_iteration_history.md)：真实提交驱动的迭代经历
+- [`docs/06_multiplayer_and_risks.md`](docs/06_multiplayer_and_risks.md)：Coop/PVP 架构差异、风险与调试
+- [`docs/07_extension_guide.md`](docs/07_extension_guide.md)：后续扩展与维护指南
 
-游戏数值与房间序列由 `assets/configs/*.ron` 驱动，例如：
+## 本地联调入口
+仓库当前不再依赖 `local_debug/*.ps1` 脚本。真实入口为 `src/core/local_debug.rs` 的 `LocalDebugPlugin`，通过环境变量驱动：
 
-- `assets/configs/rooms.ron`：房间序列（Start/Normal/Reward/Boss）
-- `assets/configs/game_balance.ron`：整体平衡（例如 `boss_room_gives_victory`）
+- `LOCAL_NET_DEBUG`
+- `LOCAL_NET_DEBUG_MODE`
+- `LOCAL_NET_DEBUG_ROLE`
+- `LOCAL_NET_DEBUG_HOST`
+- `LOCAL_NET_DEBUG_SAVE_SUFFIX`
 
-## 目录结构（简述）
+`Coop` 调试只接受裸 IPv4，不接受 `IP:端口`；端口固定为 UDP `3457`。`PVP` 使用 UDP `3456`。
 
-- `src/core`：输入、资源加载等基础设施
-- `src/gameplay`：战斗/敌人/地图/进度/奖励等核心玩法
-- `src/ui`：主菜单、HUD、暂停、奖励选择、结算界面
-- `src/data`：配置定义与加载
+## 当前质量状态
+- 当前源码可通过 `cargo check`
+- 当前源码可通过 `cargo test`，共 44 个单元测试（覆盖 XP 曲线、Boss 决策、奖励规则、网络协议等）
+- 当前仍存在编译告警，主要集中在未使用代码和待清理的铭文系统残留；这些问题已作为技术债记录在 `docs/architecture_refactor_suggestions.md` 中
+
+## 需求与历史资料
+- 需求基线：`rust_game_codex_requirements.txt`
+- 历史联机审计：`docs/coop_network_audit.md`
+- 中期项目审查：`docs/project_overview_and_coop_review.md`
+
+建议先从 [`docs/00_index.md`](docs/00_index.md) 开始阅读，再按索引顺序进入具体设计文档。
+

@@ -1,15 +1,24 @@
 use bevy::prelude::*;
+use bevy::window::{PrimaryWindow, WindowMode};
 
-use crate::states::AppState;
+use crate::states::{AppState, GamePhase};
 
 #[derive(Resource, Debug, Default, Clone, Copy)]
 pub struct PlayerInputState {
     pub move_axis: Vec2,
     pub attack_pressed: bool,
     pub ranged_pressed: bool,
+    pub attack_held: bool,
+    pub ranged_held: bool,
     pub dash_pressed: bool,
     pub interact_pressed: bool,
     pub pause_pressed: bool,
+    pub skill_1_pressed: bool,
+    pub skill_2_pressed: bool,
+    pub skill_3_pressed: bool,
+    pub skill_4_pressed: bool,
+    pub heal_held: bool,
+    pub shop_pressed: bool,
     pub aim_world: Option<Vec2>,
 }
 
@@ -17,28 +26,82 @@ pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PlayerInputState>().add_systems(
-            Update,
-            collect_player_input.run_if(in_state(AppState::InGame)),
-        );
+        app.init_resource::<PlayerInputState>()
+            .add_systems(Update, toggle_fullscreen)
+            .add_systems(
+                Update,
+                collect_player_input.run_if(
+                    in_state(AppState::InGame)
+                        .or_else(in_state(AppState::PvpMenu))
+                        .or_else(in_state(AppState::PvpLobby))
+                        .or_else(in_state(AppState::PvpGame))
+                        .or_else(in_state(AppState::PvpResult))
+                        .or_else(in_state(AppState::MultiplayerMenu))
+                        .or_else(in_state(AppState::CoopMenu))
+                        .or_else(in_state(AppState::CoopGame)),
+                ),
+            );
+    }
+}
+
+pub fn toggle_fullscreen(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    if !keyboard.just_pressed(KeyCode::F11) {
+        return;
+    }
+    let Ok(mut window) = windows.get_single_mut() else {
+        return;
+    };
+    window.mode = toggled_window_mode(window.mode);
+}
+
+pub fn toggled_window_mode(mode: WindowMode) -> WindowMode {
+    match mode {
+        WindowMode::BorderlessFullscreen | WindowMode::SizedFullscreen | WindowMode::Fullscreen => {
+            WindowMode::Windowed
+        }
+        WindowMode::Windowed => WindowMode::BorderlessFullscreen,
     }
 }
 
 pub fn collect_player_input(
     mut input: ResMut<PlayerInputState>,
+    app_state: Res<State<AppState>>,
+    phase: Option<Res<State<GamePhase>>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     camera_q: Query<(&Camera, &GlobalTransform)>,
 ) {
     *input = PlayerInputState::default();
+    let in_session = matches!(*app_state.get(), AppState::InGame | AppState::CoopGame);
+    if in_session && phase.as_ref().map(|phase| *phase.get()) != Some(GamePhase::Playing) {
+        input.aim_world = map_mouse_to_aim_world(windows, camera_q);
+        return;
+    }
+
     input.move_axis = map_keyboard_to_movement(&keyboard);
 
-    input.attack_pressed = mouse.just_pressed(MouseButton::Left) || keyboard.just_pressed(KeyCode::KeyJ);
+    input.attack_pressed =
+        mouse.just_pressed(MouseButton::Left) || keyboard.just_pressed(KeyCode::KeyJ);
     input.ranged_pressed = mouse.just_pressed(MouseButton::Right);
+    input.attack_held = mouse.pressed(MouseButton::Left) || keyboard.pressed(KeyCode::KeyJ);
+    input.ranged_held = mouse.pressed(MouseButton::Right);
     input.dash_pressed = keyboard.just_pressed(KeyCode::Space);
     input.interact_pressed = keyboard.just_pressed(KeyCode::KeyE);
     input.pause_pressed = keyboard.just_pressed(KeyCode::Escape);
+    input.skill_1_pressed =
+        keyboard.just_pressed(KeyCode::Digit1) || keyboard.just_pressed(KeyCode::Numpad1);
+    input.skill_2_pressed =
+        keyboard.just_pressed(KeyCode::Digit2) || keyboard.just_pressed(KeyCode::Numpad2);
+    input.skill_3_pressed =
+        keyboard.just_pressed(KeyCode::Digit3) || keyboard.just_pressed(KeyCode::Numpad3);
+    input.skill_4_pressed =
+        keyboard.just_pressed(KeyCode::Digit4) || keyboard.just_pressed(KeyCode::Numpad4);
+    input.heal_held = false;
+    input.shop_pressed = keyboard.just_pressed(KeyCode::KeyB);
 
     input.aim_world = map_mouse_to_aim_world(windows, camera_q);
 }
@@ -73,4 +136,29 @@ pub fn map_mouse_to_aim_world(
     let ray = camera.viewport_to_world(camera_transform, cursor)?;
     let world_cursor = ray.origin.truncate();
     Some(world_cursor)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn f11_toggle_switches_between_windowed_and_fullscreen() {
+        assert_eq!(
+            toggled_window_mode(WindowMode::Windowed),
+            WindowMode::BorderlessFullscreen
+        );
+        assert_eq!(
+            toggled_window_mode(WindowMode::BorderlessFullscreen),
+            WindowMode::Windowed
+        );
+        assert_eq!(
+            toggled_window_mode(WindowMode::Fullscreen),
+            WindowMode::Windowed
+        );
+        assert_eq!(
+            toggled_window_mode(WindowMode::SizedFullscreen),
+            WindowMode::Windowed
+        );
+    }
 }

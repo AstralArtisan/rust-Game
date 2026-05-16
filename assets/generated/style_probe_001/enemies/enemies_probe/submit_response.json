@@ -1,0 +1,6 @@
+{
+  "api_job_id": "3c939945-13e2-41e4-b73b-24f530131bce",
+  "status": "queued",
+  "poll_interval_seconds": 3,
+  "poll_url": "https://api.meowart.ai/api/pixel-gen/jobs?id=3c939945-13e2-41e4-b73b-24f530131bce"
+}

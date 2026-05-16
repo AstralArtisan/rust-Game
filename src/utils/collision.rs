@@ -16,11 +16,19 @@ impl Aabb2 {
 
     pub fn intersects(self, other: Aabb2) -> bool {
         let delta = (self.center - other.center).abs();
-        delta.x <= (self.half_size.x + other.half_size.x) && delta.y <= (self.half_size.y + other.half_size.y)
+        delta.x <= (self.half_size.x + other.half_size.x)
+            && delta.y <= (self.half_size.y + other.half_size.y)
     }
 }
 
 pub fn aabb_from_transform_size(transform: &GlobalTransform, size: Vec2) -> Aabb2 {
+    Aabb2::from_center_size(
+        transform.translation().truncate(),
+        scaled_size_from_transform(transform, size),
+    )
+}
+
+pub fn scaled_size_from_transform(transform: &GlobalTransform, size: Vec2) -> Vec2 {
     let scale = transform.compute_transform().scale.truncate();
-    Aabb2::from_center_size(transform.translation().truncate(), size * scale)
+    size * scale
 }

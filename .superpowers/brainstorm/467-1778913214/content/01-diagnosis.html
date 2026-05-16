@@ -1,0 +1,80 @@
+<h2>UI 重设计 · 现状诊断与统一方向</h2>
+<p class="subtitle">先对齐：四个痛点 + 我建议的"设计北极星"。下面的方向问题请在终端回答。</p>
+
+<div class="section">
+  <span class="label">四个痛点</span>
+  <div class="cards">
+    <div class="card">
+      <div class="card-image" style="background:#10131c;padding:14px;">
+        <div style="border:1px solid #2a3346;border-radius:4px;padding:10px;display:flex;gap:8px;">
+          <div style="flex:0 0 90px;background:#1a2030;border-radius:3px;height:90px;"></div>
+          <div style="flex:1;background:#11151f;border-radius:3px;height:90px;"></div>
+        </div>
+        <div style="text-align:center;color:#5a6478;font-size:11px;margin-top:6px;">标题塞在小卡片里 · 写了"Phase 3"</div>
+      </div>
+      <div class="card-body">
+        <h3>① 主菜单</h3>
+        <p>左小卡+右说明，标题不醒目；含开发术语文本。<br><b>方向：</b>标题大字居中/顶部 → 下方竖排菜单 → 预留背景图层。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-image" style="background:#10131c;padding:14px;">
+        <div style="width:55%;margin:0 auto;border:1px solid #2a3346;border-radius:4px;padding:8px;">
+          <div style="background:#1a2030;height:14px;border-radius:2px;margin-bottom:6px;"></div>
+          <div style="background:#11151f;height:60px;border-radius:2px;"></div>
+          <div style="color:#a05a5a;font-size:10px;margin-top:4px;">另外 10 项强化…(截断)</div>
+        </div>
+      </div>
+      <div class="card-body">
+        <h3>② 暂停 (ESC)</h3>
+        <p>全屏下面板太小，强化列表被截断。<br><b>方向：</b>放大到视口比例，强化完整展示（滚动/多列）。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-image" style="background:#10131c;padding:14px;">
+        <div style="display:flex;gap:6px;justify-content:center;">
+          <div style="width:60px;height:80px;background:#222a3a;border-radius:3px;"></div>
+          <div style="width:60px;height:80px;background:#222a3a;border-radius:3px;"></div>
+          <div style="width:60px;height:80px;background:#222a3a;border-radius:3px;"></div>
+        </div>
+        <div style="text-align:center;color:#5a6478;font-size:11px;margin-top:6px;">硬编码灰蓝卡 · 与其它界面不一致</div>
+      </div>
+      <div class="card-body">
+        <h3>③ 奖励房（圣所）</h3>
+        <p>用裸 <code>Color::srgb</code> 而非统一控件，风格脱节。<br><b>方向：</b>改用统一控件体系 + 卡片式布局重做。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-image" style="background:#10131c;padding:14px;">
+        <div style="width:70%;margin:0 auto;">
+          <div style="background:#1a2030;height:12px;border-radius:2px;margin-bottom:4px;"></div>
+          <div style="background:#1a2030;height:12px;border-radius:2px;margin-bottom:4px;"></div>
+          <div style="background:#1a2030;height:12px;border-radius:2px;margin-bottom:4px;"></div>
+          <div style="background:#1a2030;height:12px;border-radius:2px;margin-bottom:4px;"></div>
+          <div style="background:#1a2030;height:12px;border-radius:2px;"></div>
+        </div>
+        <div style="text-align:center;color:#5a6478;font-size:11px;margin-top:6px;">一长列堆叠</div>
+      </div>
+      <div class="card-body">
+        <h3>④ 商店</h3>
+        <p>三区被竖向堆成一长列。<br><b>方向：</b>三区横排三栏（杀戮尖塔式），属性/强化/工具并列。</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <span class="label">设计北极星（统一原则）</span>
+  <ul>
+    <li><b>统一控件体系</b>：所有界面只走 <code>widgets.rs</code>，杜绝裸 <code>Color::srgb</code>，奖励房与其它界面同源。</li>
+    <li><b>视口自适应</b>：面板用 <code>Val::Vw/Vh</code> 比例而非固定 px，全屏 2560/1920 都不"缩小一团"。</li>
+    <li><b>暗色像素风</b>：沿用现有深蓝半透明基调（设计文档 §10.1），加强标题/分区视觉层级。</li>
+    <li><b>分区色语言</b>：商店金、圣所绿、事件紫、危险红——颜色即语义。</li>
+    <li><b>无开发术语</b>：游戏内文本不出现 "Phase/版本号" 等。</li>
+  </ul>
+</div>
+
+<p class="subtitle">请在终端回答下面关于"改动范围"的问题 →</p>

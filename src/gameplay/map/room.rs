@@ -1,20 +1,26 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RoomId(pub u32);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum RoomType {
+    #[default]
     Start,
     Normal,
+    Shop,
     Reward,
-    Puzzle,
+    Event,
+    Elite,
     Boss,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum Direction {
+    #[default]
     Up,
     Down,
     Left,
@@ -22,6 +28,7 @@ pub enum Direction {
 }
 
 impl Direction {
+    #[allow(dead_code)]
     pub fn as_vec2(self) -> Vec2 {
         match self {
             Direction::Up => Vec2::Y,
@@ -39,6 +46,7 @@ pub struct RoomConnections {
 
 #[derive(Debug, Clone)]
 pub struct RoomBounds {
+    #[allow(dead_code)]
     pub half_size: Vec2,
 }
 
@@ -46,7 +54,9 @@ pub struct RoomBounds {
 pub struct RoomData {
     pub id: RoomId,
     pub room_type: RoomType,
+    pub mystery: bool,
     pub connections: RoomConnections,
+    #[allow(dead_code)]
     pub bounds: RoomBounds,
 }
 
@@ -64,4 +74,3 @@ impl FloorLayout {
 
 #[derive(Resource, Debug, Clone, Copy)]
 pub struct CurrentRoom(pub RoomId);
-

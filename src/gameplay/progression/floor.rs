@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 
 use crate::core::events::RoomClearedEvent;
@@ -27,6 +29,7 @@ pub fn complete_floor(
     }
 }
 
+#[allow(dead_code)]
 pub fn go_to_next_floor(mut floor: ResMut<FloorNumber>) {
     floor.0 += 1;
 }

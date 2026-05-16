@@ -1,5 +1,8 @@
+#![allow(dead_code)]
+
 use bevy::prelude::*;
 
+#[allow(dead_code)]
 #[derive(Resource, Debug, Default, Clone)]
 pub struct RunStats {
     pub time_s: f32,
@@ -11,4 +14,3 @@ pub struct RunStats {
 pub fn update_run_stats(mut stats: Local<RunStats>, time: Res<Time>) {
     stats.time_s += time.delta_seconds();
 }
-

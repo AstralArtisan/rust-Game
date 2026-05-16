@@ -1,0 +1,114 @@
+<h2>主菜单 UI 布局方案</h2>
+<p class="subtitle">勇闯方块城 — 三种主菜单布局风格，点击选择你偏好的方向</p>
+
+<div class="cards" style="grid-template-columns: repeat(3, 1fr);">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a">
+    <div class="card-image" style="background: #1a1a2e; padding: 1rem;">
+      <div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: monospace; color: #e0e0e0;">
+        <!-- Pixel-style mockup -->
+        <div style="font-size: 2rem; font-weight: bold; color: #4fc3f7; text-shadow: 2px 2px #1565c0; letter-spacing: 4px; margin-bottom: 4px;">
+          &#9632;&#9632;&#9632;
+        </div>
+        <div style="font-size: 1.1rem; font-weight: bold; color: #fff; margin-bottom: 16px; letter-spacing: 2px;">
+          勇闯方块城
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px; align-items: center; width: 60%;">
+          <div style="background: #4fc3f7; color: #1a1a2e; padding: 4px 0; width: 100%; text-align: center; font-size: 0.7rem; font-weight: bold;">&#9654; 新游戏</div>
+          <div style="border: 1px solid #4fc3f7; color: #4fc3f7; padding: 4px 0; width: 100%; text-align: center; font-size: 0.7rem;">查看存档</div>
+          <div style="border: 1px solid #4fc3f7; color: #4fc3f7; padding: 4px 0; width: 100%; text-align: center; font-size: 0.7rem;">双人合作</div>
+          <div style="border: 1px solid #4fc3f7; color: #4fc3f7; padding: 4px 0; width: 100%; text-align: center; font-size: 0.7rem;">双人对抗</div>
+          <div style="border: 1px solid #555; color: #888; padding: 4px 0; width: 100%; text-align: center; font-size: 0.65rem;">成就 | 图鉴 | 设置</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. 经典居中式</h3>
+      <p>Logo + 标题居中，菜单纵向排列在下方。简洁干净，像素风方块 Logo。底部一排小按钮放次要功能。适合像素/复古风格。</p>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b">
+    <div class="card-image" style="background: linear-gradient(135deg, #0d1b2a 0%, #1b2838 50%, #0d1b2a 100%); padding: 1rem;">
+      <div style="width: 100%; height: 100%; display: flex; font-family: monospace; color: #e0e0e0;">
+        <!-- Left side: menu -->
+        <div style="width: 45%; display: flex; flex-direction: column; justify-content: center; padding-left: 8px;">
+          <div style="font-size: 0.6rem; color: #ffd54f; letter-spacing: 3px; margin-bottom: 2px;">BLOCK CITY</div>
+          <div style="font-size: 1rem; font-weight: bold; color: #fff; margin-bottom: 12px;">勇闯方块城</div>
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <div style="color: #ffd54f; font-size: 0.7rem; font-weight: bold;">&#9654; 新游戏</div>
+            <div style="color: #ccc; font-size: 0.65rem;">&#8226; 查看存档</div>
+            <div style="color: #ccc; font-size: 0.65rem;">&#8226; 双人合作</div>
+            <div style="color: #ccc; font-size: 0.65rem;">&#8226; 双人对抗</div>
+            <div style="color: #ccc; font-size: 0.65rem;">&#8226; 成就</div>
+            <div style="color: #ccc; font-size: 0.65rem;">&#8226; 图鉴</div>
+            <div style="color: #888; font-size: 0.6rem; margin-top: 4px;">设置 | 退出</div>
+          </div>
+        </div>
+        <!-- Right side: character/scene -->
+        <div style="width: 55%; display: flex; align-items: center; justify-content: center;">
+          <div style="width: 80px; height: 100px; border: 2px solid #4fc3f7; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(79,195,247,0.1);">
+            <div style="width: 20px; height: 20px; background: #4fc3f7; margin-bottom: 4px;"></div>
+            <div style="width: 16px; height: 24px; background: #29b6f6;"></div>
+            <div style="font-size: 0.5rem; color: #4fc3f7; margin-top: 4px;">角色预览</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. 左侧菜单 + 右侧场景</h3>
+      <p>标题和菜单靠左，右侧展示角色或动态场景。类似《黑帝斯》《死亡细胞》的布局。更有氛围感，适合展示角色动画。</p>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="card" data-choice="c">
+    <div class="card-image" style="background: #111; padding: 1rem;">
+      <div style="width: 100%; height: 100%; display: flex; flex-direction: column; font-family: monospace; color: #e0e0e0;">
+        <!-- Top: logo area -->
+        <div style="flex: 1; display: flex; align-items: center; justify-content: center;">
+          <div style="text-align: center;">
+            <div style="display: inline-grid; grid-template-columns: repeat(3,16px); gap: 3px; margin-bottom: 6px;">
+              <div style="width:16px;height:16px;background:#4fc3f7;"></div>
+              <div style="width:16px;height:16px;background:#29b6f6;"></div>
+              <div style="width:16px;height:16px;background:#4fc3f7;"></div>
+              <div style="width:16px;height:16px;background:#29b6f6;"></div>
+              <div style="width:16px;height:16px;background:#0288d1;"></div>
+              <div style="width:16px;height:16px;background:#29b6f6;"></div>
+              <div style="width:16px;height:16px;background:#4fc3f7;"></div>
+              <div style="width:16px;height:16px;background:#29b6f6;"></div>
+              <div style="width:16px;height:16px;background:#4fc3f7;"></div>
+            </div>
+            <div style="font-size: 0.9rem; font-weight: bold; color: #fff; letter-spacing: 2px;">勇闯方块城</div>
+          </div>
+        </div>
+        <!-- Bottom: grid menu -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 0 4px 4px;">
+          <div style="background: #4fc3f7; color: #111; padding: 3px; text-align: center; font-size: 0.55rem; font-weight: bold; grid-column: span 2;">新游戏</div>
+          <div style="background: #333; color: #ccc; padding: 3px; text-align: center; font-size: 0.55rem;">合作</div>
+          <div style="background: #333; color: #ccc; padding: 3px; text-align: center; font-size: 0.55rem;">对抗</div>
+          <div style="background: #222; color: #888; padding: 3px; text-align: center; font-size: 0.55rem;">存档</div>
+          <div style="background: #222; color: #888; padding: 3px; text-align: center; font-size: 0.55rem;">成就</div>
+          <div style="background: #222; color: #888; padding: 3px; text-align: center; font-size: 0.55rem;">图鉴</div>
+          <div style="background: #222; color: #888; padding: 3px; text-align: center; font-size: 0.55rem;">设置</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C. 方块网格式</h3>
+      <p>Logo 用方块矩阵组成，菜单也用网格/方块布局。完全贴合"方块城"主题。视觉独特，但可能牺牲一些传统菜单的直觉性。</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top: 1.5rem;">
+  <p class="label">设计说明</p>
+  <p style="color: var(--text-secondary); font-size: 0.85rem;">
+    以上是三种布局方向的线框图。最终实现会有完整的背景动画、粒子效果和音效。
+    方案 A 适合纯像素复古风；方案 B 适合有氛围感的现代独立游戏风格；方案 C 最贴合"方块"主题但较为实验性。
+    点击选择你偏好的方向，或在终端告诉我你的想法。
+  </p>
+</div>

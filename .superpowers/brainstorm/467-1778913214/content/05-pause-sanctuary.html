@@ -1,0 +1,76 @@
+<h2>暂停 & 圣所 · 统一处理确认</h2>
+<p class="subtitle">两屏都按视口比例放大（不再固定 px 缩成一团），复用同一个"详细状态面板"和 Tooltip。强化改成名称小标签平铺——不再截断、不再"另外 10 项"。</p>
+
+<div class="split">
+
+  <div class="mockup">
+    <div class="mockup-header">② 暂停 (ESC) · 约 78vw × 80vh</div>
+    <div class="mockup-body" style="background:#0e1320;padding:12px;min-height:235px;">
+      <div style="color:#fff;font-size:17px;font-weight:800;margin-bottom:10px;letter-spacing:2px;">游戏暂停</div>
+      <div style="display:flex;gap:10px;">
+        <div style="flex:0 0 150px;background:#121826;border:1px solid #2a3550;border-radius:4px;padding:8px;">
+          <div style="color:#d8a93f;font-size:9px;font-weight:700;margin-bottom:6px;">操作</div>
+          <div style="background:#27406b;border:1px solid #4a6699;height:22px;border-radius:3px;margin-bottom:5px;"></div>
+          <div style="background:#1a2236;height:22px;border-radius:3px;margin-bottom:5px;"></div>
+          <div style="background:#1a2236;height:22px;border-radius:3px;margin-bottom:5px;"></div>
+          <div style="background:#1a2236;height:22px;border-radius:3px;margin-bottom:5px;"></div>
+          <div style="background:#3a1f24;height:22px;border-radius:3px;"></div>
+          <div style="color:#5a6478;font-size:8px;margin-top:6px;">ESC 继续 · M 主菜单 · Q 退出</div>
+        </div>
+        <div style="flex:1;background:#121826;border:1px solid #2a3550;border-radius:4px;padding:9px;font-size:10px;color:#c8cee0;">
+          <div style="color:#d8a93f;font-size:10px;font-weight:700;margin-bottom:5px;">角色状态</div>
+          <span style="color:#d85a5e;">HP 110/143</span>　<span style="color:#3aa8f0;">能量 100/100</span>　<span style="color:#f0c84a;">金币 142</span>　<span style="color:#9aa2b8;">Lv11 · 攻击33 · 暴击5%</span>
+          <div style="color:#d8a93f;font-size:9px;font-weight:700;margin:7px 0 4px;">强化 (16)　<span style="color:#5a6478;font-weight:400;">悬停看详情</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            <span style="background:#1c2438;border:1px solid #5c8bd8;padding:2px 6px;border-radius:3px;">荆棘</span>
+            <span style="background:#1c2438;padding:2px 6px;border-radius:3px;">连击加速</span>
+            <span style="background:#1c2438;border:1px solid #5c8bd8;padding:2px 6px;border-radius:3px;">连锁闪电</span>
+            <span style="background:#1c2438;padding:2px 6px;border-radius:3px;">击杀回血</span>
+            <span style="background:#1c2438;padding:2px 6px;border-radius:3px;">弹速提升</span>
+            <span style="background:#1c2438;border:1px solid #e0b34a;padding:2px 6px;border-radius:3px;">反弹</span>
+            <span style="background:#1c2438;padding:2px 6px;border-radius:3px;">…全部平铺，无截断</span>
+          </div>
+          <div style="color:#d8a93f;font-size:9px;font-weight:700;margin:7px 0 4px;">终结技</div>
+          <div style="color:#9b86e6;">1 裂地斩 · 2 生命汲取 · 3 剑舞 · 4 弹幕倾泻</div>
+          <div style="color:#d8a93f;font-size:9px;font-weight:700;margin:7px 0 4px;">工具 (持有)</div>
+          <div style="color:#7fc7a0;">治疗药水 ×2 · 能量药水 ×1 · 护身符 ×1</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">③ 圣所 · 统一控件重做</div>
+    <div class="mockup-body" style="background:#0e1320;padding:12px;min-height:235px;">
+      <div style="color:#58c48a;font-size:16px;font-weight:800;margin-bottom:3px;">圣所</div>
+      <div style="color:#8a93a8;font-size:9px;margin-bottom:10px;">选择一项整备服务，完成后继续前进</div>
+      <div style="display:flex;gap:8px;">
+        <div style="flex:1;background:#141b2b;border:1px solid #46b07a;border-top:3px solid #46b07a;border-radius:4px;padding:10px;min-height:120px;">
+          <div style="color:#58c48a;font-size:11px;font-weight:700;">[1] 疗愈</div>
+          <div style="color:#c2c8da;font-size:9px;margin-top:6px;line-height:1.5;">回满生命与能量，清除负面状态。</div>
+        </div>
+        <div style="flex:1;background:#141b2b;border:1px solid #5c8bd8;border-top:3px solid #5c8bd8;border-radius:4px;padding:10px;min-height:120px;">
+          <div style="color:#7d8af0;font-size:11px;font-weight:700;">[2] 锻造</div>
+          <div style="color:#c2c8da;font-size:9px;margin-top:6px;line-height:1.5;">从强化候选中选 1 个升级。<br>候选卡只写名字，悬停看效果。</div>
+        </div>
+        <div style="flex:1;background:#141b2b;border:1px solid #e0b34a;border-top:3px solid #e0b34a;border-radius:4px;padding:10px;min-height:120px;">
+          <div style="color:#f0c84a;font-size:11px;font-weight:700;">[3] 启示</div>
+          <div style="color:#c2c8da;font-size:9px;margin-top:6px;line-height:1.5;">立即 +1 级并进入升级选择，<br>额外获得 50 金币。</div>
+        </div>
+      </div>
+      <div style="color:#5a6478;font-size:8px;margin-top:8px;">同一套卡片/标题/配色控件，与商店、暂停、升级完全同源——不再是脱节的裸色块。</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section">
+  <span class="label">两屏共同点</span>
+  <ul>
+    <li><b>视口自适应</b>：面板宽高用 vw/vh 比例，全屏 2560/1920 都饱满，不缩成小块。</li>
+    <li><b>强化名称标签平铺</b>：暂停里 16 个强化全部显示，稀有度描边，悬停看详情——彻底解决"另外 10 项"截断。</li>
+    <li><b>同源控件</b>：圣所改用统一卡片/标题/按钮，与全局一致。</li>
+  </ul>
+</div>
+
+<p class="subtitle">这两屏的处理就这样确认；下面终端一个内容问题（暂停菜单要不要加存/读档按钮）→</p>
