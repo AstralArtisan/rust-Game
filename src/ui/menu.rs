@@ -111,11 +111,7 @@ pub fn setup_main_menu(
                     72.0,
                     widgets::gold_color(),
                 ));
-                title_group.spawn(widgets::muted_text(
-                    &assets,
-                    "Block City Adventure",
-                    16.0,
-                ));
+                title_group.spawn(widgets::muted_text(&assets, "Block City Adventure", 16.0));
             });
 
             root.spawn(NodeBundle {

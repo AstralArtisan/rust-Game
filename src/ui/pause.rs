@@ -78,44 +78,34 @@ pub fn setup_pause_menu(
                                 border_color: BorderColor(widgets::gold_color()),
                                 ..default()
                             })
-                                .with_children(|menu| {
-                                    menu.spawn(widgets::section_heading(&assets, "操作"));
-                                    spawn_pause_button(
-                                        menu,
-                                        &assets,
-                                        "继续游戏",
-                                        PauseAction::Resume,
-                                    );
-                                    spawn_pause_button(
-                                        menu,
-                                        &assets,
-                                        "保存进度 (F5)",
-                                        PauseAction::Save,
-                                    );
-                                    spawn_pause_button(
-                                        menu,
-                                        &assets,
-                                        "读取进度 (F9)",
-                                        PauseAction::Load,
-                                    );
-                                    spawn_pause_button(
-                                        menu,
-                                        &assets,
-                                        "回到主菜单",
-                                        PauseAction::MainMenu,
-                                    );
-                                    spawn_pause_button(
-                                        menu,
-                                        &assets,
-                                        "退出游戏",
-                                        PauseAction::Quit,
-                                    );
-                                    menu.spawn(widgets::muted_text(
-                                        &assets,
-                                        "ESC 继续 · M 主菜单 · Q 退出",
-                                        11.0,
-                                    ));
-                                });
+                            .with_children(|menu| {
+                                menu.spawn(widgets::section_heading(&assets, "操作"));
+                                spawn_pause_button(menu, &assets, "继续游戏", PauseAction::Resume);
+                                spawn_pause_button(
+                                    menu,
+                                    &assets,
+                                    "保存进度 (F5)",
+                                    PauseAction::Save,
+                                );
+                                spawn_pause_button(
+                                    menu,
+                                    &assets,
+                                    "读取进度 (F9)",
+                                    PauseAction::Load,
+                                );
+                                spawn_pause_button(
+                                    menu,
+                                    &assets,
+                                    "回到主菜单",
+                                    PauseAction::MainMenu,
+                                );
+                                spawn_pause_button(menu, &assets, "退出游戏", PauseAction::Quit);
+                                menu.spawn(widgets::muted_text(
+                                    &assets,
+                                    "ESC 继续 · M 主菜单 · Q 退出",
+                                    11.0,
+                                ));
+                            });
                             character_panel::spawn_character_summary(row, &assets, &summary);
                         });
                 });

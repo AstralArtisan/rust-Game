@@ -142,17 +142,35 @@ pub fn update_shop_ui(
 
     if let Ok(root) = attr_q.get_single() {
         commands.entity(root).with_children(|col| {
-            spawn_shop_items(col, &assets, ShopSection::Attributes, &offers.lines, &["1", "2", "3", "4"]);
+            spawn_shop_items(
+                col,
+                &assets,
+                ShopSection::Attributes,
+                &offers.lines,
+                &["1", "2", "3", "4"],
+            );
         });
     }
     if let Ok(root) = aug_q.get_single() {
         commands.entity(root).with_children(|col| {
-            spawn_shop_items(col, &assets, ShopSection::Augments, &offers.augment_lines, &["5", "6", "7", "8", "9"]);
+            spawn_shop_items(
+                col,
+                &assets,
+                ShopSection::Augments,
+                &offers.augment_lines,
+                &["5", "6", "7", "8", "9"],
+            );
         });
     }
     if let Ok(root) = util_q.get_single() {
         commands.entity(root).with_children(|col| {
-            spawn_shop_items(col, &assets, ShopSection::Utilities, &offers.utility_lines, &["0", "-", "="]);
+            spawn_shop_items(
+                col,
+                &assets,
+                ShopSection::Utilities,
+                &offers.utility_lines,
+                &["0", "-", "="],
+            );
             let refresh_cost = next_refresh_cost(offers.refresh_count);
             let refresh_text = if refresh_cost == 0 {
                 "R 刷新（免费）".to_string()
