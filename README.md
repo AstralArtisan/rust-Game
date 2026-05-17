@@ -153,4 +153,14 @@ $env:LOCAL_NET_DEBUG=”1”; $env:LOCAL_NET_DEBUG_MODE=”pvp”; $env:LOCAL_NE
 - `cargo test`：86 项通过
 - 覆盖：XP 曲线、Boss 决策、奖励规则、商店逻辑、强化系统、敌人楼层池、角色面板
 
+## 持续集成
+
+| Workflow | 触发 | 作用 |
+|----------|------|------|
+| `ci.yml` | PR / push to main | `cargo check` + `test` + `clippy` + `fmt` 校验 |
+| `claude-code-review.yml` | PR opened/synchronize | Claude（Sonnet 4.6 + API key）自动审核代码 |
+| `claude.yml` | 评论中 `@claude` | OAuth 互动式响应，按订阅额度计费 |
+
+自动审核与互动响应分流：高频的 PR 审核走 API key 控成本，低频的 `@claude` 互动走订阅额度。
+
 
