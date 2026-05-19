@@ -1,23 +1,11 @@
 name: Claude Code Review
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,9 +15,19 @@ jobs:
       actions: read
 
     steps:
-      - name: Checkout repository
+      # 安全：工作区根目录检出 base ref（默认，不带 ref:），
+      # 不让 fork 不可信代码出现在 action 视为仓库根的位置
+      - name: Checkout base repository
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+
+      # PR head 检出到独立子目录，仅供 Claude 阅读 diff/文件，不在根目录执行
+      - name: Checkout PR head into subdir
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr-head
           fetch-depth: 0
 
       - name: Run Claude Code Review
@@ -39,8 +37,7 @@ jobs:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: '--model claude-sonnet-4-6'
+          claude_args: '--model claude-sonnet-4-6 --add-dir pr-head'
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }} --comment'
-
