@@ -6,3 +6,4 @@ pub mod events;
 pub mod input;
 pub mod local_debug;
 pub mod save;
+pub mod test_mode;

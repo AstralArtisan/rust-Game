@@ -4,6 +4,7 @@ use std::path::Path;
 
 use crate::core::achievements::{AchievementId, Achievements};
 use crate::core::assets::GameAssets;
+use crate::core::test_mode::TestMode;
 use crate::gameplay::enemy::systems::EnemySpawnCount;
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::states::AppState;
@@ -36,6 +37,7 @@ pub enum MainMenuPage {
 #[derive(Component)]
 pub(crate) enum MainMenuButton {
     SinglePlayer,
+    TestMode,
     Multiplayer,
     Page(MainMenuPage),
     Quit,
@@ -126,6 +128,7 @@ pub fn setup_main_menu(
             })
             .with_children(|menu| {
                 spawn_menu_button(menu, &assets, "开始冒险", MainMenuButton::SinglePlayer);
+                spawn_menu_button(menu, &assets, "测试模式", MainMenuButton::TestMode);
                 spawn_menu_button(menu, &assets, "联机游戏", MainMenuButton::Multiplayer);
                 spawn_menu_button(
                     menu,
@@ -175,6 +178,13 @@ pub fn menu_button_system(
                 MainMenuButton::SinglePlayer => {
                     commands.insert_resource(FloorNumber(1));
                     commands.insert_resource(EnemySpawnCount { current: 0 });
+                    commands.insert_resource(TestMode(false));
+                    next_state.set(AppState::InGame);
+                }
+                MainMenuButton::TestMode => {
+                    commands.insert_resource(FloorNumber(1));
+                    commands.insert_resource(EnemySpawnCount { current: 0 });
+                    commands.insert_resource(TestMode(true));
                     next_state.set(AppState::InGame);
                 }
                 MainMenuButton::Multiplayer => {

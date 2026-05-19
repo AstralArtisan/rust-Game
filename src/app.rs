@@ -19,6 +19,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
             .add_sub_state::<GamePhase>()
+            .init_resource::<crate::core::test_mode::TestMode>()
             .insert_resource({
                 let mut cfg = RapierConfiguration::new(100.0);
                 cfg.gravity = Vec2::ZERO;

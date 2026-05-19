@@ -7,6 +7,7 @@ use crate::coop::components::{GhostState, LocalControlled};
 use crate::core::assets::GameAssets;
 use crate::core::events::DeathEvent;
 use crate::core::input::PlayerInputState;
+use crate::core::test_mode::TestMode;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::AugmentInventory;
 use crate::gameplay::augment::effects::DashResetSpeedBuff;
@@ -244,11 +245,25 @@ pub fn player_invincibility_system(
 
 pub fn player_death_system(
     mut death_events: EventReader<DeathEvent>,
-    player_q: Query<Entity, (With<Player>, Without<Replicated>)>,
+    mut player_q: Query<
+        (Entity, &mut Health, &mut InvincibilityTimer),
+        (With<Player>, Without<Replicated>),
+    >,
     mut next_state: ResMut<NextState<GamePhase>>,
+    test_mode: Res<TestMode>,
 ) {
     for ev in death_events.read() {
-        if player_q.iter().any(|player_e| ev.entity == player_e) {
+        let is_player = player_q.iter().any(|(e, _, _)| e == ev.entity);
+        if is_player {
+            // 临时测试模式：满血复活 + 2 秒无敌，跳过 GameOver（见 docs/test_mode_temp.md）
+            if test_mode.0 {
+                if let Ok((_, mut health, mut inv)) = player_q.get_mut(ev.entity) {
+                    health.current = health.max;
+                    inv.timer = Timer::from_seconds(2.0, TimerMode::Once);
+                    inv.timer.reset();
+                }
+                return;
+            }
             if evaluate_death(SessionMode::Solo, 0) == DeathDecision::GameOver {
                 next_state.set(GamePhase::GameOver);
             }
