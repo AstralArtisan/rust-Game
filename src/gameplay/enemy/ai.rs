@@ -73,7 +73,7 @@ pub fn update_enemy_ai(
         stats,
         mut tf,
         mut vel,
-        charger_state,
+        mut charger_state,
         flanker_state,
         sniper_state,
         bomber_state,
@@ -123,11 +123,13 @@ pub fn update_enemy_ai(
                 };
             }
             EnemyType::Charger => {
-                let Some(mut st) = charger_state else {
+                let Some(st) = charger_state.as_deref_mut() else {
                     vel.0 = far_pursuit_velocity(dir, separation, move_speed, 0.60, 1.00);
                     continue;
                 };
+
                 st.timer.tick(time.delta());
+
                 match st.phase {
                     ChargerPhase::Idle => {
                         vel.0 = if dist < stats.aggro_range {
@@ -140,6 +142,7 @@ pub fn update_enemy_ai(
                         } else {
                             far_pursuit_velocity(dir, separation, move_speed, 0.66, 1.00)
                         };
+
                         if dist < stats.attack_range * 2.2 {
                             st.phase = ChargerPhase::Windup;
                             st.timer = Timer::from_seconds(
@@ -150,32 +153,39 @@ pub fn update_enemy_ai(
                                 },
                                 TimerMode::Once,
                             );
-                            st.timer.reset();
                             st.dir = dir;
                         }
                     }
+
                     ChargerPhase::Windup => {
                         vel.0 = Vec2::ZERO;
                         if st.timer.finished() {
                             st.phase = ChargerPhase::Charging;
-                            st.timer = Timer::from_seconds(0.32, TimerMode::Once);
-                            st.timer.reset();
-                        }
-                    }
-                    ChargerPhase::Charging => {
-                        vel.0 = st.dir * move_speed * 4.0;
-                        if st.timer.finished() {
-                            st.phase = ChargerPhase::Stunned;
                             st.timer = Timer::from_seconds(0.5, TimerMode::Once);
-                            st.timer.reset();
                         }
                     }
+
+                    ChargerPhase::Charging => {
+                        vel.0 = st.dir * move_speed * 5.4;
+                        if st.timer.finished() {
+                            st.phase = ChargerPhase::Cooldown;
+                            st.timer = Timer::from_seconds(0.5, TimerMode::Once);
+                        }
+                    }
+
                     ChargerPhase::Stunned => {
                         vel.0 = Vec2::ZERO;
                         if st.timer.finished() {
-                            st.phase = ChargerPhase::Idle;
+                            st.phase = ChargerPhase::Cooldown;
                             st.timer = Timer::from_seconds(0.1, TimerMode::Once);
-                            st.timer.reset();
+                        }
+                    }
+
+                    ChargerPhase::Cooldown => {
+                        vel.0 = Vec2::ZERO;
+
+                        if st.timer.finished() {
+                            st.phase = ChargerPhase::Idle;
                         }
                     }
                 }
@@ -333,13 +343,23 @@ pub fn update_enemy_ai(
 
         tf.translation += (vel.0 * time.delta_seconds()).extend(0.0);
 
+        let pre_clamp = tf.translation.truncate();
         let clamped = clamp_in_room(
-            tf.translation.truncate(),
+            pre_clamp,
             Vec2::new(ROOM_HALF_WIDTH, ROOM_HALF_HEIGHT),
             26.0,
         );
         tf.translation.x = clamped.x;
         tf.translation.y = clamped.y;
+
+        if (pre_clamp - clamped).length_squared() > 0.01
+            && let Some(st) = charger_state.as_deref_mut()
+            && matches!(st.phase, ChargerPhase::Charging)
+        {
+            st.phase = ChargerPhase::Stunned;
+            st.timer = Timer::from_seconds(1.5, TimerMode::Once);
+            vel.0 = Vec2::ZERO;
+        }
     }
 }
 

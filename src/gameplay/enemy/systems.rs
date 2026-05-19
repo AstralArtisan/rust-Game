@@ -220,15 +220,20 @@ impl Plugin for EnemySystemsPlugin {
             )
             .add_systems(
                 Update,
-                boss_contact_damage_system.run_if(
-                    in_state(AppState::InGame)
-                        .or_else(
-                            in_state(AppState::CoopGame)
-                                .and_then(is_coop_authority)
-                                .and_then(is_coop_simulation_active),
-                        )
-                        .and_then(in_state(GamePhase::Playing)),
-                ),
+                (
+                    boss_contact_damage_system,
+                    charger_contact_damage_system,
+                    charger_stun_visual_system,
+                )
+                    .run_if(
+                        in_state(AppState::InGame)
+                            .or_else(
+                                in_state(AppState::CoopGame)
+                                    .and_then(is_coop_authority)
+                                    .and_then(is_coop_simulation_active),
+                            )
+                            .and_then(in_state(GamePhase::Playing)),
+                    ),
             )
             .add_systems(
                 Update,
@@ -2187,6 +2192,124 @@ fn boss_contact_damage_system(
                 is_crit: false,
             });
         }
+    }
+}
+
+fn charger_contact_damage_system(
+    mut damage_ev: EventWriter<DamageEvent>,
+    charger_q: Query<
+        (
+            Entity,
+            &EnemyStats,
+            &Hurtbox,
+            &GlobalTransform,
+            &ChargerState,
+        ),
+        Without<Replicated>,
+    >,
+    player_q: Query<
+        (
+            Entity,
+            &Hurtbox,
+            &GlobalTransform,
+            Option<&InvincibilityTimer>,
+            Option<&GhostState>,
+        ),
+        (With<Player>, Without<Replicated>),
+    >,
+) {
+    for (charger_entity, charger_stats, charger_hurtbox, charger_tf, state) in &charger_q {
+        if !matches!(state.phase, ChargerPhase::Charging) {
+            continue;
+        }
+        let charger_aabb = aabb_from_transform_size(charger_tf, charger_hurtbox.size);
+        let charger_pos = charger_tf.translation().truncate();
+        for (entity, hurtbox, player_tf, inv, ghost) in &player_q {
+            if matches!(ghost, Some(GhostState::Ghost)) {
+                continue;
+            }
+            if inv.is_some_and(|timer| !timer.timer.finished()) {
+                continue;
+            }
+            let player_aabb = aabb_from_transform_size(player_tf, hurtbox.size);
+            if !charger_aabb.intersects(player_aabb) {
+                continue;
+            }
+
+            let player_pos = player_tf.translation().truncate();
+            damage_ev.send(DamageEvent {
+                target: entity,
+                source: Some(charger_entity),
+                amount: charger_stats.attack_damage * 1.20,
+                knockback: direction_to(charger_pos, player_pos) * 320.0,
+                team: Team::Enemy,
+                kind: DamageKind::Enemy,
+                is_crit: false,
+            });
+        }
+    }
+}
+
+fn charger_stun_visual_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    assets: Res<crate::core::assets::GameAssets>,
+    charger_q: Query<(Entity, &ChargerState, Option<&Children>), Without<Replicated>>,
+    visual_q: Query<(), With<ChargerStunVisual>>,
+    mut visual_tf_q: Query<(&mut Transform, &mut ChargerStunVisual)>,
+) {
+    for (entity, state, children) in &charger_q {
+        let stunned = matches!(state.phase, ChargerPhase::Stunned);
+        let existing: Option<Entity> = children
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|c| visual_q.get(*c).is_ok());
+
+        match (stunned, existing) {
+            (true, None) => {
+                let visual = commands
+                    .spawn((
+                        SpatialBundle::from_transform(Transform::from_xyz(0.0, 22.0, 1.5)),
+                        ChargerStunVisual::default(),
+                        InGameEntity,
+                    ))
+                    .with_children(|parent| {
+                        for i in 0..3 {
+                            let base_angle = std::f32::consts::TAU * (i as f32 / 3.0);
+                            parent.spawn(SpriteBundle {
+                                texture: assets.textures.white.clone(),
+                                transform: Transform {
+                                    translation: Vec3::new(
+                                        base_angle.cos() * 14.0,
+                                        base_angle.sin() * 14.0,
+                                        0.0,
+                                    ),
+                                    rotation: Quat::from_rotation_z(std::f32::consts::FRAC_PI_4),
+                                    ..default()
+                                },
+                                sprite: Sprite {
+                                    color: Color::srgba(1.0, 0.92, 0.25, 0.95),
+                                    custom_size: Some(Vec2::splat(6.0)),
+                                    ..default()
+                                },
+                                ..default()
+                            });
+                        }
+                    })
+                    .id();
+                commands.entity(entity).add_child(visual);
+            }
+            (false, Some(visual)) => {
+                safe_despawn_recursive(&mut commands, visual);
+            }
+            _ => {}
+        }
+    }
+
+    for (mut tf, mut vis) in &mut visual_tf_q {
+        vis.spin += time.delta_seconds() * 6.0;
+        tf.rotation = Quat::from_rotation_z(vis.spin);
     }
 }
 
