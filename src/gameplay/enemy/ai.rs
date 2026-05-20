@@ -4,6 +4,7 @@ use lightyear::prelude::Replicated;
 
 use crate::constants::{ROOM_HALF_HEIGHT, ROOM_HALF_WIDTH};
 use crate::coop::components::GhostState;
+use crate::data::registry::GameDataRegistry;
 use crate::gameplay::enemy::components::{
     BomberPhase, BomberState, BossArchetype, ChargerPhase, ChargerState, EnemyBuffState, EnemyKind,
     EnemyStats, EnemyType, FlankerPhase, FlankerState, ShielderState, SniperPhase, SniperState,
@@ -25,6 +26,7 @@ struct EnemySnapshot {
 pub fn update_enemy_ai(
     time: Res<Time>,
     mut rng: ResMut<GameRng>,
+    data: Res<GameDataRegistry>,
     player_q: Query<(&GlobalTransform, Option<&GhostState>), (With<Player>, Without<Replicated>)>,
     mut enemies: ParamSet<(
         Query<(Entity, &EnemyKind, &Transform), Without<Replicated>>,
@@ -161,15 +163,21 @@ pub fn update_enemy_ai(
                         vel.0 = Vec2::ZERO;
                         if st.timer.finished() {
                             st.phase = ChargerPhase::Charging;
-                            st.timer = Timer::from_seconds(0.5, TimerMode::Once);
+                            st.timer = Timer::from_seconds(
+                                data.enemies.charger_config.charge_duration_s,
+                                TimerMode::Once,
+                            );
                         }
                     }
 
                     ChargerPhase::Charging => {
-                        vel.0 = st.dir * move_speed * 5.4;
+                        vel.0 = st.dir * move_speed * data.enemies.charger_config.charge_speed_mult;
                         if st.timer.finished() {
                             st.phase = ChargerPhase::Cooldown;
-                            st.timer = Timer::from_seconds(0.5, TimerMode::Once);
+                            st.timer = Timer::from_seconds(
+                                data.enemies.charger_config.cooldown_s,
+                                TimerMode::Once,
+                            );
                         }
                     }
 
@@ -357,7 +365,8 @@ pub fn update_enemy_ai(
             && matches!(st.phase, ChargerPhase::Charging)
         {
             st.phase = ChargerPhase::Stunned;
-            st.timer = Timer::from_seconds(1.5, TimerMode::Once);
+            st.timer =
+                Timer::from_seconds(data.enemies.charger_config.wall_stun_s, TimerMode::Once);
             vel.0 = Vec2::ZERO;
         }
     }

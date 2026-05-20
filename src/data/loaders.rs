@@ -116,6 +116,14 @@ fn default_registry() -> GameDataRegistry {
                 attack_range: 350.0,
                 projectile_speed: 0.0,
             },
+            charger_config: ChargerConfig {
+                charge_duration_s: 0.5,
+                charge_speed_mult: 5.4,
+                wall_stun_s: 1.5,
+                cooldown_s: 0.5,
+                contact_damage_mult: 1.20,
+                contact_knockback: 320.0,
+            },
             flanker: EnemyStatsConfig {
                 max_hp: 46.0,
                 move_speed: 208.0,
