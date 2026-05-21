@@ -224,6 +224,7 @@ impl Plugin for EnemySystemsPlugin {
                     boss_contact_damage_system,
                     charger_contact_damage_system,
                     charger_stun_visual_system,
+                    charger_windup_visual_system,
                 )
                     .run_if(
                         in_state(AppState::InGame)
@@ -1697,10 +1698,7 @@ pub fn enemy_attack_system(
         }
 
         match kind.0 {
-            EnemyType::MeleeChaser
-            | EnemyType::Charger
-            | EnemyType::Flanker
-            | EnemyType::Shielder => {
+            EnemyType::MeleeChaser | EnemyType::Flanker | EnemyType::Shielder => {
                 if dist <= stats.attack_range {
                     cd.timer = Timer::from_seconds(effective_cooldown, TimerMode::Once);
                     cd.timer.reset();
@@ -1807,7 +1805,7 @@ pub fn enemy_attack_system(
                 );
                 cd.timer.reset();
             }
-            EnemyType::Bomber | EnemyType::Summoner => {}
+            EnemyType::Charger | EnemyType::Bomber | EnemyType::Summoner => {}
             EnemyType::Boss => {}
         }
     }
@@ -2197,6 +2195,7 @@ fn boss_contact_damage_system(
 
 fn charger_contact_damage_system(
     mut damage_ev: EventWriter<DamageEvent>,
+    data: Res<GameDataRegistry>,
     charger_q: Query<
         (
             Entity,
@@ -2240,8 +2239,10 @@ fn charger_contact_damage_system(
             damage_ev.send(DamageEvent {
                 target: entity,
                 source: Some(charger_entity),
-                amount: charger_stats.attack_damage * 1.20,
-                knockback: direction_to(charger_pos, player_pos) * 320.0,
+                amount: charger_stats.attack_damage
+                    * data.enemies.charger_config.contact_damage_mult,
+                knockback: direction_to(charger_pos, player_pos)
+                    * data.enemies.charger_config.contact_knockback,
                 team: Team::Enemy,
                 kind: DamageKind::Enemy,
                 is_crit: false,
@@ -2310,6 +2311,66 @@ fn charger_stun_visual_system(
     for (mut tf, mut vis) in &mut visual_tf_q {
         vis.spin += time.delta_seconds() * 6.0;
         tf.rotation = Quat::from_rotation_z(vis.spin);
+    }
+}
+
+fn charger_windup_visual_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    assets: Res<crate::core::assets::GameAssets>,
+    charger_q: Query<(Entity, &ChargerState, Option<&Children>), Without<Replicated>>,
+    visual_q: Query<(), With<ChargerWindupVisual>>,
+    mut visual_update_q: Query<(&mut ChargerWindupVisual, &mut Sprite)>,
+) {
+    for (entity, state, children) in &charger_q {
+        let windup = matches!(state.phase, ChargerPhase::Windup);
+        let existing: Option<Entity> = children
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|c| visual_q.get(*c).is_ok());
+
+        match (windup, existing) {
+            (true, None) => {
+                let dir = if state.dir.length_squared() > f32::EPSILON {
+                    state.dir.normalize()
+                } else {
+                    Vec2::X
+                };
+                let angle = dir.y.atan2(dir.x);
+                let visual = commands
+                    .spawn((
+                        SpriteBundle {
+                            texture: assets.textures.white.clone(),
+                            transform: Transform {
+                                translation: (dir * 38.0).extend(1.4),
+                                rotation: Quat::from_rotation_z(angle),
+                                ..default()
+                            },
+                            sprite: Sprite {
+                                color: Color::srgba(1.0, 0.35, 0.28, 0.55),
+                                custom_size: Some(Vec2::new(72.0, 8.0)),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        ChargerWindupVisual::default(),
+                        InGameEntity,
+                    ))
+                    .id();
+                commands.entity(entity).add_child(visual);
+            }
+            (false, Some(visual)) => {
+                safe_despawn_recursive(&mut commands, visual);
+            }
+            _ => {}
+        }
+    }
+
+    for (mut vis, mut sprite) in &mut visual_update_q {
+        vis.pulse += time.delta_seconds() * 8.0;
+        let alpha = 0.35 + 0.35 * vis.pulse.sin().abs();
+        sprite.color.set_alpha(alpha);
     }
 }
 

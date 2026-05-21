@@ -228,6 +228,11 @@ pub struct ChargerStunVisual {
     pub spin: f32,
 }
 
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct ChargerWindupVisual {
+    pub pulse: f32,
+}
+
 #[derive(Component, Debug, Clone)]
 pub struct FlankerState {
     pub phase: FlankerPhase,

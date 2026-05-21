@@ -40,8 +40,8 @@
     charge_speed_mult: 5.4,
     wall_stun_s: 1.5,
     cooldown_s: 0.5,
-    contact_damage_mult: 1.20,
-    contact_knockback: 320.0,
+    contact_damage_mult: 1.00,
+    contact_knockback: 220.0,
   ),
   flanker: (
     max_hp: 46.0,
