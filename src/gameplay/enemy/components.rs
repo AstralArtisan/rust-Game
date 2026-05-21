@@ -223,6 +223,16 @@ pub struct ChargerState {
     pub dir: Vec2,
 }
 
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct ChargerStunVisual {
+    pub spin: f32,
+}
+
+#[derive(Component, Debug, Clone, Copy, Default)]
+pub struct ChargerWindupVisual {
+    pub pulse: f32,
+}
+
 #[derive(Component, Debug, Clone)]
 pub struct FlankerState {
     pub phase: FlankerPhase,
@@ -268,6 +278,7 @@ pub enum ChargerPhase {
     Windup,
     Charging,
     Stunned,
+    Cooldown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

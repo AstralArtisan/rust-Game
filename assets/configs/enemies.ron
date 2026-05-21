@@ -35,6 +35,14 @@
     attack_range: 350.0,
     projectile_speed: 0.0,
   ),
+  charger_config: (
+    charge_duration_s: 0.5,
+    charge_speed_mult: 5.4,
+    wall_stun_s: 1.5,
+    cooldown_s: 0.5,
+    contact_damage_mult: 1.00,
+    contact_knockback: 220.0,
+  ),
   flanker: (
     max_hp: 46.0,
     move_speed: 195.0,

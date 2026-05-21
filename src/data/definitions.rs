@@ -46,12 +46,23 @@ pub struct EnemyStatsConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChargerConfig {
+    pub charge_duration_s: f32,
+    pub charge_speed_mult: f32,
+    pub wall_stun_s: f32,
+    pub cooldown_s: f32,
+    pub contact_damage_mult: f32,
+    pub contact_knockback: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnemiesConfig {
     pub melee_chaser: EnemyStatsConfig,
     #[serde(default = "default_lobber_stats")]
     pub lobber: EnemyStatsConfig,
     pub ranged_shooter: EnemyStatsConfig,
     pub charger: EnemyStatsConfig,
+    pub charger_config: ChargerConfig,
     pub flanker: EnemyStatsConfig,
     pub sniper: EnemyStatsConfig,
     pub support_caster: EnemyStatsConfig,
