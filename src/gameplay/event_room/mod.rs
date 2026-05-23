@@ -978,22 +978,22 @@ fn configure_non_combat_event(
             };
             active.choices = vec![
                 EventChoice {
-                    label: format!("30% 当前 HP：{common_title}"),
-                    description: format!("失去 30% 当前生命，获得普通强化。{common_desc}"),
+                    label: format!("20% 当前 HP：{common_title}"),
+                    description: format!("失去 20% 当前生命，获得普通强化。{common_desc}"),
                 },
                 EventChoice {
-                    label: format!("50% 当前 HP：{elite_title}"),
-                    description: format!("失去 50% 当前生命，获得精英强化。{elite_desc}"),
+                    label: format!("40% 当前 HP：{elite_title}"),
+                    description: format!("失去 40% 当前生命，获得精英强化。{elite_desc}"),
                 },
                 leave_choice(),
             ];
             active.choice_payloads = vec![
                 EventChoicePayload::BloodPact {
-                    hp_fraction: 0.30,
+                    hp_fraction: 0.20,
                     augment_id: common_id,
                 },
                 EventChoicePayload::BloodPact {
-                    hp_fraction: 0.50,
+                    hp_fraction: 0.40,
                     augment_id: elite_id,
                 },
                 EventChoicePayload::Leave,
@@ -1022,8 +1022,8 @@ fn configure_non_combat_event(
                     description: "恢复 40% 最大生命值。".to_string(),
                 },
                 EventChoice {
-                    label: "恢复 50 能量".to_string(),
-                    description: "恢复 50 点终结技能量。".to_string(),
+                    label: "20% HP + 30 能量".to_string(),
+                    description: "恢复 20% 最大生命与 30 点能量。".to_string(),
                 },
                 EventChoice {
                     label: "两者各恢复 25%".to_string(),
@@ -1037,8 +1037,8 @@ fn configure_non_combat_event(
                     energy_fraction: 0.0,
                 },
                 EventChoicePayload::HealingSpring {
-                    hp_fraction: 0.0,
-                    energy_flat: 50.0,
+                    hp_fraction: 0.20,
+                    energy_flat: 30.0,
                     energy_fraction: 0.0,
                 },
                 EventChoicePayload::HealingSpring {
@@ -1081,12 +1081,13 @@ fn configure_non_combat_event(
                 .collect();
         }
         EventType::GoldAltar => {
-            let random_hp_fraction = rng.gen_range_f32(0.10, 0.36);
-            let random_gold = rng.gen_range_f32(20.0, 71.0).floor() as u32;
+            let random_hp_fraction = rng.gen_range_f32(0.10, 0.50);
+            // design.md §6.1: random gold scales linearly with random HP cost.
+            let random_gold = (random_hp_fraction / 0.50 * 80.0).round().max(20.0) as u32;
             active.choices = vec![
                 EventChoice {
                     label: "能量换少量金币".to_string(),
-                    description: "失去 50 能量，获得 30 金币。".to_string(),
+                    description: "失去 20 能量，获得 25 金币。".to_string(),
                 },
                 EventChoice {
                     label: "少量血换少量金币".to_string(),
@@ -1107,9 +1108,9 @@ fn configure_non_combat_event(
             ];
             active.choice_payloads = vec![
                 EventChoicePayload::GoldAltar {
-                    gold: 30,
+                    gold: 25,
                     hp_fraction: 0.0,
-                    energy_cost: 50.0,
+                    energy_cost: 20.0,
                 },
                 EventChoicePayload::GoldAltar {
                     gold: 30,
