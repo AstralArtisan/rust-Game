@@ -26,7 +26,6 @@ const TRIPLE_SPREAD_ANGLE: f32 = 0.24;
 const NOVA_PROJECTILE_COUNT: usize = 8;
 const RANGED_BURST_DELAY_S: f32 = 0.06;
 const EXTRA_PROJECTILE_STAGGER_S: f32 = 0.08;
-const EXTRA_PROJECTILE_DAMAGE_MULT: f32 = 0.60;
 const MELEE_HITBOX_LIFETIME_S: f32 = 0.09;
 const MELEE_SLASH_EFFECT_LIFETIME_S: f32 = 0.18;
 const SLASH_FRAME_COUNT: usize = 9;
@@ -537,6 +536,24 @@ fn spawn_ranged_burst(
                 inventory,
             );
         }
+        // ExtraProjectile must still fire alongside scatter — the previous
+        // early-return swallowed the extra shots entirely.
+        spawn_extra_projectiles_for_burst(
+            commands,
+            assets,
+            data,
+            owner,
+            pos,
+            dir,
+            projectile_speed,
+            damage,
+            final_crit_chance,
+            final_crit_multiplier,
+            delay_s,
+            extra_projectiles,
+            pierce_remaining,
+            inventory,
+        );
         return;
     }
 
@@ -694,6 +711,13 @@ fn spawn_extra_projectiles_for_burst(
     pierce_remaining: u8,
     inventory: Option<&AugmentInventory>,
 ) {
+    if extra_projectiles == 0 {
+        return;
+    }
+    let stacks = inventory
+        .map(|inv| inv.stacks(AugmentId::ExtraProjectile))
+        .unwrap_or(0);
+    let damage_fraction = tuning::extra_projectile_damage_fraction(data, stacks);
     for extra_index in 0..extra_projectiles {
         // Same direction, staggered delay so player can see each shot
         let extra_delay = delay_s + (extra_index as f32 + 1.0) * EXTRA_PROJECTILE_STAGGER_S;
@@ -705,7 +729,7 @@ fn spawn_extra_projectiles_for_burst(
             pos,
             dir,
             projectile_speed,
-            damage * EXTRA_PROJECTILE_DAMAGE_MULT,
+            damage * damage_fraction,
             crit_chance,
             crit_multiplier,
             extra_delay,

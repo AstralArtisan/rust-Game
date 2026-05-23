@@ -26,32 +26,39 @@ impl Default for PlayerLevel {
         Self {
             level: 1,
             xp: 0,
-            xp_to_next: Self::xp_threshold(1),
+            xp_to_next: xp_threshold(&[], 1),
         }
     }
 }
 
 impl PlayerLevel {
     /// Add XP and return the number of levels gained.
-    pub fn add_xp(&mut self, amount: u32) -> u32 {
+    pub fn add_xp(&mut self, amount: u32, curve: &[u32]) -> u32 {
         self.xp += amount;
         let mut levels_gained = 0u32;
         while self.xp >= self.xp_to_next {
             self.xp -= self.xp_to_next;
             self.level += 1;
             levels_gained += 1;
-            self.xp_to_next = Self::xp_threshold(self.level);
+            self.xp_to_next = xp_threshold(curve, self.level);
         }
         levels_gained
     }
+}
 
-    /// XP needed to go from `level` to `level+1`.
-    pub fn xp_threshold(level: u32) -> u32 {
-        const PHASE3_THRESHOLDS: [u32; 9] = [50, 70, 90, 110, 130, 150, 180, 200, 220];
-        PHASE3_THRESHOLDS
-            .get(level.saturating_sub(1) as usize)
-            .copied()
-            .unwrap_or_else(|| 220 + level.saturating_sub(9) * 25)
+/// XP needed to go from `level` to `level+1`. Reads from `EconomyConfig::xp_curve`;
+/// extrapolates linearly (+25 / level) beyond the configured table, and falls
+/// back to a hard-coded baseline of `[50, 70, 90, …]` when the curve is empty.
+pub fn xp_threshold(curve: &[u32], level: u32) -> u32 {
+    const FALLBACK: [u32; 9] = [50, 70, 90, 110, 130, 150, 180, 200, 220];
+    let table: &[u32] = if curve.is_empty() { &FALLBACK } else { curve };
+    let idx = level.saturating_sub(1) as usize;
+    if let Some(&v) = table.get(idx) {
+        v
+    } else if let Some(&last) = table.last() {
+        last + ((idx + 1).saturating_sub(table.len())) as u32 * 25
+    } else {
+        50
     }
 }
 
@@ -84,7 +91,7 @@ pub fn process_xp_gains(
                 .unwrap_or(0),
         );
         let adjusted_xp = (total_xp as f32 * xp_mult) as u32;
-        let levels_gained = level.add_xp(adjusted_xp);
+        let levels_gained = level.add_xp(adjusted_xp, &data.economy.xp_curve);
         for i in 0..levels_gained {
             levelup_events.send(LevelUpEvent {
                 new_level: level.level - levels_gained + i + 1,
@@ -234,10 +241,12 @@ mod tests {
         assert_eq!(level.xp_to_next, 50);
     }
 
+    const CURVE: &[u32] = &[50, 70, 90, 110, 130, 150, 180, 200, 220];
+
     #[test]
     fn test_add_xp_no_levelup() {
         let mut level = PlayerLevel::default();
-        let gained = level.add_xp(20);
+        let gained = level.add_xp(20, CURVE);
         assert_eq!(gained, 0);
         assert_eq!(level.level, 1);
         assert_eq!(level.xp, 20);
@@ -246,7 +255,7 @@ mod tests {
     #[test]
     fn test_add_xp_levelup() {
         let mut level = PlayerLevel::default();
-        let gained = level.add_xp(50);
+        let gained = level.add_xp(50, CURVE);
         assert_eq!(gained, 1);
         assert_eq!(level.level, 2);
         assert_eq!(level.xp, 0);
@@ -256,7 +265,7 @@ mod tests {
     #[test]
     fn test_multi_levelup() {
         let mut level = PlayerLevel::default();
-        let gained = level.add_xp(200);
+        let gained = level.add_xp(200, CURVE);
         assert_eq!(gained, 2);
         assert_eq!(level.level, 3);
         assert_eq!(level.xp, 80);
@@ -265,11 +274,13 @@ mod tests {
 
     #[test]
     fn test_xp_threshold_formula() {
-        assert_eq!(PlayerLevel::xp_threshold(1), 50);
-        assert_eq!(PlayerLevel::xp_threshold(2), 70);
-        assert_eq!(PlayerLevel::xp_threshold(3), 90);
-        assert_eq!(PlayerLevel::xp_threshold(4), 110);
-        assert_eq!(PlayerLevel::xp_threshold(5), 130);
+        assert_eq!(xp_threshold(CURVE, 1), 50);
+        assert_eq!(xp_threshold(CURVE, 2), 70);
+        assert_eq!(xp_threshold(CURVE, 3), 90);
+        assert_eq!(xp_threshold(CURVE, 4), 110);
+        assert_eq!(xp_threshold(CURVE, 5), 130);
+        // Beyond the configured table: 220 + (level - 9) * 25
+        assert_eq!(xp_threshold(CURVE, 10), 245);
     }
 
     #[test]

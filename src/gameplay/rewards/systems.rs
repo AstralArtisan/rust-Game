@@ -413,7 +413,11 @@ fn apply_reward_choice(
                 if let Ok((health, mut level, mut gold)) = player_q.p2().get_single_mut() {
                     let max_health = health.max;
                     let new_level = level.level + 1;
-                    apply_revelation_reward(&mut level, &mut gold);
+                    let curve = data
+                        .as_deref()
+                        .map(|d| d.economy.xp_curve.as_slice())
+                        .unwrap_or(&[]);
+                    apply_revelation_reward(&mut level, &mut gold, curve);
                     feedback.send(UiFeedbackEvent::toast(
                         "圣所启示",
                         vec![format!("等级提升到 {}，+50 金币。", new_level)],
@@ -808,9 +812,9 @@ fn full_restore(health: &mut Health, energy: &mut Energy) {
     energy.current = energy.max;
 }
 
-fn apply_revelation_reward(level: &mut PlayerLevel, gold: &mut Gold) {
+fn apply_revelation_reward(level: &mut PlayerLevel, gold: &mut Gold, curve: &[u32]) {
     level.level += 1;
-    level.xp_to_next = PlayerLevel::xp_threshold(level.level);
+    level.xp_to_next = crate::gameplay::progression::experience::xp_threshold(curve, level.level);
     gold.0 = gold.0.saturating_add(50);
 }
 
@@ -971,17 +975,21 @@ mod tests {
 
     #[test]
     fn revelation_grants_level_and_gold() {
+        const CURVE: &[u32] = &[50, 70, 90, 110, 130, 150, 180, 200, 220];
         let mut level = PlayerLevel {
             level: 2,
             xp: 0,
-            xp_to_next: PlayerLevel::xp_threshold(2),
+            xp_to_next: crate::gameplay::progression::experience::xp_threshold(CURVE, 2),
         };
         let mut gold = Gold(20);
 
-        apply_revelation_reward(&mut level, &mut gold);
+        apply_revelation_reward(&mut level, &mut gold, CURVE);
 
         assert_eq!(level.level, 3);
-        assert_eq!(level.xp_to_next, PlayerLevel::xp_threshold(3));
+        assert_eq!(
+            level.xp_to_next,
+            crate::gameplay::progression::experience::xp_threshold(CURVE, 3)
+        );
         assert_eq!(gold.0, 70);
     }
 

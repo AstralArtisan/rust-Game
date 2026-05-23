@@ -705,7 +705,7 @@ impl Default for EconomyConfig {
             elite_gold: [12, 20],
             boss_gold: [30, 50],
             floor_income: [100, 180],
-            xp_curve: vec![0, 50, 120, 210, 320, 450, 600, 780, 980, 1200],
+            xp_curve: vec![50, 70, 90, 110, 130, 150, 180, 200, 220],
         }
     }
 }

@@ -795,6 +795,7 @@ fn apply_puzzle_event_reward(
     feedback: &mut EventWriter<UiFeedbackEvent>,
     player_q: &mut Query<(&mut AugmentInventory, &mut Gold, &mut PlayerLevel), With<Player>>,
 ) {
+    static FALLBACK_CURVE: [u32; 9] = [50, 70, 90, 110, 130, 150, 180, 200, 220];
     if !active_puzzle.reward_earned {
         feedback.send(UiFeedbackEvent {
             title: "谜题失败".to_string(),
@@ -814,7 +815,11 @@ fn apply_puzzle_event_reward(
             lines.push(format!("+{} 金币", reward.gold));
         }
         if reward.xp > 0 {
-            let levels_gained = level.add_xp(reward.xp);
+            let curve = data
+                .map(|d| d.economy.xp_curve.as_slice())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(&FALLBACK_CURVE);
+            let levels_gained = level.add_xp(reward.xp, curve);
             lines.push(format!("+{} 经验", reward.xp));
             if levels_gained > 0 {
                 lines.push(format!("等级提升到 {}", level.level));
@@ -1886,7 +1891,9 @@ fn apply_wheel_of_fate(
             }
             1 => {
                 level.level = level.level.saturating_add(1);
-                level.xp_to_next = PlayerLevel::xp_threshold(level.level);
+                let curve = data.map(|d| d.economy.xp_curve.as_slice()).unwrap_or(&[]);
+                level.xp_to_next =
+                    crate::gameplay::progression::experience::xp_threshold(curve, level.level);
                 lines.push(format!("等级提升到 {}", level.level));
             }
             _ => {

@@ -3,5 +3,8 @@
   elite_gold: (12, 20),
   boss_gold: (30, 50),
   floor_income: (100, 180),
-  xp_curve: [0, 50, 120, 210, 320, 450, 600, 780, 980, 1200],
+  // Per-level XP cost: curve[level-1] is the XP needed to go from level → level+1.
+  // 等能量球及更大的经验/能量调整方案确认后再统一重算。
+  xp_curve: [50, 70, 90, 110, 130, 150, 180, 200, 220],
 )
+

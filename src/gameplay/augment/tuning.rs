@@ -209,20 +209,19 @@ pub(crate) fn extra_projectile_count(data: &GameDataRegistry, stacks: u8) -> u8 
     param(data, AugmentId::ExtraProjectile, stacks, "extra") as u8
 }
 
+/// Damage multiplier applied to each extra projectile spawned by the
+/// ExtraProjectile augment. design.md §4.4 ranged: 60% / 75% / 100% per shot.
+pub(crate) fn extra_projectile_damage_fraction(data: &GameDataRegistry, stacks: u8) -> f32 {
+    param(data, AugmentId::ExtraProjectile, stacks, "damage")
+}
+
 pub(crate) fn homing_turn_rate(data: &GameDataRegistry, stacks: u8) -> f32 {
     // RON stores turn angle in degrees per frame; convert to radians here.
     param(data, AugmentId::Homing, stacks, "turn_deg").to_radians()
 }
 
-pub(crate) fn homing_search_radius(_data: &GameDataRegistry, stacks: u8) -> f32 {
-    // Search radius is implicit in the spec (240/320/420). Keep a small table
-    // here keyed by stacks; not exposed as a tunable RON field today.
-    match stacks {
-        3 => 420.0,
-        2 => 320.0,
-        1 => 240.0,
-        _ => 0.0,
-    }
+pub(crate) fn homing_search_radius(data: &GameDataRegistry, stacks: u8) -> f32 {
+    param(data, AugmentId::Homing, stacks, "search_radius")
 }
 
 pub(crate) fn homing_pierce(data: &GameDataRegistry, stacks: u8) -> u8 {
