@@ -27,5 +27,28 @@
     phase_thresholds: [0.72, 0.38],
     projectile_speed: 540.0,
   ),
+  // Per-floor scaling derived from `floor_multiplier` (game_balance.difficulty_per_floor).
+  // Stat = base * (1 + (floor_multiplier - 1) * factor). cooldown_inverse increases attack speed.
+  scaling: (
+    hp_per_floor_default: 0.38,
+    hp_per_floor_cube_core: 0.72,
+    move_speed_per_floor: 0.08,
+    damage_per_floor: 0.30,
+    cooldown_inverse_per_floor: 0.12,
+    projectile_speed_per_floor: 0.12,
+    base_cooldown_s: 0.95,
+    min_cooldown_s: 0.40,
+    aggro_range: 900.0,
+    attack_range_by_archetype: [
+      (Floor1Guardian, 42.0),
+      (MirrorWarden,  44.0),
+      (TideHunter,    52.0),
+      (CubeCore,      48.0),
+    ],
+  ),
+  // MirrorWarden split sub-core HP: base + phase * per_phase.
+  sub_core_base_hp: 40.0,
+  sub_core_hp_per_phase: 10.0,
 )
+
 

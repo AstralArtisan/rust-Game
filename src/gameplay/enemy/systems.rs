@@ -2572,24 +2572,17 @@ fn scaled_boss_stats(
 ) -> EnemyStats {
     let scaling = (floor_multiplier - 1.0).max(0.0);
     let config = data.bosses.for_floor(floor_number);
-    let hp_scaling = match archetype {
-        BossArchetype::CubeCore => 0.72,
-        _ => 0.38,
-    };
-    let base_range = match archetype {
-        BossArchetype::Floor1Guardian => 42.0,
-        BossArchetype::MirrorWarden => 44.0,
-        BossArchetype::TideHunter => 52.0,
-        BossArchetype::CubeCore => 48.0,
-    };
+    let s = &data.bosses.scaling;
+    let hp_scaling = s.hp_factor_for(archetype);
     EnemyStats {
         max_hp: config.max_hp * (1.0 + scaling * hp_scaling),
-        move_speed: config.move_speed * (1.0 + scaling * 0.08),
-        attack_damage: config.contact_damage * (1.0 + scaling * 0.30),
-        attack_cooldown_s: (0.95 / (1.0 + scaling * 0.12)).max(0.40),
-        aggro_range: 900.0,
-        attack_range: base_range,
-        projectile_speed: config.projectile_speed * (1.0 + scaling * 0.12),
+        move_speed: config.move_speed * (1.0 + scaling * s.move_speed_per_floor),
+        attack_damage: config.contact_damage * (1.0 + scaling * s.damage_per_floor),
+        attack_cooldown_s: (s.base_cooldown_s / (1.0 + scaling * s.cooldown_inverse_per_floor))
+            .max(s.min_cooldown_s),
+        aggro_range: s.aggro_range,
+        attack_range: s.attack_range_for(archetype),
+        projectile_speed: config.projectile_speed * (1.0 + scaling * s.projectile_speed_per_floor),
     }
 }
 

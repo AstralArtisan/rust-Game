@@ -209,6 +209,9 @@ pub(crate) fn default_registry() -> GameDataRegistry {
                 phase_thresholds: vec![0.72, 0.38],
                 projectile_speed: 540.0,
             },
+            scaling: BossScalingConfig::default(),
+            sub_core_base_hp: 40.0,
+            sub_core_hp_per_phase: 10.0,
         },
         rewards: RewardsConfig {
             rewards: vec![],

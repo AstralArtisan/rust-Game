@@ -117,7 +117,7 @@ pub struct BossPhase(pub u8);
 #[derive(Component, Debug, Clone)]
 pub struct BossPatternTimer(pub Timer);
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BossArchetype {
     Floor1Guardian,
     MirrorWarden,

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::gameplay::augment::data::{AugmentCategory, AugmentId, AugmentRarity};
-use crate::gameplay::enemy::components::{EliteAffix, EnemyType};
+use crate::gameplay::enemy::components::{BossArchetype, EliteAffix, EnemyType};
 use crate::gameplay::map::room::RoomType;
 use crate::gameplay::player::components::SkillType;
 use crate::gameplay::rewards::data::RewardType;
@@ -98,6 +98,76 @@ pub struct BossesConfig {
     pub floor_2: BossFloorConfig,
     pub floor_3: BossFloorConfig,
     pub floor_4: BossFloorConfig,
+    /// Per-floor scaling derived from `floor_multiplier`. Indexed by
+    /// `BossArchetype`; missing archetypes fall back to `default_scaling`.
+    #[serde(default)]
+    pub scaling: BossScalingConfig,
+    /// Floor 2 split sub-core HP formula: `base + phase * per_phase`.
+    #[serde(default = "default_sub_core_base_hp")]
+    pub sub_core_base_hp: f32,
+    #[serde(default = "default_sub_core_hp_per_phase")]
+    pub sub_core_hp_per_phase: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BossScalingConfig {
+    pub hp_per_floor_default: f32,
+    pub hp_per_floor_cube_core: f32,
+    pub move_speed_per_floor: f32,
+    pub damage_per_floor: f32,
+    pub cooldown_inverse_per_floor: f32,
+    pub projectile_speed_per_floor: f32,
+    pub base_cooldown_s: f32,
+    pub min_cooldown_s: f32,
+    pub aggro_range: f32,
+    pub attack_range_by_archetype: Vec<(BossArchetype, f32)>,
+}
+
+impl Default for BossScalingConfig {
+    fn default() -> Self {
+        Self {
+            hp_per_floor_default: 0.38,
+            hp_per_floor_cube_core: 0.72,
+            move_speed_per_floor: 0.08,
+            damage_per_floor: 0.30,
+            cooldown_inverse_per_floor: 0.12,
+            projectile_speed_per_floor: 0.12,
+            base_cooldown_s: 0.95,
+            min_cooldown_s: 0.40,
+            aggro_range: 900.0,
+            attack_range_by_archetype: vec![
+                (BossArchetype::Floor1Guardian, 42.0),
+                (BossArchetype::MirrorWarden, 44.0),
+                (BossArchetype::TideHunter, 52.0),
+                (BossArchetype::CubeCore, 48.0),
+            ],
+        }
+    }
+}
+
+impl BossScalingConfig {
+    pub fn hp_factor_for(&self, archetype: BossArchetype) -> f32 {
+        match archetype {
+            BossArchetype::CubeCore => self.hp_per_floor_cube_core,
+            _ => self.hp_per_floor_default,
+        }
+    }
+
+    pub fn attack_range_for(&self, archetype: BossArchetype) -> f32 {
+        self.attack_range_by_archetype
+            .iter()
+            .find(|(a, _)| *a == archetype)
+            .map(|(_, range)| *range)
+            .unwrap_or(42.0)
+    }
+}
+
+fn default_sub_core_base_hp() -> f32 {
+    40.0
+}
+
+fn default_sub_core_hp_per_phase() -> f32 {
+    10.0
 }
 
 impl BossesConfig {
