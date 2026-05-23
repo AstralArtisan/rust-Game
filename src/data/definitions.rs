@@ -320,6 +320,41 @@ pub struct SkillConfig {
     pub consumes_all_energy: bool,
     #[serde(default)]
     pub min_energy: f32,
+    /// ATK multiplier applied to the primary damage hit. `0.0` means the skill
+    /// has no direct damage component (pure utility / buff).
+    #[serde(default)]
+    pub damage_mult: f32,
+    /// Knockback magnitude on hit.
+    #[serde(default)]
+    pub knockback: f32,
+    /// Radius of the round AOE hitbox. Ignored for projectile skills.
+    #[serde(default)]
+    pub aoe_radius: f32,
+    /// Sustained duration in seconds (BladeDance / BulletBarrage / WarCry /
+    /// TimeRift).
+    #[serde(default)]
+    pub duration_s: f32,
+    /// Tick interval for repeating-damage skills (BladeDance).
+    #[serde(default)]
+    pub tick_interval_s: f32,
+    /// Number of projectiles spawned (BulletBarrage).
+    #[serde(default)]
+    pub projectile_count: u32,
+    /// Speed of spawned projectiles.
+    #[serde(default)]
+    pub projectile_speed: f32,
+    /// Status modifiers keyed by name: `lifesteal_fraction`, `freeze_s`,
+    /// `attack_bonus`, `move_speed_bonus`, `attack_speed_bonus`, `slow`,
+    /// `invincibility_s`, etc. Reader-driven so adding a new key only requires
+    /// touching RON + the consuming system.
+    #[serde(default)]
+    pub status: BTreeMap<String, f32>,
+}
+
+impl SkillConfig {
+    pub fn status(&self, key: &str) -> f32 {
+        self.status.get(key).copied().unwrap_or(0.0)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
