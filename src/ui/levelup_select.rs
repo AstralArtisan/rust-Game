@@ -216,7 +216,9 @@ pub fn levelup_input(
             &mut MoveSpeed,
             &mut CritChance,
             &mut AttackCooldown,
+            &mut RangedCooldown,
             &mut DashCooldown,
+            &RewardModifiers,
         ),
         With<Player>,
     >,
@@ -248,8 +250,16 @@ pub fn levelup_input(
     };
 
     let mut feedback_line = opt.label.clone();
-    if let Ok((mut health, mut atk, mut spd, mut crit, mut atk_cd, mut dash_cd)) =
-        player_q.get_single_mut()
+    if let Ok((
+        mut health,
+        mut atk,
+        mut spd,
+        mut crit,
+        mut atk_cd,
+        mut ranged_cd,
+        mut dash_cd,
+        mods,
+    )) = player_q.get_single_mut()
     {
         match opt.apply {
             LevelUpStat::AttackPower(v) => {
@@ -275,18 +285,26 @@ pub fn levelup_input(
                 feedback_line = format!("暴击率 +{:.0}%，当前 {:.0}%", v * 100.0, crit.0 * 100.0);
             }
             LevelUpStat::AttackSpeed(v) => {
-                let new_dur = (atk_cd.timer.duration().as_secs_f32() - v).max(0.15);
-                atk_cd
-                    .timer
-                    .set_duration(std::time::Duration::from_secs_f32(new_dur));
-                feedback_line = format!("近战冷却缩短，当前 {:.2}s", new_dur);
+                // Permanently shrink the base cooldown — anything that re-applies
+                // a buff (player_attack_input_system, save load, coop sync) reads
+                // base_duration_s, so changing only timer.duration would be
+                // silently reverted on the next attack. design.md groups melee
+                // and ranged as a single "attack speed" axis, so trim both.
+                atk_cd.base_duration_s = (atk_cd.base_duration_s - v).max(0.15);
+                ranged_cd.base_duration_s = (ranged_cd.base_duration_s - v).max(0.15);
+                atk_cd.apply_speed_bonus(mods.total_melee_speed_bonus());
+                ranged_cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
+                feedback_line = format!(
+                    "攻击间隔 -{v:.2}s，近战 {:.2}s / 远程 {:.2}s",
+                    atk_cd.base_duration_s, ranged_cd.base_duration_s
+                );
             }
             LevelUpStat::DashCooldown(v) => {
-                let new_dur = (dash_cd.timer.duration().as_secs_f32() - v).max(0.3);
-                dash_cd
-                    .timer
-                    .set_duration(std::time::Duration::from_secs_f32(new_dur));
-                feedback_line = format!("冲刺冷却缩短，当前 {:.2}s", new_dur);
+                // Same as above: shrink base_duration_s so the change survives the
+                // next apply_reduction call from save load or augment effects.
+                dash_cd.base_duration_s = (dash_cd.base_duration_s - v).max(0.3);
+                dash_cd.apply_reduction(mods.total_dash_cooldown_reduction());
+                feedback_line = format!("冲刺冷却 -{v:.2}s，当前 {:.2}s", dash_cd.base_duration_s);
             }
         }
     }
