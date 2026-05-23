@@ -53,7 +53,7 @@ pub fn load_ron<T: serde::de::DeserializeOwned>(path: impl AsRef<Path>) -> Resul
     Ok(value)
 }
 
-fn default_registry() -> GameDataRegistry {
+pub(crate) fn default_registry() -> GameDataRegistry {
     GameDataRegistry {
         player: PlayerConfig {
             max_hp: 100.0,

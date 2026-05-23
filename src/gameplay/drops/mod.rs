@@ -146,6 +146,7 @@ pub fn spawn_drops_on_death(
         // Spawn gold drops per player (GoldBonus applied here)
         for inventory in &player_q {
             let gold_mult = tuning::gold_bonus_mult(
+                &data,
                 inventory
                     .map(|inv| inv.stacks(AugmentId::GoldBonus))
                     .unwrap_or(0),
@@ -278,6 +279,7 @@ pub fn drop_physics(
 
 pub fn drop_magnet(
     time: Res<Time>,
+    data: Res<GameDataRegistry>,
     player_q: Query<
         (&GlobalTransform, Option<&AugmentInventory>),
         (With<Player>, Without<Replicated>),
@@ -295,6 +297,7 @@ pub fn drop_magnet(
             let player_pos = player_tf.translation().truncate();
             let dist = drop_pos.distance(player_pos);
             let pickup_mult = tuning::pickup_range_mult(
+                &data,
                 inventory
                     .map(|inv| inv.stacks(AugmentId::PickupRange))
                     .unwrap_or(0),

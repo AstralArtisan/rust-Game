@@ -279,8 +279,10 @@ pub fn activate_skill_inputs(
     let storm_stacks = inventory
         .map(|inv| inv.stacks(AugmentId::BulletStorm))
         .unwrap_or(0);
-    if storm_stacks > 0 {
-        let count = tuning::bullet_storm_projectile_count(storm_stacks);
+    if storm_stacks > 0
+        && let Some(data) = data.as_deref()
+    {
+        let count = tuning::bullet_storm_projectile_count(data, storm_stacks);
         let bullet_damage = attack_power.0 * 1.5;
         let bullet_speed = 400.0;
         for i in 0..count {

@@ -2063,8 +2063,11 @@ pub fn enemy_death_system(
 
             let kill_heal = inventory
                 .map(|value| {
-                    tuning::kill_heal_amount(value.stacks(AugmentId::KillHeal))
-                        + tuning::lifesteal_kill_heal(value.stacks(AugmentId::LifestealSlash))
+                    tuning::kill_heal_amount(&data, value.stacks(AugmentId::KillHeal))
+                        + tuning::lifesteal_kill_heal(
+                            &data,
+                            value.stacks(AugmentId::LifestealSlash),
+                        )
                 })
                 .unwrap_or(0.0);
             if kill_heal > 0.0 {

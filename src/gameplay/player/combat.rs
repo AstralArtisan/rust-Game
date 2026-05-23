@@ -67,6 +67,7 @@ pub struct DelayedRangedShot {
 pub fn player_attack_input_system(
     mut commands: Commands,
     assets: Res<GameAssets>,
+    data: Res<GameDataRegistry>,
     mut sfx_events: EventWriter<crate::core::events::SfxEvent>,
     session_q: Query<&CoopSessionState, With<CoopSessionEntity>>,
     mut q: Query<
@@ -129,7 +130,7 @@ pub fn player_attack_input_system(
             .unwrap_or(0);
         if combo_accelerate_stacks > 0 {
             let (combo_bonus, crit_bonus) =
-                tuning::combo_accelerate_bonuses(combo_accelerate_stacks, combo.count);
+                tuning::combo_accelerate_bonuses(&data, combo_accelerate_stacks, combo.count);
             melee_speed_bonus += combo_bonus;
             combo_crit_bonus += crit_bonus;
         }
@@ -141,15 +142,16 @@ pub fn player_attack_input_system(
         });
         let swing = melee_swing_profile(*mods);
 
-        let greed_mult = greed_damage_mult(inventory, gold.0);
+        let greed_mult = greed_damage_mult(&data, inventory, gold.0);
         spawn_player_melee_hitbox_with_mods(
             &mut commands,
             &assets,
+            &data,
             player_e,
             player_tf,
             facing.0,
             power.0 * mods.melee_damage_mult() * greed_mult,
-            crit.0 + combo_crit_bonus + greed_crit_bonus(inventory, gold.0),
+            crit.0 + combo_crit_bonus + greed_crit_bonus(&data, inventory, gold.0),
             *mods,
             inventory,
         );
@@ -246,28 +248,42 @@ pub fn player_ranged_input_system(
         });
 
         let dir = facing.0;
-        let speed_boost_mult = tuning::speed_boost_mult(
-            inventory
-                .map(|value| value.stacks(AugmentId::SpeedBoost))
-                .unwrap_or(0),
-        );
+        let data_ref = data.as_deref();
+        let speed_boost_mult = data_ref
+            .map(|d| {
+                tuning::speed_boost_mult(
+                    d,
+                    inventory
+                        .map(|value| value.stacks(AugmentId::SpeedBoost))
+                        .unwrap_or(0),
+                )
+            })
+            .unwrap_or(1.0);
         let speed =
             BASE_RANGED_PROJECTILE_SPEED * mods.ranged_projectile_speed_mult() * speed_boost_mult;
-        let greed_mult = greed_damage_mult(inventory, gold.0);
+        let greed_mult = data_ref
+            .map(|d| greed_damage_mult(d, inventory, gold.0))
+            .unwrap_or(1.0);
         let charge_stacks = inventory
             .map(|value| value.stacks(AugmentId::Piercing))
             .unwrap_or(0);
-        let charge_mult = tuning::charge_shot_damage_mult(charge_stacks);
+        let charge_mult = data_ref
+            .map(|d| tuning::charge_shot_damage_mult(d, charge_stacks))
+            .unwrap_or(1.0);
         let damage = power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult * charge_mult;
+        let Some(d) = data_ref else {
+            continue;
+        };
         spawn_player_ranged_volley(
             &mut commands,
             &assets,
+            d,
             player_e,
             tf.translation().truncate() + dir * 18.0,
             dir,
             speed,
             damage,
-            crit.0 + greed_crit_bonus(inventory, gold.0),
+            crit.0 + greed_crit_bonus(d, inventory, gold.0),
             *mods,
             inventory,
         );
@@ -280,32 +296,10 @@ pub fn player_ranged_input_system(
     }
 }
 
-#[allow(dead_code)]
-pub fn spawn_player_melee_hitbox(
-    commands: &mut Commands,
-    assets: &GameAssets,
-    owner: Entity,
-    owner_tf: &GlobalTransform,
-    dir: Vec2,
-    damage: f32,
-    crit_chance: f32,
-) {
-    spawn_player_melee_hitbox_with_mods(
-        commands,
-        assets,
-        owner,
-        owner_tf,
-        dir,
-        damage,
-        crit_chance,
-        RewardModifiers::default(),
-        None,
-    );
-}
-
 pub fn spawn_player_melee_hitbox_with_mods(
     commands: &mut Commands,
     assets: &GameAssets,
+    data: &GameDataRegistry,
     owner: Entity,
     owner_tf: &GlobalTransform,
     dir: Vec2,
@@ -322,15 +316,15 @@ pub fn spawn_player_melee_hitbox_with_mods(
     let heavy_strike_stacks = inventory
         .map(|value| value.stacks(AugmentId::HeavyStrike))
         .unwrap_or(0);
-    let heavy_profile = tuning::heavy_strike_profile(heavy_strike_stacks);
+    let heavy_profile = tuning::heavy_strike_profile(data, heavy_strike_stacks);
     let whirlwind_stacks = inventory
         .map(|value| value.stacks(AugmentId::Whirlwind))
         .unwrap_or(0);
-    let whirlwind_damage_mult = tuning::whirlwind_damage_mult(whirlwind_stacks);
+    let whirlwind_damage_mult = tuning::whirlwind_damage_mult(data, whirlwind_stacks);
     let crit_enhance_stacks = inventory
         .map(|value| value.stacks(AugmentId::CritEnhance))
         .unwrap_or(0);
-    let crit_profile = tuning::crit_enhance_profile(crit_enhance_stacks);
+    let crit_profile = tuning::crit_enhance_profile(data, crit_enhance_stacks);
 
     let slash_rotation = Quat::from_rotation_z(direction.y.atan2(direction.x));
     let primary_color = if mods.melee_mastery_stacks >= 2 {
@@ -390,7 +384,7 @@ pub fn spawn_player_melee_hitbox_with_mods(
         ArcHitbox {
             origin: owner_pos,
             direction,
-            radius: swing.reach * tuning::whirlwind_range_mult(whirlwind_stacks),
+            radius: swing.reach * tuning::whirlwind_range_mult(data, whirlwind_stacks),
             half_angle_rad: if whirlwind_stacks > 0 { PI } else { half_angle },
         },
         Lifetime(Timer::from_seconds(
@@ -422,7 +416,7 @@ pub fn spawn_player_melee_hitbox_with_mods(
         .map(|value| value.stacks(AugmentId::SwordWave))
         .unwrap_or(0);
     if sword_wave_stacks > 0 && !mods.melee_sword_wave_unlocked() {
-        let Some(sword_wave) = tuning::sword_wave_profile(sword_wave_stacks, false) else {
+        let Some(sword_wave) = tuning::sword_wave_profile(data, sword_wave_stacks, false) else {
             return;
         };
         let sw_entity = spawn_player_sword_wave(
@@ -447,6 +441,7 @@ pub fn spawn_player_melee_hitbox_with_mods(
 pub fn spawn_player_ranged_volley(
     commands: &mut Commands,
     assets: &GameAssets,
+    data: &GameDataRegistry,
     owner: Entity,
     pos: Vec2,
     dir: Vec2,
@@ -466,6 +461,7 @@ pub fn spawn_player_ranged_volley(
         spawn_ranged_burst(
             commands,
             assets,
+            data,
             owner,
             pos,
             dir,
@@ -482,6 +478,7 @@ pub fn spawn_player_ranged_volley(
 fn spawn_ranged_burst(
     commands: &mut Commands,
     assets: &GameAssets,
+    data: &GameDataRegistry,
     owner: Entity,
     pos: Vec2,
     dir: Vec2,
@@ -493,6 +490,7 @@ fn spawn_ranged_burst(
     inventory: Option<&AugmentInventory>,
 ) {
     let extra_projectiles = tuning::extra_projectile_count(
+        data,
         inventory
             .map(|value| value.stacks(AugmentId::ExtraProjectile))
             .unwrap_or(0),
@@ -510,14 +508,14 @@ fn spawn_ranged_burst(
     let crit_enhance_stacks = inventory
         .map(|value| value.stacks(AugmentId::CritEnhance))
         .unwrap_or(0);
-    let crit_profile = tuning::crit_enhance_profile(crit_enhance_stacks);
+    let crit_profile = tuning::crit_enhance_profile(data, crit_enhance_stacks);
     let final_crit_chance = crit_chance + crit_profile.crit_bonus;
     let final_crit_multiplier = 1.75 + crit_profile.crit_multiplier_bonus;
 
     if scatter_stacks > 0 {
         // Scatter fan visual
         crate::gameplay::effects::particles::spawn_scatter_fan(commands, assets, pos, dir);
-        let Some(scatter) = tuning::scatter_profile(scatter_stacks) else {
+        let Some(scatter) = tuning::scatter_profile(data, scatter_stacks) else {
             return;
         };
         let angles = scatter_angles(scatter.shots, scatter.ring);
@@ -526,6 +524,7 @@ fn spawn_ranged_burst(
             queue_or_spawn_ranged_projectile(
                 commands,
                 assets,
+                data,
                 owner,
                 pos,
                 shot_dir,
@@ -546,6 +545,7 @@ fn spawn_ranged_burst(
             queue_or_spawn_ranged_projectile(
                 commands,
                 assets,
+                data,
                 owner,
                 pos,
                 dir,
@@ -565,6 +565,7 @@ fn spawn_ranged_burst(
             spawn_extra_projectiles_for_burst(
                 commands,
                 assets,
+                data,
                 owner,
                 pos,
                 dir,
@@ -589,6 +590,7 @@ fn spawn_ranged_burst(
                 queue_or_spawn_ranged_projectile(
                     commands,
                     assets,
+                    data,
                     owner,
                     pos,
                     shot_dir,
@@ -604,6 +606,7 @@ fn spawn_ranged_burst(
             spawn_extra_projectiles_for_burst(
                 commands,
                 assets,
+                data,
                 owner,
                 pos,
                 dir,
@@ -621,6 +624,7 @@ fn spawn_ranged_burst(
             queue_or_spawn_ranged_projectile(
                 commands,
                 assets,
+                data,
                 owner,
                 pos,
                 dir,
@@ -641,6 +645,7 @@ fn spawn_ranged_burst(
                 queue_or_spawn_ranged_projectile(
                     commands,
                     assets,
+                    data,
                     owner,
                     pos,
                     shot_dir,
@@ -656,6 +661,7 @@ fn spawn_ranged_burst(
             spawn_extra_projectiles_for_burst(
                 commands,
                 assets,
+                data,
                 owner,
                 pos,
                 dir,
@@ -675,6 +681,7 @@ fn spawn_ranged_burst(
 fn spawn_extra_projectiles_for_burst(
     commands: &mut Commands,
     assets: &GameAssets,
+    data: &GameDataRegistry,
     owner: Entity,
     pos: Vec2,
     dir: Vec2,
@@ -693,6 +700,7 @@ fn spawn_extra_projectiles_for_burst(
         queue_or_spawn_ranged_projectile(
             commands,
             assets,
+            data,
             owner,
             pos,
             dir,
@@ -710,6 +718,7 @@ fn spawn_extra_projectiles_for_burst(
 fn queue_or_spawn_ranged_projectile(
     commands: &mut Commands,
     assets: &GameAssets,
+    data: &GameDataRegistry,
     owner: Entity,
     pos: Vec2,
     dir: Vec2,
@@ -728,6 +737,7 @@ fn queue_or_spawn_ranged_projectile(
         spawn_ranged_projectile(
             commands,
             assets,
+            data,
             owner,
             pos,
             dir,
@@ -762,6 +772,7 @@ fn queue_or_spawn_ranged_projectile(
 fn spawn_ranged_projectile(
     commands: &mut Commands,
     assets: &GameAssets,
+    data: &GameDataRegistry,
     owner: Entity,
     pos: Vec2,
     dir: Vec2,
@@ -786,12 +797,13 @@ fn spawn_ranged_projectile(
     if homing_stacks > 0 {
         commands.entity(projectile).insert(
             crate::gameplay::augment::effects::HomingProjectile::from_stacks(
+                data,
                 homing_stacks,
                 projectile_speed,
             ),
         );
     }
-    let homing_pierce = crate::gameplay::augment::tuning::homing_pierce(homing_stacks);
+    let homing_pierce = crate::gameplay::augment::tuning::homing_pierce(data, homing_stacks);
     let pierce_remaining = pierce_remaining.max(homing_pierce);
     if pierce_remaining > 0 {
         commands.entity(projectile).insert((
@@ -845,6 +857,7 @@ pub fn update_melee_slash_effects(
 pub fn update_delayed_ranged_shots(
     mut commands: Commands,
     assets: Res<GameAssets>,
+    data: Res<GameDataRegistry>,
     time: Res<Time>,
     mut q: Query<(Entity, &mut DelayedRangedShot)>,
 ) {
@@ -857,6 +870,7 @@ pub fn update_delayed_ranged_shots(
         spawn_ranged_projectile(
             &mut commands,
             &assets,
+            &data,
             shot.owner,
             shot.pos,
             shot.dir,
@@ -1003,16 +1017,24 @@ fn scatter_angles(shots: usize, ring: bool) -> Vec<f32> {
     }
 }
 
-fn greed_damage_mult(inventory: Option<&AugmentInventory>, gold: u32) -> f32 {
+fn greed_damage_mult(
+    data: &GameDataRegistry,
+    inventory: Option<&AugmentInventory>,
+    gold: u32,
+) -> f32 {
     let stacks = inventory
         .map(|inv| inv.stacks(AugmentId::Greed))
         .unwrap_or(0);
-    tuning::greed_damage_mult(stacks, gold)
+    tuning::greed_damage_mult(data, stacks, gold)
 }
 
-fn greed_crit_bonus(inventory: Option<&AugmentInventory>, gold: u32) -> f32 {
+fn greed_crit_bonus(
+    data: &GameDataRegistry,
+    inventory: Option<&AugmentInventory>,
+    gold: u32,
+) -> f32 {
     let stacks = inventory
         .map(|inv| inv.stacks(AugmentId::Greed))
         .unwrap_or(0);
-    tuning::greed_crit_bonus(stacks, gold)
+    tuning::greed_crit_bonus(data, stacks, gold)
 }

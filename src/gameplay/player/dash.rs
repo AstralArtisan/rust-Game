@@ -5,6 +5,7 @@ use crate::coop::components::{
     CoopDashVisualState, CoopPhase, CoopSessionEntity, CoopSessionState, GhostState,
 };
 use crate::core::assets::GameAssets;
+use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::augment::tuning;
 use crate::gameplay::combat::components::{DamageKind, Hitbox, Lifetime, Team};
@@ -17,6 +18,7 @@ pub fn player_dash_input_system(
     mut commands: Commands,
     time: Res<Time>,
     assets: Res<GameAssets>,
+    data: Res<GameDataRegistry>,
     mut sfx_events: EventWriter<crate::core::events::SfxEvent>,
     session_q: Query<&CoopSessionState, With<CoopSessionEntity>>,
     mut q: Query<
@@ -86,7 +88,7 @@ pub fn player_dash_input_system(
         if blink_stacks > 0 {
             let base_distance = dash.speed * dash.base_duration_s;
             let distance = base_distance
-                * tuning::blink_profile(blink_stacks)
+                * tuning::blink_profile(&data, blink_stacks)
                     .map(|profile| profile.distance_mult)
                     .unwrap_or(1.0);
             // Use very high speed + tiny duration to teleport in one frame
@@ -95,6 +97,7 @@ pub fn player_dash_input_system(
         }
 
         let extra_invuln = tuning::extended_invuln_bonus(
+            &data,
             inventory
                 .map(|value| value.stacks(AugmentId::ExtendedInvuln))
                 .unwrap_or(0),
@@ -137,6 +140,7 @@ pub fn update_dash_state(
     mut commands: Commands,
     time: Res<Time>,
     assets: Res<GameAssets>,
+    data: Res<GameDataRegistry>,
     mut q: Query<
         (
             Entity,
@@ -167,7 +171,7 @@ pub fn update_dash_state(
             // DashShield: grant shield on dash end
             if let Some(inv) = inventory.as_ref() {
                 let shield_stacks = inv.stacks(AugmentId::DashShield);
-                if let Some(profile) = tuning::dash_shield_profile(shield_stacks) {
+                if let Some(profile) = tuning::dash_shield_profile(&data, shield_stacks) {
                     commands.entity(player_e).insert(
                         crate::gameplay::augment::effects::DashShieldBuff {
                             timer: Timer::from_seconds(profile.cooldown_s, TimerMode::Once),
@@ -192,6 +196,7 @@ pub fn update_dash_state(
         dash.trail_timer.tick(time.delta());
         if dash.trail_timer.just_finished() {
             let trail_damage = tuning::dash_trail_damage_fraction(
+                &data,
                 inventory
                     .map(|value| value.stacks(AugmentId::DashTrail))
                     .unwrap_or(0),

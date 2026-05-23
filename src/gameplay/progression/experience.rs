@@ -67,6 +67,7 @@ pub struct LevelUpEvent {
 
 /// System: processes XP gain events, updates PlayerLevel, emits LevelUpEvent.
 pub fn process_xp_gains(
+    data: Res<GameDataRegistry>,
     mut xp_events: EventReader<XpGainEvent>,
     mut levelup_events: EventWriter<LevelUpEvent>,
     mut player_q: Query<(&mut PlayerLevel, Option<&AugmentInventory>), With<Player>>,
@@ -77,6 +78,7 @@ pub fn process_xp_gains(
     }
     for (mut level, inventory) in &mut player_q {
         let xp_mult = tuning::xp_bonus_mult(
+            &data,
             inventory
                 .map(|value| value.stacks(AugmentId::XpBonus))
                 .unwrap_or(0),
