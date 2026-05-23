@@ -783,8 +783,12 @@ fn spawn_enemy_with_elite_scale(
         affix_rng.reseed(seed);
         let affixes = pick_elite_affixes(floor_number, &mut affix_rng);
         if affixes.contains(&EliteAffix::Swift) {
-            stats.move_speed *= 1.5;
-            stats.attack_cooldown_s *= 0.77;
+            stats.move_speed *=
+                data.elite_affixes
+                    .param_or(EliteAffix::Swift, "move_speed_mult", 1.40);
+            stats.attack_cooldown_s *=
+                data.elite_affixes
+                    .param_or(EliteAffix::Swift, "attack_cooldown_mult", 0.70);
         }
         affixes
     } else {
@@ -900,14 +904,22 @@ fn spawn_enemy_with_elite_scale(
         for affix in &elite_affixes {
             match affix {
                 EliteAffix::Shielded => {
-                    entity.insert(ShieldedAffixState { charges: 1 });
+                    let reduction =
+                        data.elite_affixes
+                            .param_or(EliteAffix::Shielded, "damage_reduction", 0.25);
+                    entity.insert(ShieldedAffixState {
+                        damage_reduction: reduction,
+                    });
                 }
                 EliteAffix::Berserk => {
                     entity.insert(BerserkAffixState { active: false });
                 }
                 EliteAffix::Teleporting => {
+                    let interval =
+                        data.elite_affixes
+                            .param_or(EliteAffix::Teleporting, "interval_s", 4.0);
                     entity.insert(TeleportAffixTimer {
-                        timer: Timer::from_seconds(4.0, TimerMode::Repeating),
+                        timer: Timer::from_seconds(interval, TimerMode::Repeating),
                     });
                 }
                 EliteAffix::Swift | EliteAffix::Splitting | EliteAffix::Vampiric => {}
@@ -1440,9 +1452,12 @@ fn elite_splitting_system(
             continue;
         }
 
+        let hp_fraction = data
+            .elite_affixes
+            .param_or(EliteAffix::Splitting, "hp_fraction", 0.50);
         let mut split_stats = *stats;
-        split_stats.max_hp = health.max * 0.5;
-        split_stats.attack_damage *= 0.5;
+        split_stats.max_hp = health.max * hp_fraction;
+        split_stats.attack_damage *= hp_fraction;
 
         let origin = tf.translation.truncate();
         let base_angle = rng.gen_range_f32(0.0, std::f32::consts::TAU);
@@ -1497,9 +1512,13 @@ fn elite_splitting_system(
 }
 
 fn elite_vampiric_system(
+    data: Res<GameDataRegistry>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     mut elites: Query<(&EliteAffixes, &mut Health), Without<Replicated>>,
 ) {
+    let lifesteal_fraction =
+        data.elite_affixes
+            .param_or(EliteAffix::Vampiric, "lifesteal_fraction", 0.30);
     for event in damage_events.read() {
         if event.target_team != Some(Team::Player) || event.attacker_team != Team::Enemy {
             continue;
@@ -1514,12 +1533,13 @@ fn elite_vampiric_system(
             continue;
         }
 
-        let heal = health.max * 0.10;
+        let heal = event.amount * lifesteal_fraction;
         health.current = (health.current + heal).min(health.max);
     }
 }
 
 fn elite_berserk_system(
+    data: Res<GameDataRegistry>,
     mut elites: Query<
         (
             &Health,
@@ -1530,13 +1550,27 @@ fn elite_berserk_system(
         (With<Enemy>, Without<Replicated>),
     >,
 ) {
+    let threshold = data
+        .elite_affixes
+        .param_or(EliteAffix::Berserk, "hp_threshold", 0.40);
+    let damage_bonus = data
+        .elite_affixes
+        .param_or(EliteAffix::Berserk, "damage_bonus", 0.50);
+    let attack_speed_bonus =
+        data.elite_affixes
+            .param_or(EliteAffix::Berserk, "attack_speed_bonus", 0.40);
+    let move_speed_bonus =
+        data.elite_affixes
+            .param_or(EliteAffix::Berserk, "move_speed_bonus", 0.20);
     for (health, mut stats, mut state, mut sprite) in &mut elites {
-        if state.active || health.max <= 0.0 || health.current / health.max >= 0.30 {
+        if state.active || health.max <= 0.0 || health.current / health.max >= threshold {
             continue;
         }
 
         state.active = true;
-        stats.attack_damage *= 2.0;
+        stats.attack_damage *= 1.0 + damage_bonus;
+        stats.attack_cooldown_s /= (1.0 + attack_speed_bonus).max(0.1);
+        stats.move_speed *= 1.0 + move_speed_bonus;
         sprite.color = Color::srgb(0.96, 0.22, 0.20);
     }
 }

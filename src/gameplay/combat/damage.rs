@@ -119,14 +119,10 @@ pub fn apply_damage_events(
             commands.entity(entity).remove::<Frozen>();
         }
 
-        if let Some(mut shielded) = shielded_affix
-            && shielded.charges > 0
+        if let Some(shielded) = shielded_affix.as_deref()
+            && shielded.damage_reduction > 0.0
         {
-            shielded.charges -= 1;
-            if shielded.charges == 0 {
-                commands.entity(entity).remove::<ShieldedAffixState>();
-            }
-            continue;
+            amount *= (1.0 - shielded.damage_reduction).max(0.0);
         }
 
         if let Ok(defense) = directional_def_q.get(entity)

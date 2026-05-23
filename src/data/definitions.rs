@@ -540,11 +540,28 @@ pub struct EliteAffixConfig {
     pub affix: EliteAffix,
     pub title: String,
     pub description: String,
+    /// Numerical knobs, e.g. Swift: `move_speed_mult`, `attack_cooldown_mult`,
+    /// `slow_resist`; Berserk: `hp_threshold`, `damage_bonus`, ...
+    #[serde(default)]
+    pub params: BTreeMap<String, f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EliteAffixesConfig {
     pub affixes: Vec<EliteAffixConfig>,
+}
+
+impl EliteAffixesConfig {
+    pub fn param(&self, affix: EliteAffix, key: &str) -> Option<f32> {
+        self.affixes
+            .iter()
+            .find(|c| c.affix == affix)
+            .and_then(|c| c.params.get(key).copied())
+    }
+
+    pub fn param_or(&self, affix: EliteAffix, key: &str, default: f32) -> f32 {
+        self.param(affix, key).unwrap_or(default)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

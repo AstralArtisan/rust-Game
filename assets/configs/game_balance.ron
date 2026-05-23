@@ -14,7 +14,8 @@
   // Legacy single value; effective chances live in elite_chance_by_floor below.
   elite_chance: 0.18,
   elite_hp_mult: 2.0,
-  elite_damage_mult: 1.55,
+  // design.md §7.2: elites deal ATK x1.30 (was 1.55 -- adjusted for parity).
+  elite_damage_mult: 1.30,
   elite_gold_bonus: 12,
   use_sprite_textures: false,
 

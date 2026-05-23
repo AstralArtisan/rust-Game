@@ -96,7 +96,9 @@ impl EliteAffix {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct ShieldedAffixState {
-    pub charges: u8,
+    /// Damage taken is multiplied by `1.0 - damage_reduction` (0..1).
+    /// design.md §7.2: Shielded affix reduces incoming damage by 25%.
+    pub damage_reduction: f32,
 }
 
 #[derive(Component, Debug, Clone, Copy)]

@@ -227,7 +227,7 @@ pub(crate) fn default_registry() -> GameDataRegistry {
             enemy_pools_by_floor: vec![],
             elite_chance: 0.18,
             elite_hp_mult: 2.0,
-            elite_damage_mult: 1.55,
+            elite_damage_mult: 1.30,
             elite_gold_bonus: 12,
             use_sprite_textures: false,
             enemy_count_by_floor: vec![4, 5, 5, 6],
