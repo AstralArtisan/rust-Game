@@ -616,11 +616,13 @@ pub fn handle_shop_purchase_input(
                 .map(|d| &d.rewards.scaling)
                 .cloned()
                 .unwrap_or_else(RewardScalingConfig::default_config);
+            let shop_fx = data.as_ref().map(|d| d.shop.effects).unwrap_or_default();
             apply_shop_purchase(
                 shared_shop_item_from_shop_item(line.item),
                 floor_number,
                 &mut effects,
                 &scaling,
+                &shop_fx,
             ) == ShopPurchaseResult::Applied
         }
     };

@@ -21,5 +21,21 @@
     max_hp:       30,
     attack_power: 30,
   ),
+  // Non-floor-scaled effect magnitudes.
+  // *_factor: discount applied to the reward-curve value when the same stat
+  // is bought from the shop (cheaper purchases). *_cap_s: hard ceiling on
+  // total cooldown reduction stacked from the shop.
+  effects: (
+    heal_fraction:         0.30,
+    energy_restore:        50.0,
+    energy_max_gain:       25.0,
+    potion_heal_fraction:  0.40,
+    energy_potion_restore: 60.0,
+    move_speed_factor:     0.75,
+    crit_factor:           0.75,
+    dash_cd_cap_s:         0.20,
+    attack_speed_cap_s:    0.18,
+  ),
 )
+
 

@@ -160,8 +160,9 @@ pub fn apply_shop_purchase(
     floor_number: u32,
     effects: &mut PlayerRuleEffects<'_>,
     scaling: &RewardScalingConfig,
+    shop_fx: &crate::data::definitions::ShopEffects,
 ) -> ShopPurchaseResult {
-    if apply_shop_item(item, floor_number, effects, scaling) {
+    if apply_shop_item(item, floor_number, effects, scaling, shop_fx) {
         ShopPurchaseResult::Applied
     } else {
         ShopPurchaseResult::NoEffect
@@ -300,16 +301,19 @@ fn apply_shop_item(
     floor_number: u32,
     effects: &mut PlayerRuleEffects<'_>,
     scaling: &RewardScalingConfig,
+    shop_fx: &crate::data::definitions::ShopEffects,
 ) -> bool {
     match item {
         SharedShopItem::Heal => {
-            effects.health.current =
-                (effects.health.current + effects.health.max * 0.30).min(effects.health.max);
+            effects.health.current = (effects.health.current
+                + effects.health.max * shop_fx.heal_fraction)
+                .min(effects.health.max);
             effects.mods.shop_heal_purchases = effects.mods.shop_heal_purchases.saturating_add(1);
             true
         }
         SharedShopItem::RestoreEnergy => {
-            effects.energy.current = (effects.energy.current + 50.0).min(effects.energy.max);
+            effects.energy.current =
+                (effects.energy.current + shop_fx.energy_restore).min(effects.energy.max);
             effects.mods.shop_energy_purchases =
                 effects.mods.shop_energy_purchases.saturating_add(1);
             true
@@ -329,7 +333,8 @@ fn apply_shop_item(
             true
         }
         SharedShopItem::ReduceDashCooldown => {
-            let remain = (0.20 - effects.mods.shop_dash_cooldown_reduction_s).max(0.0);
+            let remain =
+                (shop_fx.dash_cd_cap_s - effects.mods.shop_dash_cooldown_reduction_s).max(0.0);
             if remain <= 0.0 {
                 return false;
             }
@@ -342,19 +347,20 @@ fn apply_shop_item(
             true
         }
         SharedShopItem::IncreaseMoveSpeed => {
-            let gain = move_speed_gain(scaling, floor_number) * 0.75;
+            let gain = move_speed_gain(scaling, floor_number) * shop_fx.move_speed_factor;
             effects.move_speed.0 += gain;
             effects.mods.shop_move_speed_purchases =
                 effects.mods.shop_move_speed_purchases.saturating_add(1);
             true
         }
         SharedShopItem::IncreaseEnergyMax => {
-            effects.energy.max += 25.0;
-            effects.energy.current = (effects.energy.current + 25.0).min(effects.energy.max);
+            effects.energy.max += shop_fx.energy_max_gain;
+            effects.energy.current =
+                (effects.energy.current + shop_fx.energy_max_gain).min(effects.energy.max);
             true
         }
         SharedShopItem::IncreaseCritChance => {
-            let gain = crit_gain(scaling, floor_number) * 0.75;
+            let gain = crit_gain(scaling, floor_number) * shop_fx.crit_factor;
             let next = (effects.crit.0 + gain).clamp(0.0, 1.0);
             if (next - effects.crit.0).abs() < f32::EPSILON {
                 return false;
@@ -364,7 +370,8 @@ fn apply_shop_item(
             true
         }
         SharedShopItem::IncreaseAttackSpeed => {
-            let remain = (0.18 - effects.mods.shop_attack_speed_reduction_s).max(0.0);
+            let remain =
+                (shop_fx.attack_speed_cap_s - effects.mods.shop_attack_speed_reduction_s).max(0.0);
             if remain <= 0.0 {
                 return false;
             }
@@ -384,12 +391,13 @@ fn apply_shop_item(
             false
         }
         SharedShopItem::HealingPotion => {
-            let heal = effects.health.max * 0.40;
+            let heal = effects.health.max * shop_fx.potion_heal_fraction;
             effects.health.current = (effects.health.current + heal).min(effects.health.max);
             true
         }
         SharedShopItem::EnergyPotion => {
-            effects.energy.current = (effects.energy.current + 60.0).min(effects.energy.max);
+            effects.energy.current =
+                (effects.energy.current + shop_fx.energy_potion_restore).min(effects.energy.max);
             true
         }
         SharedShopItem::Talisman => {
@@ -591,8 +599,14 @@ mod tests {
             mods: &mut mods,
         };
 
-        let result =
-            apply_shop_purchase(SharedShopItem::IncreaseEnergyMax, 1, &mut effects, &scaling);
+        let shop_fx = crate::data::definitions::ShopEffects::default();
+        let result = apply_shop_purchase(
+            SharedShopItem::IncreaseEnergyMax,
+            1,
+            &mut effects,
+            &scaling,
+            &shop_fx,
+        );
         assert_eq!(result, ShopPurchaseResult::Applied);
         assert_eq!(effects.energy.max, 125.0);
         assert_eq!(effects.energy.current, 75.0);
@@ -628,6 +642,7 @@ mod tests {
                 mods: &mut mods,
             },
             &scaling,
+            &crate::data::definitions::ShopEffects::default(),
         );
 
         assert_eq!(result, ShopPurchaseResult::Applied);

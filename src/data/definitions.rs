@@ -602,6 +602,9 @@ pub struct ShopConfig {
     /// Per-purchase price increment for repeated attribute buys (design.md §6.3).
     #[serde(default)]
     pub repeat_increment: ShopRepeatIncrement,
+    /// Non-floor-scaled effect magnitudes (potions, % discounts, reduction caps).
+    #[serde(default)]
+    pub effects: ShopEffects,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -619,6 +622,45 @@ impl Default for ShopRepeatIncrement {
             energy: 10,
             max_hp: 30,
             attack_power: 30,
+        }
+    }
+}
+
+/// Effect magnitudes for shop items that are NOT scaled by floor (potions,
+/// flat heals, % discounts vs the reward-curve, and reduction caps).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ShopEffects {
+    /// Heal restored as a fraction of max HP.
+    pub heal_fraction: f32,
+    /// Flat energy restored by the "Restore Energy" attribute item.
+    pub energy_restore: f32,
+    /// Flat max-energy gain from the "Increase Energy Max" item.
+    pub energy_max_gain: f32,
+    /// HP fraction restored by the "Healing Potion" tool.
+    pub potion_heal_fraction: f32,
+    /// Flat energy restored by the "Energy Potion" tool.
+    pub energy_potion_restore: f32,
+    /// Discount applied to move-speed/crit reward-curve values when bought
+    /// from the shop (vs from a normal levelup/reward).
+    pub move_speed_factor: f32,
+    pub crit_factor: f32,
+    /// Hard caps on accumulated shop-only cooldown reductions.
+    pub dash_cd_cap_s: f32,
+    pub attack_speed_cap_s: f32,
+}
+
+impl Default for ShopEffects {
+    fn default() -> Self {
+        Self {
+            heal_fraction: 0.30,
+            energy_restore: 50.0,
+            energy_max_gain: 25.0,
+            potion_heal_fraction: 0.40,
+            energy_potion_restore: 60.0,
+            move_speed_factor: 0.75,
+            crit_factor: 0.75,
+            dash_cd_cap_s: 0.20,
+            attack_speed_cap_s: 0.18,
         }
     }
 }
@@ -642,6 +684,7 @@ impl Default for ShopConfig {
             refresh_base_cost: 30,
             refresh_increment: 15,
             repeat_increment: ShopRepeatIncrement::default(),
+            effects: ShopEffects::default(),
         }
     }
 }
