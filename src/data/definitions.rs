@@ -560,6 +560,28 @@ pub struct ShopConfig {
     pub refresh_first_cost: u32,
     pub refresh_base_cost: u32,
     pub refresh_increment: u32,
+    /// Per-purchase price increment for repeated attribute buys (design.md §6.3).
+    #[serde(default)]
+    pub repeat_increment: ShopRepeatIncrement,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShopRepeatIncrement {
+    pub heal: u32,
+    pub energy: u32,
+    pub max_hp: u32,
+    pub attack_power: u32,
+}
+
+impl Default for ShopRepeatIncrement {
+    fn default() -> Self {
+        Self {
+            heal: 15,
+            energy: 10,
+            max_hp: 30,
+            attack_power: 30,
+        }
+    }
 }
 
 impl Default for ShopConfig {
@@ -580,6 +602,7 @@ impl Default for ShopConfig {
             refresh_first_cost: 0,
             refresh_base_cost: 30,
             refresh_increment: 15,
+            repeat_increment: ShopRepeatIncrement::default(),
         }
     }
 }

@@ -193,22 +193,24 @@ fn build_shop_offers(
 ) -> Vec<ShopOfferDraft> {
     let fallback = crate::data::definitions::ShopConfig::default();
     let shop = shop.unwrap_or(&fallback);
+    let inc = &shop.repeat_increment;
     let mut pool = vec![
         (
             SharedShopItem::Heal,
-            shop.heal_price + u32::from(mods.shop_heal_purchases) * 15,
+            shop.heal_price + u32::from(mods.shop_heal_purchases) * inc.heal,
         ),
         (
             SharedShopItem::RestoreEnergy,
-            shop.energy_price + u32::from(mods.shop_energy_purchases) * 10,
+            shop.energy_price + u32::from(mods.shop_energy_purchases) * inc.energy,
         ),
         (
             SharedShopItem::IncreaseMaxHealth,
-            shop.max_hp_price + u32::from(mods.shop_max_health_purchases) * 30,
+            shop.max_hp_price + u32::from(mods.shop_max_health_purchases) * inc.max_hp,
         ),
         (
             SharedShopItem::IncreaseAttackPower,
-            shop.attack_power_price + u32::from(mods.shop_attack_power_purchases) * 30,
+            shop.attack_power_price
+                + u32::from(mods.shop_attack_power_purchases) * inc.attack_power,
         ),
     ];
     if !ENERGY_SYSTEM_ENABLED {

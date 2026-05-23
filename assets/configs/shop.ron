@@ -14,4 +14,12 @@
   refresh_first_cost: 0,
   refresh_base_cost: 30,
   refresh_increment: 15,
+  // design.md §6.3 -- per-purchase price increment for repeated attribute buys.
+  repeat_increment: (
+    heal:         15,
+    energy:       10,
+    max_hp:       30,
+    attack_power: 30,
+  ),
 )
+
