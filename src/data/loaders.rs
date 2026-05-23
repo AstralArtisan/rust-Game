@@ -6,6 +6,7 @@ use bevy::prelude::*;
 
 use crate::data::definitions::*;
 use crate::data::registry::GameDataRegistry;
+use crate::gameplay::enemy::components::EnemyType;
 
 pub fn load_all_configs(mut commands: Commands) {
     // Per-file fallback: a single malformed RON only reverts that one config to
@@ -229,6 +230,85 @@ pub(crate) fn default_registry() -> GameDataRegistry {
             elite_damage_mult: 1.55,
             elite_gold_bonus: 12,
             use_sprite_textures: false,
+            enemy_count_by_floor: vec![4, 5, 5, 6],
+            elite_chance_by_floor: vec![0.0, 0.0, 0.18, 0.32],
+            floor_growth_curves: vec![
+                FloorGrowthCurve {
+                    hp: 0.0,
+                    damage: 0.0,
+                    cooldown: 0.0,
+                    projectile: 0.0,
+                },
+                FloorGrowthCurve {
+                    hp: 0.625,
+                    damage: 0.50,
+                    cooldown: 0.1875,
+                    projectile: 0.3125,
+                },
+                FloorGrowthCurve {
+                    hp: 3.4375,
+                    damage: 1.25,
+                    cooldown: 0.625,
+                    projectile: 0.75,
+                },
+                FloorGrowthCurve {
+                    hp: 6.5625,
+                    damage: 2.375,
+                    cooldown: 1.125,
+                    projectile: 1.25,
+                },
+            ],
+            enemy_type_curves: vec![
+                EnemyTypeCurve {
+                    enemy: EnemyType::MeleeChaser,
+                    hp: 1.08,
+                    damage: 1.0,
+                    cooldown: 1.0,
+                    projectile: 1.0,
+                    aggro_bonus: 0.0,
+                },
+                EnemyTypeCurve {
+                    enemy: EnemyType::Lobber,
+                    hp: 1.10,
+                    damage: 1.0,
+                    cooldown: 0.98,
+                    projectile: 1.08,
+                    aggro_bonus: 0.0,
+                },
+                EnemyTypeCurve {
+                    enemy: EnemyType::RangedShooter,
+                    hp: 1.15,
+                    damage: 1.0,
+                    cooldown: 0.96,
+                    projectile: 1.05,
+                    aggro_bonus: 0.0,
+                },
+                EnemyTypeCurve {
+                    enemy: EnemyType::Charger,
+                    hp: 1.20,
+                    damage: 1.08,
+                    cooldown: 1.0,
+                    projectile: 1.0,
+                    aggro_bonus: 80.0,
+                },
+                EnemyTypeCurve {
+                    enemy: EnemyType::Flanker,
+                    hp: 1.12,
+                    damage: 1.10,
+                    cooldown: 1.0,
+                    projectile: 1.0,
+                    aggro_bonus: 0.0,
+                },
+                EnemyTypeCurve {
+                    enemy: EnemyType::Sniper,
+                    hp: 1.18,
+                    damage: 1.12,
+                    cooldown: 1.0,
+                    projectile: 1.0,
+                    aggro_bonus: 0.0,
+                },
+            ],
+            floor1_easing: Floor1Easing::default(),
         },
         augments: AugmentsConfig { augments: vec![] },
         skills: SkillsConfig { skills: vec![] },

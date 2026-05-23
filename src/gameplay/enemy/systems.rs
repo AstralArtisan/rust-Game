@@ -372,11 +372,13 @@ pub fn room_entry_spawner(
             }
             let mut enemy_count = spawn_count.current;
             if floor_number == 1 {
+                let easing = data.balance.floor1_easing;
                 if current_room.0.0 == 1 {
-                    enemy_count = enemy_count.saturating_sub(1).max(3);
-                    floor_multiplier *= 0.86;
+                    let adjusted = (enemy_count as i32 + easing.room1_count_offset).max(0) as u32;
+                    enemy_count = adjusted.max(easing.min_enemy_count);
+                    floor_multiplier *= easing.room1_mult;
                 } else if current_room.0.0 == 2 {
-                    floor_multiplier *= 0.93;
+                    floor_multiplier *= easing.room2_mult;
                 }
             }
             spawn_room_enemies(
@@ -434,11 +436,7 @@ pub fn spawn_room_enemies(
     let frontline_in_pool = !frontline_pool.is_empty();
     let backline_in_pool = !backline_pool.is_empty();
 
-    let elite_chance = match floor_number {
-        0..=2 => 0.0,
-        3 => data.balance.elite_chance,
-        _ => 0.32,
-    };
+    let elite_chance = elite_chance_for_floor(&data.balance, floor_number);
     let elite_idx = if spawn_n > 0 && rng.gen_range_f32(0.0, 1.0) < elite_chance {
         Some((rng.gen_range_f32(0.0, spawn_n as f32) as usize).min(spawn_n - 1))
     } else {
@@ -775,7 +773,7 @@ fn spawn_enemy_with_elite_scale(
         EnemyType::Summoner => &data.enemies.summoner,
         EnemyType::Boss => &data.enemies.melee_chaser,
     };
-    let mut stats = scaled_enemy_stats(stats_cfg, enemy_type, floor_number, floor_multiplier);
+    let mut stats = scaled_enemy_stats(data, stats_cfg, enemy_type, floor_number, floor_multiplier);
     stats.max_hp *= coop_hp_mult.max(1.0);
     let elite_affixes = if is_elite && enemy_type != EnemyType::Boss {
         let mut affix_rng = GameRng::default();
@@ -2394,15 +2392,16 @@ fn clear_enemy_attacks_on_room_clear(
 }
 
 fn scaled_enemy_stats(
+    data: &GameDataRegistry,
     stats_cfg: &EnemyStatsConfig,
     enemy_type: EnemyType,
     floor_number: u32,
     floor_multiplier: f32,
 ) -> EnemyStats {
     let (floor_hp, floor_damage, floor_cooldown, floor_projectile) =
-        floor_growth_curve(floor_number, floor_multiplier);
+        floor_growth_curve(data, floor_number, floor_multiplier);
     let (type_hp, type_damage, type_cooldown, type_projectile, aggro_bonus) =
-        enemy_type_curve(enemy_type, floor_number);
+        enemy_type_curve(data, enemy_type, floor_number);
     EnemyStats {
         max_hp: stats_cfg.max_hp * floor_hp * type_hp,
         move_speed: stats_cfg.move_speed,
@@ -2414,59 +2413,66 @@ fn scaled_enemy_stats(
     }
 }
 
-fn floor_growth_curve(floor_number: u32, floor_multiplier: f32) -> (f32, f32, f32, f32) {
+fn elite_chance_for_floor(
+    balance: &crate::data::definitions::GameBalanceConfig,
+    floor: u32,
+) -> f32 {
+    let idx = floor.saturating_sub(1) as usize;
+    balance
+        .elite_chance_by_floor
+        .get(idx)
+        .or_else(|| balance.elite_chance_by_floor.last())
+        .copied()
+        .unwrap_or(balance.elite_chance)
+}
+
+fn floor_growth_curve(
+    data: &GameDataRegistry,
+    floor_number: u32,
+    floor_multiplier: f32,
+) -> (f32, f32, f32, f32) {
     let base_step = if floor_number > 1 {
         (floor_multiplier - 1.0) / floor_number.saturating_sub(1) as f32
     } else {
-        0.16
+        data.balance.difficulty_per_floor
     };
-    match floor_number {
-        0 | 1 => (1.0, 1.0, 1.0, 1.0),
-        2 => (
-            1.0 + base_step * 0.625,
-            1.0 + base_step * 0.50,
-            (1.0 - base_step * 0.1875).max(0.5),
-            1.0 + base_step * 0.3125,
-        ),
-        3 => (
-            1.0 + base_step * 3.4375,
-            1.0 + base_step * 1.25,
-            (1.0 - base_step * 0.625).max(0.5),
-            1.0 + base_step * 0.75,
-        ),
-        _ => (
-            1.0 + base_step * 6.5625,
-            1.0 + base_step * 2.375,
-            (1.0 - base_step * 1.125).max(0.5),
-            1.0 + base_step * 1.25,
-        ),
-    }
+    let idx = floor_number.saturating_sub(1) as usize;
+    let curve = data
+        .balance
+        .floor_growth_curves
+        .get(idx)
+        .or_else(|| data.balance.floor_growth_curves.last())
+        .copied()
+        .unwrap_or_default();
+    (
+        1.0 + base_step * curve.hp,
+        1.0 + base_step * curve.damage,
+        (1.0 - base_step * curve.cooldown).max(0.5),
+        1.0 + base_step * curve.projectile,
+    )
 }
 
-fn enemy_type_curve(enemy_type: EnemyType, floor_number: u32) -> (f32, f32, f32, f32, f32) {
+fn enemy_type_curve(
+    data: &GameDataRegistry,
+    enemy_type: EnemyType,
+    floor_number: u32,
+) -> (f32, f32, f32, f32, f32) {
     if floor_number < 3 {
         return (1.0, 1.0, 1.0, 1.0, 0.0);
     }
-
-    match enemy_type {
-        EnemyType::MeleeChaser => (1.08, 1.0, 1.0, 1.0, 0.0),
-        EnemyType::Lobber => (1.10, 1.0, 0.98, 1.08, 0.0),
-        EnemyType::RangedShooter => (1.15, 1.0, 0.96, 1.05, 0.0),
-        EnemyType::Charger => (1.20, 1.08, 1.0, 1.0, 80.0),
-        EnemyType::Flanker => (1.12, 1.10, 1.0, 1.0, 0.0),
-        EnemyType::Sniper => (1.18, 1.12, 1.0, 1.0, 0.0),
-        EnemyType::SupportCaster => {
-            if floor_number >= 4 {
-                (1.20, 1.0, 1.0, 1.0, 0.0)
-            } else {
-                (1.0, 1.0, 1.0, 1.0, 0.0)
-            }
-        }
-        EnemyType::Bomber => (1.0, 1.0, 1.0, 1.0, 0.0),
-        EnemyType::Shielder => (1.0, 1.0, 1.0, 1.0, 0.0),
-        EnemyType::Summoner => (1.0, 1.0, 1.0, 1.0, 0.0),
-        EnemyType::Boss => (1.0, 1.0, 1.0, 1.0, 0.0),
+    if let Some(c) = data
+        .balance
+        .enemy_type_curves
+        .iter()
+        .find(|c| c.enemy == enemy_type)
+    {
+        return (c.hp, c.damage, c.cooldown, c.projectile, c.aggro_bonus);
     }
+    // SupportCaster gets a small HP bump at floor 4+ when not configured in RON.
+    if enemy_type == EnemyType::SupportCaster && floor_number >= 4 {
+        return (1.20, 1.0, 1.0, 1.0, 0.0);
+    }
+    (1.0, 1.0, 1.0, 1.0, 0.0)
 }
 
 pub fn effective_enemy_move_speed(stats: &EnemyStats, buff: Option<&EnemyBuffState>) -> f32 {

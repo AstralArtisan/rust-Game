@@ -238,6 +238,61 @@ pub struct GameBalanceConfig {
     pub elite_gold_bonus: u32,
     #[serde(default = "default_use_sprite_textures")]
     pub use_sprite_textures: bool,
+    /// Normal-room enemy count by floor. Index 0 = floor 1. Falls back to
+    /// `enemy_count_normal_room` if empty.
+    #[serde(default)]
+    pub enemy_count_by_floor: Vec<u32>,
+    /// Per-floor elite spawn chance. Index 0 = floor 1. Falls back to
+    /// `elite_chance` if empty.
+    #[serde(default)]
+    pub elite_chance_by_floor: Vec<f32>,
+    /// Per-floor enemy stat growth curves (4 entries: floor 1..4). Multipliers
+    /// of the per-floor `base_step = (floor_multiplier - 1) / (floor - 1)`.
+    /// hp/damage/projectile add positively; cooldown subtracts (capped at 0.5).
+    #[serde(default)]
+    pub floor_growth_curves: Vec<FloorGrowthCurve>,
+    /// Extra multipliers applied to specific enemy types when `floor >= 3`.
+    #[serde(default)]
+    pub enemy_type_curves: Vec<EnemyTypeCurve>,
+    #[serde(default)]
+    pub floor1_easing: Floor1Easing,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct FloorGrowthCurve {
+    pub hp: f32,
+    pub damage: f32,
+    pub cooldown: f32,
+    pub projectile: f32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct EnemyTypeCurve {
+    pub enemy: EnemyType,
+    pub hp: f32,
+    pub damage: f32,
+    pub cooldown: f32,
+    pub projectile: f32,
+    pub aggro_bonus: f32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Floor1Easing {
+    pub room1_mult: f32,
+    pub room2_mult: f32,
+    pub room1_count_offset: i32,
+    pub min_enemy_count: u32,
+}
+
+impl Default for Floor1Easing {
+    fn default() -> Self {
+        Self {
+            room1_mult: 0.86,
+            room2_mult: 0.93,
+            room1_count_offset: -1,
+            min_enemy_count: 3,
+        }
+    }
 }
 
 fn default_use_sprite_textures() -> bool {
