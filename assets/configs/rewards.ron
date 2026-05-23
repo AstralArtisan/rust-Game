@@ -72,4 +72,21 @@
     heal_base: FloorGains(floor_1: 24.0, floor_2: 30.0, floor_3: 36.0, floor_4: 42.0),
     heal_hp_fraction: 0.22,
   ),
+  // Per-pick increments applied when the player gains a level (XP threshold).
+  // Melee/ranged speed are now independent options instead of a combined
+  // "attack speed" choice.
+  levelup: (
+    attack_power:    3.0,
+    max_health:      15.0,
+    move_speed:      15.0,
+    crit_chance:     0.05,
+    melee_speed_s:   0.06,
+    ranged_speed_s:  0.04,
+    dash_cooldown_s: 0.10,
+    crit_cap:        0.80,
+    melee_min_s:     0.15,
+    ranged_min_s:    0.15,
+    dash_min_s:      0.30,
+  ),
 )
+

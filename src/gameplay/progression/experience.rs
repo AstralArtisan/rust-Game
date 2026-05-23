@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::core::events::RoomClearedEvent;
-use crate::data::definitions::RewardScalingConfig;
+use crate::data::definitions::{LevelUpConfig, RewardScalingConfig};
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::augment::tuning;
@@ -102,35 +102,45 @@ pub struct PendingLevelUps {
 pub fn build_levelup_options(
     rng: &mut GameRng,
     scaling: &RewardScalingConfig,
+    levelup: &LevelUpConfig,
     max_health: f32,
     floor_number: u32,
 ) -> Vec<LevelUpOption> {
     let heal_value = heal_amount(scaling, max_health, floor_number);
-    let all_stats: Vec<(LevelUpStat, &str, &str)> = vec![
+    let all_stats: Vec<(LevelUpStat, String, &str)> = vec![
         (
-            LevelUpStat::AttackPower(3.0),
-            "攻击力 +3",
+            LevelUpStat::AttackPower(levelup.attack_power),
+            format!("攻击力 +{:.0}", levelup.attack_power),
             "提升近战和远程攻击伤害",
         ),
         (
-            LevelUpStat::MaxHealth(15.0),
-            "生命上限 +15",
+            LevelUpStat::MaxHealth(levelup.max_health),
+            format!("生命上限 +{:.0}", levelup.max_health),
             "提升最大生命值并回复等量 HP",
         ),
         (
-            LevelUpStat::MoveSpeed(15.0),
-            "移动速度 +15",
+            LevelUpStat::MoveSpeed(levelup.move_speed),
+            format!("移动速度 +{:.0}", levelup.move_speed),
             "提升角色移动速度",
         ),
-        (LevelUpStat::CritChance(0.05), "暴击率 +5%", "提升暴击概率"),
         (
-            LevelUpStat::AttackSpeed(0.05),
-            "攻速 +0.05s",
-            "缩短攻击冷却时间",
+            LevelUpStat::CritChance(levelup.crit_chance),
+            format!("暴击率 +{:.0}%", levelup.crit_chance * 100.0),
+            "提升暴击概率",
         ),
         (
-            LevelUpStat::DashCooldown(0.1),
-            "冲刺冷却 -0.1s",
+            LevelUpStat::MeleeSpeed(levelup.melee_speed_s),
+            format!("近战间隔 -{:.2}s", levelup.melee_speed_s),
+            "缩短近战攻击冷却",
+        ),
+        (
+            LevelUpStat::RangedSpeed(levelup.ranged_speed_s),
+            format!("远程间隔 -{:.2}s", levelup.ranged_speed_s),
+            "缩短远程攻击冷却",
+        ),
+        (
+            LevelUpStat::DashCooldown(levelup.dash_cooldown_s),
+            format!("冲刺冷却 -{:.2}s", levelup.dash_cooldown_s),
             "缩短冲刺冷却时间",
         ),
     ];
@@ -148,7 +158,7 @@ pub fn build_levelup_options(
     options.extend(indices.iter().map(|&i| {
         let (stat, label, desc) = &all_stats[i];
         LevelUpOption {
-            label: label.to_string(),
+            label: label.clone(),
             description: desc.to_string(),
             apply: *stat,
         }
@@ -194,17 +204,20 @@ pub fn handle_levelup_event(
         .map(|health| health.max)
         .unwrap_or(100.0);
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let default_scaling;
-    let scaling = if let Some(data) = data.as_ref() {
-        &data.rewards.scaling
-    } else {
-        default_scaling = RewardScalingConfig::default_config();
-        &default_scaling
-    };
+    let default_scaling = RewardScalingConfig::default_config();
+    let default_levelup = LevelUpConfig::default_config();
+    let (scaling, levelup) = data
+        .as_ref()
+        .map(|d| (&d.rewards.scaling, &d.rewards.levelup))
+        .unwrap_or((&default_scaling, &default_levelup));
 
-    choices.options = build_levelup_options(&mut rng, scaling, max_health, floor_number);
+    choices.options = build_levelup_options(&mut rng, scaling, levelup, max_health, floor_number);
     choices.return_state = Some(return_state);
     choices.new_level = new_level;
+    choices.crit_cap = levelup.crit_cap;
+    choices.melee_min_s = levelup.melee_min_s;
+    choices.ranged_min_s = levelup.ranged_min_s;
+    choices.dash_min_s = levelup.dash_min_s;
 
     next_state.set(GamePhase::LevelUpSelect);
 }
@@ -270,8 +283,13 @@ mod tests {
         let mut rng = GameRng::default();
         rng.reseed(7);
 
-        let options =
-            build_levelup_options(&mut rng, &RewardScalingConfig::default_config(), 100.0, 1);
+        let options = build_levelup_options(
+            &mut rng,
+            &RewardScalingConfig::default_config(),
+            &LevelUpConfig::default_config(),
+            100.0,
+            1,
+        );
 
         assert_eq!(options.len(), 4);
         assert!(matches!(options[0].apply, LevelUpStat::RecoverHealth(_)));

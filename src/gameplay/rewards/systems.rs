@@ -403,13 +403,12 @@ fn apply_reward_choice(
             }
             2 => {
                 let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-                let default_scaling;
-                let scaling = if let Some(data) = data.as_ref() {
-                    &data.rewards.scaling
-                } else {
-                    default_scaling = RewardScalingConfig::default_config();
-                    &default_scaling
-                };
+                let default_scaling = RewardScalingConfig::default_config();
+                let default_levelup = crate::data::definitions::LevelUpConfig::default_config();
+                let (scaling, levelup) = data
+                    .as_ref()
+                    .map(|d| (&d.rewards.scaling, &d.rewards.levelup))
+                    .unwrap_or((&default_scaling, &default_levelup));
 
                 if let Ok((health, mut level, mut gold)) = player_q.p2().get_single_mut() {
                     let max_health = health.max;
@@ -423,6 +422,7 @@ fn apply_reward_choice(
                         &mut levelup_choices,
                         &mut rng,
                         scaling,
+                        levelup,
                         max_health,
                         floor_number,
                         new_level,
@@ -770,13 +770,18 @@ fn configure_revelation_choices(
     choices: &mut LevelUpChoices,
     rng: &mut GameRng,
     scaling: &RewardScalingConfig,
+    levelup: &crate::data::definitions::LevelUpConfig,
     max_health: f32,
     floor_number: u32,
     new_level: u32,
 ) {
-    choices.options = build_levelup_options(rng, scaling, max_health, floor_number);
+    choices.options = build_levelup_options(rng, scaling, levelup, max_health, floor_number);
     choices.return_state = Some(GamePhase::Playing);
     choices.new_level = new_level;
+    choices.crit_cap = levelup.crit_cap;
+    choices.melee_min_s = levelup.melee_min_s;
+    choices.ranged_min_s = levelup.ranged_min_s;
+    choices.dash_min_s = levelup.dash_min_s;
 }
 
 fn generate_skill_choices(
@@ -989,6 +994,7 @@ mod tests {
             &mut choices,
             &mut rng,
             &RewardScalingConfig::default_config(),
+            &crate::data::definitions::LevelUpConfig::default_config(),
             100.0,
             1,
             3,

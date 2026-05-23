@@ -216,6 +216,7 @@ pub(crate) fn default_registry() -> GameDataRegistry {
         rewards: RewardsConfig {
             rewards: vec![],
             scaling: RewardScalingConfig::default_config(),
+            levelup: LevelUpConfig::default_config(),
         },
         rooms: RoomGenConfig {
             room_sequence: vec![],

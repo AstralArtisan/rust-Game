@@ -26,16 +26,38 @@ pub enum LevelUpStat {
     RecoverHealth(f32),
     MoveSpeed(f32),
     CritChance(f32),
-    AttackSpeed(f32),
+    MeleeSpeed(f32),
+    RangedSpeed(f32),
     DashCooldown(f32),
 }
 
 /// Resource: holds the level-up choices.
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone)]
 pub struct LevelUpChoices {
     pub options: Vec<LevelUpOption>,
     pub return_state: Option<GamePhase>,
     pub new_level: u32,
+    /// Caps copied from RewardsConfig::levelup at the moment the menu opened
+    /// so `levelup_input` doesn't have to take another Res.
+    pub crit_cap: f32,
+    pub melee_min_s: f32,
+    pub ranged_min_s: f32,
+    pub dash_min_s: f32,
+}
+
+impl Default for LevelUpChoices {
+    fn default() -> Self {
+        let cfg = crate::data::definitions::LevelUpConfig::default_config();
+        Self {
+            options: Vec::new(),
+            return_state: None,
+            new_level: 0,
+            crit_cap: cfg.crit_cap,
+            melee_min_s: cfg.melee_min_s,
+            ranged_min_s: cfg.ranged_min_s,
+            dash_min_s: cfg.dash_min_s,
+        }
+    }
 }
 
 #[derive(Component)]
@@ -281,28 +303,26 @@ pub fn levelup_input(
                 feedback_line = format!("移动速度 +{v:.0}，当前 {:.0}", spd.0);
             }
             LevelUpStat::CritChance(v) => {
-                crit.0 = (crit.0 + v).min(0.80);
+                crit.0 = (crit.0 + v).min(choices.crit_cap);
                 feedback_line = format!("暴击率 +{:.0}%，当前 {:.0}%", v * 100.0, crit.0 * 100.0);
             }
-            LevelUpStat::AttackSpeed(v) => {
-                // Permanently shrink the base cooldown — anything that re-applies
-                // a buff (player_attack_input_system, save load, coop sync) reads
-                // base_duration_s, so changing only timer.duration would be
-                // silently reverted on the next attack. design.md groups melee
-                // and ranged as a single "attack speed" axis, so trim both.
-                atk_cd.base_duration_s = (atk_cd.base_duration_s - v).max(0.15);
-                ranged_cd.base_duration_s = (ranged_cd.base_duration_s - v).max(0.15);
+            LevelUpStat::MeleeSpeed(v) => {
+                atk_cd.base_duration_s = (atk_cd.base_duration_s - v).max(choices.melee_min_s);
                 atk_cd.apply_speed_bonus(mods.total_melee_speed_bonus());
+                feedback_line =
+                    format!("近战攻击间隔 -{v:.2}s，当前 {:.2}s", atk_cd.base_duration_s);
+            }
+            LevelUpStat::RangedSpeed(v) => {
+                ranged_cd.base_duration_s =
+                    (ranged_cd.base_duration_s - v).max(choices.ranged_min_s);
                 ranged_cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
                 feedback_line = format!(
-                    "攻击间隔 -{v:.2}s，近战 {:.2}s / 远程 {:.2}s",
-                    atk_cd.base_duration_s, ranged_cd.base_duration_s
+                    "远程攻击间隔 -{v:.2}s，当前 {:.2}s",
+                    ranged_cd.base_duration_s
                 );
             }
             LevelUpStat::DashCooldown(v) => {
-                // Same as above: shrink base_duration_s so the change survives the
-                // next apply_reduction call from save load or augment effects.
-                dash_cd.base_duration_s = (dash_cd.base_duration_s - v).max(0.3);
+                dash_cd.base_duration_s = (dash_cd.base_duration_s - v).max(choices.dash_min_s);
                 dash_cd.apply_reduction(mods.total_dash_cooldown_reduction());
                 feedback_line = format!("冲刺冷却 -{v:.2}s，当前 {:.2}s", dash_cd.base_duration_s);
             }

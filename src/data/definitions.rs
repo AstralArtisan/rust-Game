@@ -194,6 +194,8 @@ pub struct RewardsConfig {
     pub rewards: Vec<RewardConfig>,
     #[serde(default = "RewardScalingConfig::default_config")]
     pub scaling: RewardScalingConfig,
+    #[serde(default = "LevelUpConfig::default_config")]
+    pub levelup: LevelUpConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,6 +228,43 @@ pub struct RewardScalingConfig {
     pub move_speed: FloorGains,
     pub heal_base: FloorGains,
     pub heal_hp_fraction: f32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct LevelUpConfig {
+    /// Flat attribute increments offered per level-up.
+    pub attack_power: f32,
+    pub max_health: f32,
+    pub move_speed: f32,
+    pub crit_chance: f32,
+    /// Seconds shaved off melee attack cooldown per pick.
+    pub melee_speed_s: f32,
+    /// Seconds shaved off ranged attack cooldown per pick.
+    pub ranged_speed_s: f32,
+    /// Seconds shaved off dash cooldown per pick.
+    pub dash_cooldown_s: f32,
+    pub crit_cap: f32,
+    pub melee_min_s: f32,
+    pub ranged_min_s: f32,
+    pub dash_min_s: f32,
+}
+
+impl LevelUpConfig {
+    pub fn default_config() -> Self {
+        Self {
+            attack_power: 3.0,
+            max_health: 15.0,
+            move_speed: 15.0,
+            crit_chance: 0.05,
+            melee_speed_s: 0.06,
+            ranged_speed_s: 0.04,
+            dash_cooldown_s: 0.10,
+            crit_cap: 0.80,
+            melee_min_s: 0.15,
+            ranged_min_s: 0.15,
+            dash_min_s: 0.30,
+        }
+    }
 }
 
 impl RewardScalingConfig {
