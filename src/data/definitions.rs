@@ -440,7 +440,7 @@ impl Default for EconomyConfig {
             elite_gold: [12, 20],
             boss_gold: [30, 50],
             floor_income: [100, 180],
-            xp_curve: vec![0, 50, 120, 210, 320, 450, 600],
+            xp_curve: vec![0, 50, 120, 210, 320, 450, 600, 780, 980, 1200],
         }
     }
 }
@@ -492,7 +492,7 @@ impl Default for EffectsConfig {
     fn default() -> Self {
         Self {
             hit_particle_count: 10,
-            death_particle_count: 16,
+            death_particle_count: 8,
             hitstop_duration_s: 0.04,
             hitstop_crit_s: 0.06,
             hitstop_kill_s: 0.08,

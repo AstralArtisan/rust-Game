@@ -69,8 +69,8 @@ fn default_registry() -> GameDataRegistry {
             energy_max: 100.0,
             melee_charge_gain: 8.0,
             ranged_charge_gain: 4.0,
-            kill_charge_gain: 12.0,
-            elite_kill_charge_gain: 25.0,
+            kill_charge_gain: 10.0,
+            elite_kill_charge_gain: 22.0,
             perfect_dash_charge_gain: 15.0,
             combo_charge_gain: 10.0,
             finisher_charge_cost: 100.0,
@@ -111,7 +111,7 @@ fn default_registry() -> GameDataRegistry {
                 max_hp: 62.0,
                 move_speed: 120.0,
                 attack_damage: 21.0,
-                attack_cooldown_s: 1.35,
+                attack_cooldown_s: 0.80,
                 aggro_range: 560.0,
                 attack_range: 350.0,
                 projectile_speed: 0.0,
@@ -121,12 +121,12 @@ fn default_registry() -> GameDataRegistry {
                 charge_speed_mult: 5.4,
                 wall_stun_s: 1.5,
                 cooldown_s: 0.5,
-                contact_damage_mult: 1.20,
-                contact_knockback: 320.0,
+                contact_damage_mult: 1.00,
+                contact_knockback: 220.0,
             },
             flanker: EnemyStatsConfig {
                 max_hp: 46.0,
-                move_speed: 208.0,
+                move_speed: 195.0,
                 attack_damage: 15.0,
                 attack_cooldown_s: 0.82,
                 aggro_range: 700.0,
@@ -136,26 +136,26 @@ fn default_registry() -> GameDataRegistry {
             sniper: EnemyStatsConfig {
                 max_hp: 44.0,
                 move_speed: 108.0,
-                attack_damage: 20.0,
+                attack_damage: 17.0,
                 attack_cooldown_s: 1.45,
                 aggro_range: 860.0,
                 attack_range: 620.0,
                 projectile_speed: 840.0,
             },
             support_caster: EnemyStatsConfig {
-                max_hp: 54.0,
-                move_speed: 126.0,
-                attack_damage: 0.0,
-                attack_cooldown_s: 1.90,
+                max_hp: 38.0,
+                move_speed: 108.0,
+                attack_damage: 9.0,
+                attack_cooldown_s: 2.20,
                 aggro_range: 700.0,
-                attack_range: 260.0,
-                projectile_speed: 0.0,
+                attack_range: 240.0,
+                projectile_speed: 340.0,
             },
             bomber: EnemyStatsConfig {
                 max_hp: 30.0,
-                move_speed: 185.0,
+                move_speed: 240.0,
                 attack_damage: 28.0,
-                attack_cooldown_s: 1.0,
+                attack_cooldown_s: 1.50,
                 aggro_range: 560.0,
                 attack_range: 55.0,
                 projectile_speed: 0.0,
@@ -163,8 +163,8 @@ fn default_registry() -> GameDataRegistry {
             shielder: EnemyStatsConfig {
                 max_hp: 72.0,
                 move_speed: 80.0,
-                attack_damage: 12.0,
-                attack_cooldown_s: 1.2,
+                attack_damage: 16.0,
+                attack_cooldown_s: 1.20,
                 aggro_range: 540.0,
                 attack_range: 40.0,
                 projectile_speed: 0.0,
@@ -181,30 +181,30 @@ fn default_registry() -> GameDataRegistry {
         },
         bosses: BossesConfig {
             floor_1: BossFloorConfig {
-                max_hp: 245.0,
-                move_speed: 115.0,
-                contact_damage: 13.0,
+                max_hp: 330.0,
+                move_speed: 95.0,
+                contact_damage: 14.0,
                 phase_thresholds: vec![0.60, 0.30],
                 projectile_speed: 430.0,
             },
             floor_2: BossFloorConfig {
-                max_hp: 305.0,
-                move_speed: 122.0,
+                max_hp: 450.0,
+                move_speed: 130.0,
                 contact_damage: 15.0,
                 phase_thresholds: vec![0.68, 0.34],
                 projectile_speed: 470.0,
             },
             floor_3: BossFloorConfig {
-                max_hp: 372.0,
-                move_speed: 128.0,
-                contact_damage: 17.0,
+                max_hp: 600.0,
+                move_speed: 175.0,
+                contact_damage: 18.0,
                 phase_thresholds: vec![0.70, 0.35],
                 projectile_speed: 505.0,
             },
             floor_4: BossFloorConfig {
-                max_hp: 680.0,
-                move_speed: 118.0,
-                contact_damage: 19.0,
+                max_hp: 620.0,
+                move_speed: 82.0,
+                contact_damage: 16.0,
                 phase_thresholds: vec![0.72, 0.38],
                 projectile_speed: 540.0,
             },
@@ -227,8 +227,8 @@ fn default_registry() -> GameDataRegistry {
             elite_chance: 0.18,
             elite_hp_mult: 2.0,
             elite_damage_mult: 1.55,
-            elite_gold_bonus: 5,
-            use_sprite_textures: true,
+            elite_gold_bonus: 12,
+            use_sprite_textures: false,
         },
         augments: AugmentsConfig { augments: vec![] },
         skills: SkillsConfig { skills: vec![] },
@@ -255,6 +255,212 @@ mod tests {
             (actual - expected).abs() < 0.001,
             "expected {expected}, got {actual}"
         );
+    }
+
+    /// Guard rail: `default_registry()` is the fallback used when an asset RON
+    /// fails to load. It MUST stay in sync with the shipped `.ron` files so a
+    /// parse error doesn't silently downgrade balance to a stale snapshot.
+    #[test]
+    fn loaders_fallback_matches_shipped_ron_files() {
+        let fallback = default_registry();
+
+        let player: PlayerConfig = load_ron("assets/configs/player.ron").unwrap();
+        close(player.max_hp, fallback.player.max_hp);
+        close(player.move_speed, fallback.player.move_speed);
+        close(player.attack_power, fallback.player.attack_power);
+        close(player.attack_cooldown_s, fallback.player.attack_cooldown_s);
+        close(player.ranged_cooldown_s, fallback.player.ranged_cooldown_s);
+        close(player.dash_cooldown_s, fallback.player.dash_cooldown_s);
+        close(player.dash_speed, fallback.player.dash_speed);
+        close(player.dash_duration_s, fallback.player.dash_duration_s);
+        close(player.invincibility_s, fallback.player.invincibility_s);
+        close(player.crit_chance, fallback.player.crit_chance);
+        close(player.energy_max, fallback.player.energy_max);
+        close(player.melee_charge_gain, fallback.player.melee_charge_gain);
+        close(
+            player.ranged_charge_gain,
+            fallback.player.ranged_charge_gain,
+        );
+        close(player.kill_charge_gain, fallback.player.kill_charge_gain);
+        close(
+            player.elite_kill_charge_gain,
+            fallback.player.elite_kill_charge_gain,
+        );
+        close(
+            player.perfect_dash_charge_gain,
+            fallback.player.perfect_dash_charge_gain,
+        );
+        close(player.combo_charge_gain, fallback.player.combo_charge_gain);
+        close(
+            player.finisher_charge_cost,
+            fallback.player.finisher_charge_cost,
+        );
+
+        let enemies: EnemiesConfig = load_ron("assets/configs/enemies.ron").unwrap();
+        for (name, ron, fb) in [
+            (
+                "melee_chaser",
+                &enemies.melee_chaser,
+                &fallback.enemies.melee_chaser,
+            ),
+            ("lobber", &enemies.lobber, &fallback.enemies.lobber),
+            (
+                "ranged_shooter",
+                &enemies.ranged_shooter,
+                &fallback.enemies.ranged_shooter,
+            ),
+            ("charger", &enemies.charger, &fallback.enemies.charger),
+            ("flanker", &enemies.flanker, &fallback.enemies.flanker),
+            ("sniper", &enemies.sniper, &fallback.enemies.sniper),
+            (
+                "support_caster",
+                &enemies.support_caster,
+                &fallback.enemies.support_caster,
+            ),
+            ("bomber", &enemies.bomber, &fallback.enemies.bomber),
+            ("shielder", &enemies.shielder, &fallback.enemies.shielder),
+            ("summoner", &enemies.summoner, &fallback.enemies.summoner),
+        ] {
+            assert!(
+                (ron.max_hp - fb.max_hp).abs() < 0.001,
+                "{name}.max_hp mismatch"
+            );
+            assert!(
+                (ron.move_speed - fb.move_speed).abs() < 0.001,
+                "{name}.move_speed mismatch"
+            );
+            assert!(
+                (ron.attack_damage - fb.attack_damage).abs() < 0.001,
+                "{name}.attack_damage mismatch"
+            );
+            assert!(
+                (ron.attack_cooldown_s - fb.attack_cooldown_s).abs() < 0.001,
+                "{name}.attack_cooldown_s mismatch"
+            );
+            assert!(
+                (ron.aggro_range - fb.aggro_range).abs() < 0.001,
+                "{name}.aggro_range mismatch"
+            );
+            assert!(
+                (ron.attack_range - fb.attack_range).abs() < 0.001,
+                "{name}.attack_range mismatch"
+            );
+            assert!(
+                (ron.projectile_speed - fb.projectile_speed).abs() < 0.001,
+                "{name}.projectile_speed mismatch"
+            );
+        }
+        close(
+            enemies.charger_config.charge_duration_s,
+            fallback.enemies.charger_config.charge_duration_s,
+        );
+        close(
+            enemies.charger_config.charge_speed_mult,
+            fallback.enemies.charger_config.charge_speed_mult,
+        );
+        close(
+            enemies.charger_config.wall_stun_s,
+            fallback.enemies.charger_config.wall_stun_s,
+        );
+        close(
+            enemies.charger_config.cooldown_s,
+            fallback.enemies.charger_config.cooldown_s,
+        );
+        close(
+            enemies.charger_config.contact_damage_mult,
+            fallback.enemies.charger_config.contact_damage_mult,
+        );
+        close(
+            enemies.charger_config.contact_knockback,
+            fallback.enemies.charger_config.contact_knockback,
+        );
+
+        let bosses: BossesConfig = load_ron("assets/configs/boss.ron").unwrap();
+        for (name, ron, fb) in [
+            ("floor_1", &bosses.floor_1, &fallback.bosses.floor_1),
+            ("floor_2", &bosses.floor_2, &fallback.bosses.floor_2),
+            ("floor_3", &bosses.floor_3, &fallback.bosses.floor_3),
+            ("floor_4", &bosses.floor_4, &fallback.bosses.floor_4),
+        ] {
+            assert!(
+                (ron.max_hp - fb.max_hp).abs() < 0.001,
+                "boss {name}.max_hp mismatch (ron {} vs fb {})",
+                ron.max_hp,
+                fb.max_hp
+            );
+            assert!(
+                (ron.move_speed - fb.move_speed).abs() < 0.001,
+                "boss {name}.move_speed mismatch"
+            );
+            assert!(
+                (ron.contact_damage - fb.contact_damage).abs() < 0.001,
+                "boss {name}.contact_damage mismatch"
+            );
+            assert!(
+                (ron.projectile_speed - fb.projectile_speed).abs() < 0.001,
+                "boss {name}.projectile_speed mismatch"
+            );
+            assert_eq!(
+                ron.phase_thresholds, fb.phase_thresholds,
+                "boss {name}.phase_thresholds mismatch"
+            );
+        }
+
+        let balance: GameBalanceConfig = load_ron("assets/configs/game_balance.ron").unwrap();
+        close(
+            balance.difficulty_per_floor,
+            fallback.balance.difficulty_per_floor,
+        );
+        assert_eq!(
+            balance.enemy_count_normal_room,
+            fallback.balance.enemy_count_normal_room
+        );
+        assert_eq!(balance.total_floors, fallback.balance.total_floors);
+        assert_eq!(balance.floor_rooms, fallback.balance.floor_rooms);
+        close(balance.elite_chance, fallback.balance.elite_chance);
+        close(balance.elite_hp_mult, fallback.balance.elite_hp_mult);
+        close(
+            balance.elite_damage_mult,
+            fallback.balance.elite_damage_mult,
+        );
+        assert_eq!(
+            balance.elite_gold_bonus, fallback.balance.elite_gold_bonus,
+            "elite_gold_bonus mismatch"
+        );
+        assert_eq!(
+            balance.use_sprite_textures, fallback.balance.use_sprite_textures,
+            "use_sprite_textures mismatch"
+        );
+
+        let economy: EconomyConfig = load_ron("assets/configs/balance.ron").unwrap();
+        assert_eq!(
+            economy.normal_gold, fallback.economy.normal_gold,
+            "normal_gold mismatch"
+        );
+        assert_eq!(economy.elite_gold, fallback.economy.elite_gold);
+        assert_eq!(economy.boss_gold, fallback.economy.boss_gold);
+        assert_eq!(economy.floor_income, fallback.economy.floor_income);
+        assert_eq!(
+            economy.xp_curve, fallback.economy.xp_curve,
+            "xp_curve mismatch (ron {:?} vs fb {:?})",
+            economy.xp_curve, fallback.economy.xp_curve
+        );
+
+        let effects: EffectsConfig = load_ron("assets/configs/effects.ron").unwrap();
+        assert_eq!(
+            effects.hit_particle_count,
+            fallback.effects.hit_particle_count
+        );
+        assert_eq!(
+            effects.death_particle_count, fallback.effects.death_particle_count,
+            "death_particle_count mismatch"
+        );
+
+        let audio: AudioConfig = load_ron("assets/configs/audio.ron").unwrap();
+        close(audio.master_volume, fallback.audio.master_volume);
+        close(audio.sfx_volume, fallback.audio.sfx_volume);
+        close(audio.bgm_volume, fallback.audio.bgm_volume);
+        close(audio.pitch_variation, fallback.audio.pitch_variation);
     }
 
     // Regression: floor 1 must NOT spawn floor 2/3/4 enemies. The old
