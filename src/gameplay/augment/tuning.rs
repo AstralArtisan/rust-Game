@@ -216,8 +216,10 @@ pub(crate) fn extra_projectile_damage_fraction(data: &GameDataRegistry, stacks: 
 }
 
 pub(crate) fn homing_turn_rate(data: &GameDataRegistry, stacks: u8) -> f32 {
-    // RON stores turn angle in degrees per frame; convert to radians here.
-    param(data, AugmentId::Homing, stacks, "turn_deg").to_radians()
+    // Dimensionless Vec2::lerp factor (0..1). Consumed by
+    // homing_projectile_system as `current_dir.lerp(target_dir, factor)`,
+    // so unit is "fraction of the way to the target this frame", NOT radians.
+    param(data, AugmentId::Homing, stacks, "turn_factor")
 }
 
 pub(crate) fn homing_search_radius(data: &GameDataRegistry, stacks: u8) -> f32 {

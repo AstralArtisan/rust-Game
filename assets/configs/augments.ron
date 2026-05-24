@@ -56,9 +56,10 @@
       (description: "每次射击 +3 弹，附加弹 100% 伤害，每第 5 次射击发射追踪弹", params: {"extra": 3.0, "damage": 1.00, "homing_every": 5.0}),
     ]),
     (id: Homing, category: Ranged, rarity: Elite, title: "追踪弹", shop_cost: 150, levels: [
-      (description: "轻微追踪（15° 转向，120 搜索范围）", params: {"turn_deg": 15.0, "search_radius": 120.0}),
-      (description: "中等追踪（30° 转向，160 搜索范围）", params: {"turn_deg": 30.0, "search_radius": 160.0}),
-      (description: "强追踪（60° 转向，210 搜索范围）+ 穿透 1 个敌人", params: {"turn_deg": 60.0, "pierce": 1.0, "search_radius": 210.0}),
+      // turn_factor 是 Vec2::lerp 的混合系数（0..1），不是角度。每帧将子弹方向向目标方向插值。
+      (description: "轻微追踪（120 搜索范围）", params: {"turn_factor": 0.12, "search_radius": 120.0}),
+      (description: "中等追踪（160 搜索范围）", params: {"turn_factor": 0.22, "search_radius": 160.0}),
+      (description: "强追踪（210 搜索范围）+ 穿透 1 个敌人", params: {"turn_factor": 0.42, "pierce": 1.0, "search_radius": 210.0}),
     ]),
     (id: ChainLightning, category: Ranged, rarity: Elite, title: "连锁闪电", shop_cost: 150, levels: [
       (description: "命中跳 1 敌，50% 伤害", params: {"jumps": 1.0, "damage": 0.50}),
