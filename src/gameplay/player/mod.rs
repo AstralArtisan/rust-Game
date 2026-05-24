@@ -25,6 +25,7 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (
                     systems::player_invincibility_system,
+                    systems::player_buff_tick_system,
                     systems::player_move_system,
                     systems::player_facing_system,
                     combat::player_attack_input_system,

@@ -291,6 +291,27 @@ pub struct RangedRapidFire {
     pub decay: Timer,
 }
 
+/// Temporary buff applied by skills like WarCry / TimeRift. All fields are
+/// additive bonuses (0.40 means +40%); they stack on top of RewardModifiers.
+#[derive(Component, Debug, Clone)]
+pub struct PlayerBuff {
+    pub timer: Timer,
+    pub attack_bonus: f32,
+    pub move_speed_bonus: f32,
+    pub attack_speed_bonus: f32,
+}
+
+impl PlayerBuff {
+    pub fn from_seconds(duration_s: f32) -> Self {
+        Self {
+            timer: Timer::from_seconds(duration_s.max(0.01), TimerMode::Once),
+            attack_bonus: 0.0,
+            move_speed_bonus: 0.0,
+            attack_speed_bonus: 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RangedVolleyPattern {
     Single,

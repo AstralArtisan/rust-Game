@@ -85,7 +85,7 @@ pub fn player_attack_input_system(
             Option<&AugmentInventory>,
             Option<&PlayerSkillState>,
             Option<&GhostState>,
-            Option<&mut CoopMeleeFlashState>,
+            (Option<&PlayerBuff>, Option<&mut CoopMeleeFlashState>),
         ),
         (With<Player>, Without<Replicated>),
     >,
@@ -109,7 +109,7 @@ pub fn player_attack_input_system(
         inventory,
         skill_state,
         ghost,
-        melee_flash,
+        (buff, melee_flash),
     ) in &mut q
     {
         if !input.attack_held
@@ -122,7 +122,8 @@ pub fn player_attack_input_system(
             continue;
         }
 
-        let mut melee_speed_bonus = mods.total_melee_speed_bonus();
+        let mut melee_speed_bonus =
+            mods.total_melee_speed_bonus() + buff.map(|b| b.attack_speed_bonus).unwrap_or(0.0);
         let mut combo_crit_bonus = 0.0;
         let combo_accelerate_stacks = inventory
             .map(|value| value.stacks(AugmentId::ComboAccelerate))
@@ -142,6 +143,7 @@ pub fn player_attack_input_system(
         let swing = melee_swing_profile(*mods);
 
         let greed_mult = greed_damage_mult(&data, inventory, gold.0);
+        let buff_attack = 1.0 + buff.map(|b| b.attack_bonus).unwrap_or(0.0);
         spawn_player_melee_hitbox_with_mods(
             &mut commands,
             &assets,
@@ -149,7 +151,7 @@ pub fn player_attack_input_system(
             player_e,
             player_tf,
             facing.0,
-            power.0 * mods.melee_damage_mult() * greed_mult,
+            power.0 * mods.melee_damage_mult() * greed_mult * buff_attack,
             crit.0 + combo_crit_bonus + greed_crit_bonus(&data, inventory, gold.0),
             *mods,
             inventory,
@@ -191,6 +193,7 @@ pub fn player_ranged_input_system(
             Option<&AugmentInventory>,
             Option<&PlayerSkillState>,
             Option<&GhostState>,
+            Option<&PlayerBuff>,
         ),
         (With<Player>, Without<Replicated>),
     >,
@@ -214,6 +217,7 @@ pub fn player_ranged_input_system(
         inventory,
         skill_state,
         ghost,
+        buff,
     ) in &mut q
     {
         if input.ranged_held {
@@ -240,7 +244,9 @@ pub fn player_ranged_input_system(
         cd.base_duration_s = cfg
             .map(|c| c.ranged_cooldown_s)
             .unwrap_or(cd.base_duration_s);
-        cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
+        cd.apply_speed_bonus(
+            mods.total_ranged_speed_bonus() + buff.map(|b| b.attack_speed_bonus).unwrap_or(0.0),
+        );
         cd.timer.reset();
         sfx_events.send(crate::core::events::SfxEvent {
             kind: crate::core::events::SfxKind::RangedAttack,
@@ -269,7 +275,9 @@ pub fn player_ranged_input_system(
         let charge_mult = data_ref
             .map(|d| tuning::charge_shot_damage_mult(d, charge_stacks))
             .unwrap_or(1.0);
-        let damage = power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult * charge_mult;
+        let buff_attack = 1.0 + buff.map(|b| b.attack_bonus).unwrap_or(0.0);
+        let damage =
+            power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult * charge_mult * buff_attack;
         let Some(d) = data_ref else {
             continue;
         };

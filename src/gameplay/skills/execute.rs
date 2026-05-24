@@ -16,7 +16,7 @@ use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::combat::MeleeSlashEffect;
 use crate::gameplay::player::components::{
     AttackPower, DashState, Energy, FacingDirection, Health, InvincibilityTimer, Player,
-    PlayerDriveInput, PlayerSkillState, SkillSlot, SkillSlots, SkillType,
+    PlayerBuff, PlayerDriveInput, PlayerSkillState, SkillSlot, SkillSlots, SkillType,
 };
 
 pub fn activate_skill_inputs(
@@ -29,6 +29,7 @@ pub fn activate_skill_inputs(
         (Entity, &GlobalTransform, &Health),
         (With<Enemy>, Without<Player>, Without<Replicated>),
     >,
+    shielded_q: Query<&crate::gameplay::enemy::components::ShieldedAffixState, Without<Replicated>>,
     mut player_q: Query<
         (
             Entity,
@@ -233,6 +234,10 @@ pub fn activate_skill_inputs(
                     {
                         continue;
                     }
+                    // Shielded elites with immune_freeze ignore the chill.
+                    if shielded_q.get(enemy_e).is_ok_and(|s| s.immune_freeze) {
+                        continue;
+                    }
                     commands.entity(enemy_e).insert(Frozen {
                         timer: Timer::from_seconds(freeze_s, TimerMode::Once),
                         shatter_damage_bonus: 0.0,
@@ -270,8 +275,13 @@ pub fn activate_skill_inputs(
                     Color::srgba(1.0, 0.84, 0.32, 0.20),
                 );
             }
-            // TODO: apply WarCry attack/move/attack-speed buff for cfg.duration_s
-            // once a PlayerBuff component is wired into combat/movement systems.
+            // design.md §5.4 WarCry: attack/move/attack-speed buff for duration_s.
+            let duration = cfg.duration_s.max(0.01);
+            let mut buff = PlayerBuff::from_seconds(duration);
+            buff.attack_bonus = cfg.status("attack_bonus");
+            buff.move_speed_bonus = cfg.status("move_speed_bonus");
+            buff.attack_speed_bonus = cfg.status("attack_speed_bonus");
+            commands.entity(player_e).insert(buff);
         }
         SkillType::LifeDrain => {
             spawn_radial_skill_hitbox(
@@ -328,7 +338,12 @@ pub fn activate_skill_inputs(
                     });
                 }
             }
-            // TODO: apply TimeRift attack-speed buff to player for buff_s.
+            let attack_speed_bonus = cfg.status("attack_speed_bonus");
+            if attack_speed_bonus > 0.0 {
+                let mut buff = PlayerBuff::from_seconds(buff_s);
+                buff.attack_speed_bonus = attack_speed_bonus;
+                commands.entity(player_e).insert(buff);
+            }
         }
     }
     energy.current = (energy.current - energy_cost).max(0.0);

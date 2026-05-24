@@ -140,6 +140,19 @@ pub fn push_local_input_to_players(
     }
 }
 
+pub fn player_buff_tick_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut q: Query<(Entity, &mut PlayerBuff), With<Player>>,
+) {
+    for (entity, mut buff) in &mut q {
+        buff.timer.tick(time.delta());
+        if buff.timer.finished() {
+            commands.entity(entity).remove::<PlayerBuff>();
+        }
+    }
+}
+
 pub fn player_move_system(
     time: Res<Time>,
     room_state: Res<RoomState>,
@@ -150,6 +163,7 @@ pub fn player_move_system(
             &DashState,
             &MoveSpeed,
             Option<&DashResetSpeedBuff>,
+            Option<&PlayerBuff>,
             &mut Velocity,
             &mut Transform,
             Option<&GhostState>,
@@ -161,7 +175,7 @@ pub fn player_move_system(
     if matches!(*room_state, RoomState::BossFight) {
         // still movable
     }
-    for (input, dash, move_speed, dash_reset_buff, mut vel, mut tf, ghost) in &mut q {
+    for (input, dash, move_speed, dash_reset_buff, buff, mut vel, mut tf, ghost) in &mut q {
         if coop_phase.is_some_and(coop_phase_blocks_player_movement) {
             vel.0 = Vec2::ZERO;
             continue;
@@ -171,15 +185,17 @@ pub fn player_move_system(
         } else {
             1.0
         };
+        let buff_mult = 1.0 + buff.map(|b| b.move_speed_bonus).unwrap_or(0.0);
+        let effective_speed = move_speed.0.max(0.0) * buff_mult;
         if dash.active {
             vel.0 = dash.dir * dash.speed;
         } else {
             let dash_reset_mult = dash_reset_buff
                 .map(|buff| buff.move_speed_mult.max(1.0))
                 .unwrap_or(1.0);
-            vel.0 = input.move_axis * move_speed.0.max(0.0) * move_scale * dash_reset_mult;
+            vel.0 = input.move_axis * effective_speed * move_scale * dash_reset_mult;
         }
-        vel.0 = clamp_length(vel.0, dash.speed.max(move_speed.0));
+        vel.0 = clamp_length(vel.0, dash.speed.max(effective_speed));
         tf.translation += (vel.0 * time.delta_seconds()).extend(0.0);
 
         let clamped = clamp_in_room(
