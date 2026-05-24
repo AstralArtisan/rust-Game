@@ -114,23 +114,24 @@ pub fn spawn_drops_on_death(
         let reward_gold = roll_enemy_gold(kind, is_elite, &data.economy, &mut rng);
 
         // XP calculation (raw, XpBonus applied in experience.rs)
+        let xp_cfg = &data.economy.xp_rewards;
         let xp_amount: u32 = match kind {
-            EnemyType::Boss => 120 + (floor_number.saturating_sub(1) * 15).min(45),
-            _ if is_elite => 40 + (floor_number.saturating_sub(1) * 5).min(15),
-            _ => 10 + floor_number.saturating_sub(1).min(3),
+            EnemyType::Boss => xp_cfg.boss.for_floor(floor_number),
+            _ if is_elite => xp_cfg.elite.for_floor(floor_number),
+            _ => xp_cfg.normal.for_floor(floor_number),
         };
 
-        let base_gold_drops: u32 = match kind {
-            EnemyType::Boss => 8,
-            _ if is_elite => 4,
-            _ => 1,
+        let counts = &data.economy.drop_counts;
+        let (base_gold_drops, base_xp_drops): (u32, u32) = match kind {
+            EnemyType::Boss => (counts.boss_gold, counts.boss_xp),
+            _ if is_elite => (counts.elite_gold, counts.elite_xp),
+            _ => (counts.normal_gold, counts.normal_xp),
         };
-        let base_xp_drops: u32 = match kind {
-            EnemyType::Boss => 6,
-            _ if is_elite => 3,
-            _ => 1,
+        let floor_mult: u32 = if floor_number >= counts.floor_double_threshold {
+            2
+        } else {
+            1
         };
-        let floor_mult: u32 = if floor_number >= 3 { 2 } else { 1 };
         let is_boss_or_elite = matches!(kind, EnemyType::Boss) || is_elite;
         let gold_drop_count = if is_boss_or_elite {
             base_gold_drops * floor_mult

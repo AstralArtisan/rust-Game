@@ -6,5 +6,20 @@
   // Per-level XP cost: curve[level-1] is the XP needed to go from level → level+1.
   // 等能量球及更大的经验/能量调整方案确认后再统一重算。
   xp_curve: [50, 70, 90, 110, 130, 150, 180, 200, 220],
+  // XP awarded on kill: base + min(per_floor * (floor - 1), cap).
+  xp_rewards: (
+    boss:   (base: 120, per_floor: 15, cap: 45),
+    elite:  (base:  40, per_floor:  5, cap: 15),
+    normal: (base:  10, per_floor:  1, cap:  3),
+  ),
+  // Number of orbs spawned per kill. Boss/elite counts double once floor
+  // >= floor_double_threshold.
+  drop_counts: (
+    boss_gold:   8, boss_xp:   6,
+    elite_gold:  4, elite_xp:  3,
+    normal_gold: 1, normal_xp: 1,
+    floor_double_threshold: 3,
+  ),
 )
+
 

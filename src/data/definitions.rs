@@ -695,6 +695,79 @@ pub struct EconomyConfig {
     pub boss_gold: [u32; 2],
     pub floor_income: [u32; 2],
     pub xp_curve: Vec<u32>,
+    #[serde(default)]
+    pub xp_rewards: XpRewards,
+    #[serde(default)]
+    pub drop_counts: DropCounts,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct XpReward {
+    pub base: u32,
+    pub per_floor: u32,
+    pub cap: u32,
+}
+
+impl XpReward {
+    pub fn for_floor(&self, floor: u32) -> u32 {
+        self.base + (floor.saturating_sub(1).saturating_mul(self.per_floor)).min(self.cap)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct XpRewards {
+    pub boss: XpReward,
+    pub elite: XpReward,
+    pub normal: XpReward,
+}
+
+impl Default for XpRewards {
+    fn default() -> Self {
+        Self {
+            boss: XpReward {
+                base: 120,
+                per_floor: 15,
+                cap: 45,
+            },
+            elite: XpReward {
+                base: 40,
+                per_floor: 5,
+                cap: 15,
+            },
+            normal: XpReward {
+                base: 10,
+                per_floor: 1,
+                cap: 3,
+            },
+        }
+    }
+}
+
+/// How many drop orbs an enemy spawns. Boss/elite counts double once the
+/// floor crosses `floor_double_threshold` (per legacy behavior).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct DropCounts {
+    pub boss_gold: u32,
+    pub boss_xp: u32,
+    pub elite_gold: u32,
+    pub elite_xp: u32,
+    pub normal_gold: u32,
+    pub normal_xp: u32,
+    pub floor_double_threshold: u32,
+}
+
+impl Default for DropCounts {
+    fn default() -> Self {
+        Self {
+            boss_gold: 8,
+            boss_xp: 6,
+            elite_gold: 4,
+            elite_xp: 3,
+            normal_gold: 1,
+            normal_xp: 1,
+            floor_double_threshold: 3,
+        }
+    }
 }
 
 impl Default for EconomyConfig {
@@ -705,6 +778,8 @@ impl Default for EconomyConfig {
             boss_gold: [30, 50],
             floor_income: [100, 180],
             xp_curve: vec![50, 70, 90, 110, 130, 150, 180, 200, 220],
+            xp_rewards: XpRewards::default(),
+            drop_counts: DropCounts::default(),
         }
     }
 }
