@@ -254,6 +254,10 @@ impl SkillSlots {
         state.skill = Some(skill);
         true
     }
+
+    pub fn equipped(&self) -> Vec<SkillType> {
+        self.slots.iter().filter_map(|s| s.skill).collect()
+    }
 }
 
 #[derive(Debug, Clone)]

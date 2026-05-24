@@ -127,12 +127,13 @@ pub fn build_shop_draft(
     mods: RewardModifiers,
     rng: &mut GameRng,
     registry: Option<&GameDataRegistry>,
+    equipped_skills: &[SkillType],
 ) -> ShopDraft {
     ShopDraft {
         refresh_count: 0,
         offers: build_shop_offers(mods, registry.map(|registry| &registry.shop)),
         augment_offers: registry
-            .map(|registry| build_augment_offers(registry, rng))
+            .map(|registry| build_augment_offers(registry, rng, equipped_skills))
             .unwrap_or_default(),
         utility_offers: build_utility_offers(registry.map(|registry| &registry.shop)),
     }
@@ -144,12 +145,13 @@ pub fn refresh_shop_draft(
     mods: RewardModifiers,
     rng: &mut GameRng,
     registry: Option<&GameDataRegistry>,
+    equipped_skills: &[SkillType],
 ) -> ShopDraft {
     ShopDraft {
         refresh_count: refresh_count.saturating_add(1),
         offers: build_shop_offers(mods, registry.map(|registry| &registry.shop)),
         augment_offers: registry
-            .map(|registry| build_augment_offers(registry, rng))
+            .map(|registry| build_augment_offers(registry, rng, equipped_skills))
             .unwrap_or_default(),
         utility_offers: build_utility_offers(registry.map(|registry| &registry.shop)),
     }
@@ -226,7 +228,11 @@ fn build_shop_offers(
         .collect()
 }
 
-fn build_augment_offers(registry: &GameDataRegistry, rng: &mut GameRng) -> Vec<ShopOfferDraft> {
+fn build_augment_offers(
+    registry: &GameDataRegistry,
+    rng: &mut GameRng,
+    equipped_skills: &[SkillType],
+) -> Vec<ShopOfferDraft> {
     let mut pool = registry.augments.augments.iter().collect::<Vec<_>>();
     rng.shuffle(&mut pool);
     pool.truncate(3.min(pool.len()));
@@ -244,7 +250,12 @@ fn build_augment_offers(registry: &GameDataRegistry, rng: &mut GameRng) -> Vec<S
         cost: registry.shop.augment_upgrade_price,
         purchased: false,
     });
-    let mut skills = registry.skills.skills.iter().collect::<Vec<_>>();
+    let mut skills = registry
+        .skills
+        .skills
+        .iter()
+        .filter(|skill| !equipped_skills.contains(&skill.skill))
+        .collect::<Vec<_>>();
     rng.shuffle(&mut skills);
     for skill in skills.into_iter().take(2) {
         offers.push(ShopOfferDraft {
@@ -516,7 +527,13 @@ mod tests {
         let registry = load_test_registry();
         let mut rng = GameRng::default();
         rng.reseed(23);
-        let draft = build_shop_draft(1, RewardModifiers::default(), &mut rng, Some(&registry));
+        let draft = build_shop_draft(
+            1,
+            RewardModifiers::default(),
+            &mut rng,
+            Some(&registry),
+            &[],
+        );
 
         assert_eq!(draft.offers.len(), 4);
         assert!(draft.offers.iter().any(|offer| {

@@ -13,7 +13,7 @@ use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::map::{InGameEntity, VisitedRooms};
 use crate::gameplay::player::components::{
-    DashState, Energy, Gold, Health, Player, RewardModifiers, Velocity,
+    DashState, Energy, Gold, Health, Player, RewardModifiers, SkillSlots, SkillType, Velocity,
 };
 use crate::gameplay::progression::experience::{PlayerLevel, build_levelup_options};
 use crate::gameplay::progression::floor::FloorNumber;
@@ -193,7 +193,15 @@ fn enter_reward_selection(
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
     floor: Option<Res<FloorNumber>>,
-    mut player_q: Query<(&RewardModifiers, &mut Health, Option<&AugmentInventory>), With<Player>>,
+    mut player_q: Query<
+        (
+            &RewardModifiers,
+            &mut Health,
+            Option<&AugmentInventory>,
+            &SkillSlots,
+        ),
+        With<Player>,
+    >,
 ) {
     let (Some(layout), Some(current)) = (layout.as_deref(), current.as_deref()) else {
         return;
@@ -231,7 +239,7 @@ fn enter_reward_selection(
     });
 
     if decision.heal_alive_fraction > 0.0
-        && let Ok((_, mut health, _)) = player_q.get_single_mut()
+        && let Ok((_, mut health, _, _)) = player_q.get_single_mut()
     {
         let heal = health.max * decision.heal_alive_fraction;
         health.current = (health.current + heal).min(health.max);
@@ -242,7 +250,7 @@ fn enter_reward_selection(
         let is_elite_room = room.room_type == RoomType::Elite;
         let should_offer_augment = is_elite_room || rng.gen_bool(0.40);
         if should_offer_augment && let Some(registry) = data.as_deref() {
-            let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
+            let inventory = player_q.get_single().ok().and_then(|(_, _, inv, _)| inv);
             let generated = generate_augment_choices(
                 registry.augments.augments.as_slice(),
                 &mut rng,
@@ -264,14 +272,18 @@ fn enter_reward_selection(
     skill_choices.options.clear();
 
     if let Some(registry) = data.as_deref() {
-        let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
+        let player_single = player_q.get_single().ok();
+        let inventory = player_single.and_then(|(_, _, inv, _)| inv);
+        let equipped = player_single
+            .map(|(_, _, _, slots)| slots.equipped())
+            .unwrap_or_default();
         let generated = generate_augment_choices(
             registry.augments.augments.as_slice(),
             &mut rng,
             true,
             inventory,
         );
-        let generated_skills = generate_skill_choices(registry, &mut rng);
+        let generated_skills = generate_skill_choices(registry, &mut rng, &equipped);
         if !generated.is_empty() {
             augment_choices.options = generated;
             augment_choices.return_state = Some(GamePhase::Playing);
@@ -797,8 +809,14 @@ fn configure_revelation_choices(
 fn generate_skill_choices(
     registry: &GameDataRegistry,
     rng: &mut GameRng,
+    equipped_skills: &[SkillType],
 ) -> Vec<SkillChoiceOption> {
-    let mut skills = registry.skills.skills.iter().collect::<Vec<_>>();
+    let mut skills = registry
+        .skills
+        .skills
+        .iter()
+        .filter(|skill| !equipped_skills.contains(&skill.skill))
+        .collect::<Vec<_>>();
     rng.shuffle(&mut skills);
     skills
         .into_iter()
