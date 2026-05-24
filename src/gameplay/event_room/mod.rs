@@ -941,24 +941,30 @@ fn configure_non_combat_event(
                 active.choice_payloads = vec![EventChoicePayload::Leave];
                 return;
             };
+            let cost_common = data
+                .map(|d| d.events.param_or("gambler", "cost_common", 50.0))
+                .unwrap_or(50.0) as u32;
+            let cost_elite = data
+                .map(|d| d.events.param_or("gambler", "cost_elite", 100.0))
+                .unwrap_or(100.0) as u32;
             active.choices = vec![
                 EventChoice {
-                    label: "50 金币赌一把".to_string(),
-                    description: "支付 50 金币，随机获得一项强化。".to_string(),
+                    label: format!("{cost_common} 金币赌一把"),
+                    description: format!("支付 {cost_common} 金币，随机获得一项强化。"),
                 },
                 EventChoice {
-                    label: "100 金币赌精英".to_string(),
-                    description: "支付 100 金币，随机获得一项精英强化。".to_string(),
+                    label: format!("{cost_elite} 金币赌精英"),
+                    description: format!("支付 {cost_elite} 金币，随机获得一项精英强化。"),
                 },
                 leave_choice(),
             ];
             active.choice_payloads = vec![
                 EventChoicePayload::Gambler {
-                    cost: 50,
+                    cost: cost_common,
                     augment_id: lite_augment_id,
                 },
                 EventChoicePayload::Gambler {
-                    cost: 100,
+                    cost: cost_elite,
                     augment_id: elite_augment_id,
                 },
                 EventChoicePayload::Leave,
@@ -1010,7 +1016,13 @@ fn configure_non_combat_event(
                 active.choice_payloads = vec![EventChoicePayload::Leave];
                 return;
             };
-            let gold_bonus = rng.gen_range_f32(20.0, 41.0).floor() as u32;
+            let gold_min = data
+                .map(|d| d.events.param_or("treasure", "gold_min", 20.0))
+                .unwrap_or(20.0);
+            let gold_max = data
+                .map(|d| d.events.param_or("treasure", "gold_max", 40.0))
+                .unwrap_or(40.0);
+            let gold_bonus = rng.gen_range_f32(gold_min, gold_max + 1.0).floor() as u32;
             active.choices = vec![EventChoice {
                 label: "打开宝箱".to_string(),
                 description: format!("免费获得一项强化，并获得 {gold_bonus} 金币。"),
@@ -1548,13 +1560,17 @@ fn room_type_label(room_type: RoomType) -> &'static str {
 }
 
 fn trade_gold_for_augment(data: Option<&GameDataRegistry>, id: AugmentId) -> u32 {
+    let lookup = |key: &str, default: f32| -> u32 {
+        data.map(|d| d.events.param_or("traveler_gift", key, default))
+            .unwrap_or(default) as u32
+    };
     data.and_then(|registry| augment_definition(registry, id))
         .map(|augment| match augment.rarity {
-            AugmentRarity::Common => 40,
-            AugmentRarity::Elite => 80,
-            AugmentRarity::Legendary => 140,
+            AugmentRarity::Common => lookup("trade_gold_common", 40.0),
+            AugmentRarity::Elite => lookup("trade_gold_elite", 80.0),
+            AugmentRarity::Legendary => lookup("trade_gold_legendary", 140.0),
         })
-        .unwrap_or(40)
+        .unwrap_or_else(|| lookup("trade_gold_common", 40.0))
 }
 
 fn leave_choice() -> EventChoice {
@@ -1771,8 +1787,11 @@ fn apply_choice_payload(
             apply_wheel_of_fate(gold, health, inventory, level, data, rng)
         }
         EventChoicePayload::TravelerRest => {
+            let rest_fraction = data
+                .map(|d| d.events.param_or("traveler_gift", "rest_hp_fraction", 0.20))
+                .unwrap_or(0.20);
             let before = health.current;
-            health.current = (health.current + health.max * 0.20).min(health.max);
+            health.current = (health.current + health.max * rest_fraction).min(health.max);
             EventApplyResult {
                 outcome: EventInputOutcome::Complete,
                 feedback: Some(success_feedback(
@@ -1819,9 +1838,12 @@ fn apply_choice_payload(
             }
         }
         EventChoicePayload::SacrificeAltar { augment_id } => {
+            let max_hp_mult = data
+                .map(|d| d.events.param_or("sacrifice_altar", "max_hp_mult", 0.80))
+                .unwrap_or(0.80);
             let before_max = health.max;
             let before_current = health.current;
-            health.max = (health.max * 0.80).max(1.0);
+            health.max = (health.max * max_hp_mult).max(1.0);
             health.current = health.current.min(health.max).max(1.0);
             let grant = inventory.grant(augment_id);
             EventApplyResult {
@@ -1879,15 +1901,27 @@ fn apply_wheel_of_fate(
     data: Option<&GameDataRegistry>,
     rng: &mut GameRng,
 ) -> EventApplyResult {
-    let good = rng.gen_bool(0.5);
+    let good_chance = data
+        .map(|d| d.events.param_or("wheel_of_fate", "good_chance", 0.50))
+        .unwrap_or(0.50);
+    let good_gold = data
+        .map(|d| d.events.param_or("wheel_of_fate", "good_gold", 30.0))
+        .unwrap_or(30.0) as u32;
+    let bad_gold_loss = data
+        .map(|d| d.events.param_or("wheel_of_fate", "bad_gold_loss", 20.0))
+        .unwrap_or(20.0) as u32;
+    let bad_hp_mult = data
+        .map(|d| d.events.param_or("wheel_of_fate", "bad_hp_mult", 0.80))
+        .unwrap_or(0.80);
+    let good = rng.gen_range_f32(0.0, 1.0) < good_chance;
     let roll = rng.gen_range_f32(0.0, 3.0).floor() as u32;
     let mut lines = Vec::new();
 
     if good {
         match roll {
             0 => {
-                gold.0 = gold.0.saturating_add(30);
-                lines.push("+30 金币".to_string());
+                gold.0 = gold.0.saturating_add(good_gold);
+                lines.push(format!("+{good_gold} 金币"));
             }
             1 => {
                 level.level = level.level.saturating_add(1);
@@ -1901,8 +1935,8 @@ fn apply_wheel_of_fate(
                     let grant = inventory.grant(augment_id);
                     lines.extend(describe_augment_grant(grant, data));
                 } else {
-                    gold.0 = gold.0.saturating_add(30);
-                    lines.push("+30 金币".to_string());
+                    gold.0 = gold.0.saturating_add(good_gold);
+                    lines.push(format!("+{good_gold} 金币"));
                 }
             }
         }
@@ -1910,18 +1944,18 @@ fn apply_wheel_of_fate(
         match roll {
             0 => {
                 let before = gold.0;
-                gold.0 = gold.0.saturating_sub(20);
+                gold.0 = gold.0.saturating_sub(bad_gold_loss);
                 lines.push(format!("金币: {} -> {}", before, gold.0));
             }
             1 => {
                 let before = health.current;
-                health.current = (health.current * 0.80).clamp(1.0, health.max);
+                health.current = (health.current * bad_hp_mult).clamp(1.0, health.max);
                 lines.push(format!("生命: {:.0} -> {:.0}", before, health.current));
             }
             _ => {
                 if inventory.augments.is_empty() {
                     let before = gold.0;
-                    gold.0 = gold.0.saturating_sub(20);
+                    gold.0 = gold.0.saturating_sub(bad_gold_loss);
                     lines.push(format!("没有强化可失去，金币: {} -> {}", before, gold.0));
                 } else {
                     let index = rng

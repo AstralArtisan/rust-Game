@@ -574,11 +574,29 @@ pub struct EventDefinitionConfig {
     pub puzzle: Option<PuzzleEventConfig>,
     #[serde(default)]
     pub choices: Vec<EventChoiceConfig>,
+    /// Numeric knobs consumed by `event_room/mod.rs` setup/apply paths.
+    /// Same `BTreeMap<String, f32>` shape as augments.ron::params so the
+    /// designer surface is consistent.
+    #[serde(default)]
+    pub params: BTreeMap<String, f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventsConfig {
     pub events: Vec<EventDefinitionConfig>,
+}
+
+impl EventsConfig {
+    pub fn param(&self, id: &str, key: &str) -> Option<f32> {
+        self.events
+            .iter()
+            .find(|event| event.id == id)
+            .and_then(|event| event.params.get(key).copied())
+    }
+
+    pub fn param_or(&self, id: &str, key: &str, default: f32) -> f32 {
+        self.param(id, key).unwrap_or(default)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
