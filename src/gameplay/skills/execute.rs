@@ -3,6 +3,7 @@ use lightyear::prelude::Replicated;
 
 use crate::core::assets::GameAssets;
 use crate::core::events::DamageEvent;
+use crate::data::definitions::SkillConfig;
 use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentInventory};
 use crate::gameplay::augment::tuning;
@@ -15,10 +16,8 @@ use crate::gameplay::map::InGameEntity;
 use crate::gameplay::player::combat::MeleeSlashEffect;
 use crate::gameplay::player::components::{
     AttackPower, DashState, Energy, FacingDirection, Health, InvincibilityTimer, Player,
-    PlayerDriveInput, PlayerSkillState, SkillSlot, SkillSlots, SkillType,
+    PlayerBuff, PlayerDriveInput, PlayerSkillState, SkillSlot, SkillSlots, SkillType,
 };
-
-const BARRAGE_PROJECTILE_COUNT: usize = 14;
 
 pub fn activate_skill_inputs(
     mut commands: Commands,
@@ -30,6 +29,7 @@ pub fn activate_skill_inputs(
         (Entity, &GlobalTransform, &Health),
         (With<Enemy>, Without<Player>, Without<Replicated>),
     >,
+    shielded_q: Query<&crate::gameplay::enemy::components::ShieldedAffixState, Without<Replicated>>,
     mut player_q: Query<
         (
             Entity,
@@ -44,6 +44,7 @@ pub fn activate_skill_inputs(
             &DashState,
             &mut InvincibilityTimer,
             Option<&AugmentInventory>,
+            Option<&PlayerBuff>,
         ),
         (With<Player>, Without<Enemy>, Without<Replicated>),
     >,
@@ -61,6 +62,7 @@ pub fn activate_skill_inputs(
         dash,
         mut invincibility,
         inventory,
+        existing_buff,
     )) = player_q.get_single_mut()
     else {
         return;
@@ -92,7 +94,10 @@ pub fn activate_skill_inputs(
     let Some(skill) = slot_state.skill else {
         return;
     };
-    let Some(energy_cost) = skill_energy_cost(data.as_deref(), skill, energy.current) else {
+    let Some(cfg) = data.as_deref().and_then(|d| d.skills.get(skill)) else {
+        return;
+    };
+    let Some(energy_cost) = skill_energy_cost(cfg, energy.current) else {
         return;
     };
 
@@ -107,7 +112,9 @@ pub fn activate_skill_inputs(
                 player_e,
                 player_pos,
                 direction,
-                attack_power.0 * 3.0,
+                attack_power.0 * cfg.damage_mult,
+                cfg.knockback,
+                cfg.aoe_radius,
             );
             shake_events.send(ScreenShakeRequest {
                 strength: 6.0,
@@ -121,9 +128,19 @@ pub fn activate_skill_inputs(
             );
         }
         SkillType::BladeDance => {
-            spawn_blade_dance_skill(&mut commands, &assets, player_e, player_pos, attack_power.0);
-            invincibility.timer = Timer::from_seconds(1.55, TimerMode::Once);
-            invincibility.timer.reset();
+            spawn_blade_dance_skill(
+                &mut commands,
+                &assets,
+                player_e,
+                player_pos,
+                attack_power.0 * cfg.damage_mult,
+                cfg.aoe_radius,
+            );
+            let inv_s = cfg.status("invincibility_s");
+            if inv_s > 0.0 {
+                invincibility.timer = Timer::from_seconds(inv_s, TimerMode::Once);
+                invincibility.timer.reset();
+            }
             shake_events.send(ScreenShakeRequest {
                 strength: 5.0,
                 duration: 0.20,
@@ -146,13 +163,16 @@ pub fn activate_skill_inputs(
             particles::spawn_dash_particles(&mut commands, &assets, player_pos);
             player_tf.translation.x = blink_pos.x;
             player_tf.translation.y = blink_pos.y;
-            invincibility.timer = Timer::from_seconds(0.20, TimerMode::Once);
-            invincibility.timer.reset();
+            let inv_s = cfg.status("invincibility_s");
+            if inv_s > 0.0 {
+                invincibility.timer = Timer::from_seconds(inv_s, TimerMode::Once);
+                invincibility.timer.reset();
+            }
             damage_events.send(DamageEvent {
                 target,
                 source: Some(player_e),
-                amount: attack_power.0 * 5.0,
-                knockback: strike_dir * 650.0,
+                amount: attack_power.0 * cfg.damage_mult,
+                knockback: strike_dir * cfg.knockback,
                 team: Team::Player,
                 kind: DamageKind::PlayerSkill,
                 is_crit: false,
@@ -175,7 +195,9 @@ pub fn activate_skill_inputs(
                 player_e,
                 player_pos,
                 direction,
-                attack_power.0,
+                attack_power.0 * cfg.damage_mult,
+                cfg.projectile_count as usize,
+                cfg.projectile_speed,
                 inventory,
             );
             shake_events.send(ScreenShakeRequest {
@@ -189,8 +211,8 @@ pub fn activate_skill_inputs(
                 &assets,
                 player_e,
                 player_pos,
-                260.0,
-                attack_power.0 * 1.5,
+                cfg.aoe_radius,
+                attack_power.0 * cfg.damage_mult,
                 "FrostFieldSkill",
                 Color::srgba(0.45, 0.85, 1.0, 0.24),
             );
@@ -198,6 +220,32 @@ pub fn activate_skill_inputs(
                 strength: 4.0,
                 duration: 0.12,
             });
+            // design.md §5.4: FrostField also freezes enemies inside the AOE.
+            // Reuse the Frozen component spawned by the Freeze augment so the
+            // existing tick/shatter pipeline takes care of cleanup and visuals.
+            let freeze_s = cfg.status("freeze_s");
+            if freeze_s > 0.0 {
+                use crate::gameplay::augment::effects::Frozen;
+                let radius_sq = cfg.aoe_radius * cfg.aoe_radius;
+                for (enemy_e, enemy_tf, _) in &enemy_q {
+                    if enemy_tf
+                        .translation()
+                        .truncate()
+                        .distance_squared(player_pos)
+                        > radius_sq
+                    {
+                        continue;
+                    }
+                    // Shielded elites with immune_freeze ignore the chill.
+                    if shielded_q.get(enemy_e).is_ok_and(|s| s.immune_freeze) {
+                        continue;
+                    }
+                    commands.entity(enemy_e).insert(Frozen {
+                        timer: Timer::from_seconds(freeze_s, TimerMode::Once),
+                        shatter_damage_bonus: 0.0,
+                    });
+                }
+            }
         }
         SkillType::MeteorFall => {
             let target_pos = input.aim_world.unwrap_or(player_pos + direction * 180.0);
@@ -206,8 +254,8 @@ pub fn activate_skill_inputs(
                 &assets,
                 player_e,
                 target_pos,
-                300.0,
-                attack_power.0 * 4.0,
+                cfg.aoe_radius,
+                attack_power.0 * cfg.damage_mult,
                 "MeteorFallSkill",
                 Color::srgba(1.0, 0.42, 0.18, 0.30),
             );
@@ -217,17 +265,26 @@ pub fn activate_skill_inputs(
             });
         }
         SkillType::WarCry => {
-            spawn_radial_skill_hitbox(
-                &mut commands,
-                &assets,
-                player_e,
-                player_pos,
-                220.0,
-                attack_power.0 * 0.5,
-                "WarCrySkill",
-                Color::srgba(1.0, 0.84, 0.32, 0.20),
-            );
-            energy.current = (energy.current + 10.0).min(energy.max);
+            if cfg.damage_mult > 0.0 {
+                spawn_radial_skill_hitbox(
+                    &mut commands,
+                    &assets,
+                    player_e,
+                    player_pos,
+                    cfg.aoe_radius,
+                    attack_power.0 * cfg.damage_mult,
+                    "WarCrySkill",
+                    Color::srgba(1.0, 0.84, 0.32, 0.20),
+                );
+            }
+            // design.md §5.4 WarCry: attack/move buff + max attack speed for duration_s.
+            let duration = cfg.duration_s.max(0.01);
+            let mut new_buff = PlayerBuff::from_seconds(duration);
+            new_buff.attack_bonus = cfg.status("attack_bonus");
+            new_buff.move_speed_bonus = cfg.status("move_speed_bonus");
+            new_buff.force_attack_speed_max = true;
+            let merged = PlayerBuff::merge(existing_buff, new_buff);
+            commands.entity(player_e).insert(merged);
         }
         SkillType::LifeDrain => {
             spawn_radial_skill_hitbox(
@@ -235,20 +292,20 @@ pub fn activate_skill_inputs(
                 &assets,
                 player_e,
                 player_pos,
-                240.0,
-                attack_power.0,
+                cfg.aoe_radius,
+                attack_power.0 * cfg.damage_mult,
                 "LifeDrainSkill",
                 Color::srgba(0.88, 0.18, 0.32, 0.26),
             );
-            let drain_fraction = if inventory
+            let mut drain_fraction = cfg.status("lifesteal_fraction");
+            // Lifesteal Slash augment boosts the conversion ratio.
+            if inventory
                 .map(|inv| inv.stacks(AugmentId::LifestealSlash))
                 .unwrap_or(0)
                 > 0
             {
-                0.80
-            } else {
-                0.50
-            };
+                drain_fraction = (drain_fraction + 0.30).min(1.0);
+            }
             health.current = (health.current + attack_power.0 * drain_fraction).min(health.max);
         }
         SkillType::TimeRift => {
@@ -257,30 +314,54 @@ pub fn activate_skill_inputs(
                 &assets,
                 player_e,
                 player_pos,
-                420.0,
-                attack_power.0 * 0.8,
+                cfg.aoe_radius,
+                attack_power.0 * cfg.damage_mult,
                 "TimeRiftSkill",
                 Color::srgba(0.54, 0.36, 1.0, 0.24),
             );
-            invincibility.timer = Timer::from_seconds(3.0, TimerMode::Once);
-            invincibility.timer.reset();
-            for (enemy, _, _) in &enemy_q {
-                commands.entity(enemy).insert(EnemyBuffState {
-                    speed_mult: 0.30,
-                    cooldown_mult: 0.30,
-                    timer: Timer::from_seconds(3.0, TimerMode::Once),
-                });
+            let inv_s = cfg.status("invincibility_s");
+            if inv_s > 0.0 {
+                invincibility.timer = Timer::from_seconds(inv_s, TimerMode::Once);
+                invincibility.timer.reset();
+            }
+            let slow = cfg.status("slow");
+            let buff_s = if cfg.duration_s > 0.0 {
+                cfg.duration_s
+            } else {
+                3.0
+            };
+            if slow > 0.0 {
+                let speed_mult = (1.0 - slow).max(0.0);
+                let cooldown_mult = (1.0 - slow).max(0.05);
+                for (enemy, _, _) in &enemy_q {
+                    commands.entity(enemy).insert(EnemyBuffState {
+                        speed_mult,
+                        cooldown_mult,
+                        timer: Timer::from_seconds(buff_s, TimerMode::Once),
+                    });
+                }
+            }
+            // TimeRift: design.md §5.4 "+50% 攻速" — percentage cd reduction,
+            // clamped on top of any levelup gains by the combat systems.
+            let attack_speed_bonus = cfg.status("attack_speed_bonus");
+            if attack_speed_bonus > 0.0 {
+                let mut new_buff = PlayerBuff::from_seconds(buff_s);
+                new_buff.attack_speed_bonus = attack_speed_bonus;
+                let merged = PlayerBuff::merge(existing_buff, new_buff);
+                commands.entity(player_e).insert(merged);
             }
         }
     }
     energy.current = (energy.current - energy_cost).max(0.0);
 
-    // BulletStorm: spawn a ring of projectiles on any finisher activation
+    // BulletStorm augment: spawn a ring of projectiles on any finisher activation.
     let storm_stacks = inventory
         .map(|inv| inv.stacks(AugmentId::BulletStorm))
         .unwrap_or(0);
-    if storm_stacks > 0 {
-        let count = tuning::bullet_storm_projectile_count(storm_stacks);
+    if storm_stacks > 0
+        && let Some(data) = data.as_deref()
+    {
+        let count = tuning::bullet_storm_projectile_count(data, storm_stacks);
         let bullet_damage = attack_power.0 * 1.5;
         let bullet_speed = 400.0;
         for i in 0..count {
@@ -305,40 +386,20 @@ pub fn activate_skill_inputs(
     }
 }
 
-fn skill_energy_cost(
-    data: Option<&GameDataRegistry>,
-    skill: SkillType,
-    current_energy: f32,
-) -> Option<f32> {
-    if let Some(config) = data.and_then(|value| value.skills.get(skill)) {
-        let required = if config.consumes_all_energy {
-            config.min_energy.max(config.energy_cost)
-        } else {
-            config.energy_cost
-        };
-        if current_energy + f32::EPSILON < required {
-            return None;
-        }
-        return Some(if config.consumes_all_energy {
-            current_energy
-        } else {
-            config.energy_cost
-        });
-    }
-
-    let (fallback_cost, fallback_required) = match skill {
-        SkillType::GroundSlam | SkillType::BulletBarrage | SkillType::WarCry => (60.0, 60.0),
-        SkillType::BladeDance
-        | SkillType::ExecutionBlade
-        | SkillType::FrostField
-        | SkillType::LifeDrain => (80.0, 80.0),
-        SkillType::MeteorFall | SkillType::TimeRift => (current_energy, 80.0),
-    };
-    if current_energy + f32::EPSILON < fallback_required {
-        None
+fn skill_energy_cost(cfg: &SkillConfig, current_energy: f32) -> Option<f32> {
+    let required = if cfg.consumes_all_energy {
+        cfg.min_energy.max(cfg.energy_cost)
     } else {
-        Some(fallback_cost)
+        cfg.energy_cost
+    };
+    if current_energy + f32::EPSILON < required {
+        return None;
     }
+    Some(if cfg.consumes_all_energy {
+        current_energy
+    } else {
+        cfg.energy_cost
+    })
 }
 
 fn spawn_ground_slam_arc(
@@ -348,14 +409,17 @@ fn spawn_ground_slam_arc(
     pos: Vec2,
     direction: Vec2,
     damage: f32,
+    knockback: f32,
+    radius: f32,
 ) {
+    let arc_size = Vec2::splat(radius * 1.2);
     commands.spawn((
         SpriteBundle {
             texture: assets.textures.white.clone(),
             transform: Transform::from_translation(pos.extend(60.0)),
             sprite: Sprite {
                 color: Color::srgba(1.0, 1.0, 1.0, 0.0),
-                custom_size: Some(Vec2::new(240.0, 200.0)),
+                custom_size: Some(arc_size),
                 ..default()
             },
             ..default()
@@ -364,9 +428,9 @@ fn spawn_ground_slam_arc(
             owner: Some(owner),
             team: Team::Player,
             damage_kind: DamageKind::PlayerSkill,
-            size: Vec2::new(240.0, 200.0),
+            size: arc_size,
             damage,
-            knockback: 420.0,
+            knockback,
             can_crit: false,
             crit_chance: 0.0,
             crit_multiplier: 1.0,
@@ -374,7 +438,7 @@ fn spawn_ground_slam_arc(
         ArcHitbox {
             origin: pos,
             direction,
-            radius: 200.0,
+            radius,
             half_angle_rad: std::f32::consts::FRAC_PI_2,
         },
         Lifetime(Timer::from_seconds(0.10, TimerMode::Once)),
@@ -386,13 +450,13 @@ fn spawn_ground_slam_arc(
         SpriteBundle {
             texture: assets.textures.slash.clone(),
             transform: Transform {
-                translation: (pos + direction * 92.0).extend(61.0),
+                translation: (pos + direction * (radius * 0.46)).extend(61.0),
                 rotation: Quat::from_rotation_z(direction.y.atan2(direction.x)),
                 scale: Vec3::new(2.6, 2.1, 1.0),
             },
             sprite: Sprite {
                 color: Color::srgba(0.86, 1.0, 0.98, 0.92),
-                custom_size: Some(Vec2::new(180.0, 120.0)),
+                custom_size: Some(Vec2::new(radius * 0.9, radius * 0.6)),
                 ..default()
             },
             ..default()
@@ -417,12 +481,22 @@ fn spawn_blade_dance_skill(
     assets: &GameAssets,
     owner: Entity,
     pos: Vec2,
-    attack_power: f32,
+    damage_per_arc: f32,
+    radius: f32,
 ) {
     for i in 0..8 {
         let angle = std::f32::consts::TAU * i as f32 / 8.0;
         let dir = Vec2::new(angle.cos(), angle.sin());
-        spawn_ground_slam_arc(commands, assets, owner, pos, dir, attack_power * 0.60);
+        spawn_ground_slam_arc(
+            commands,
+            assets,
+            owner,
+            pos,
+            dir,
+            damage_per_arc,
+            0.0,
+            radius,
+        );
     }
     crate::gameplay::effects::particles::spawn_burst_ring(commands, assets, pos);
 }
@@ -433,7 +507,9 @@ fn spawn_bullet_barrage_skill(
     owner: Entity,
     pos: Vec2,
     direction: Vec2,
-    attack_power: f32,
+    damage_per_bullet: f32,
+    base_count: usize,
+    projectile_speed: f32,
     inventory: Option<&AugmentInventory>,
 ) {
     let extra_mult = inventory
@@ -441,7 +517,7 @@ fn spawn_bullet_barrage_skill(
         .filter(|stacks| *stacks > 0)
         .map(|_| 1.5)
         .unwrap_or(1.0);
-    let count = (BARRAGE_PROJECTILE_COUNT as f32 * extra_mult).round() as usize;
+    let count = (base_count as f32 * extra_mult).round() as usize;
     for i in 0..count {
         let spread = if count <= 1 {
             0.0
@@ -454,8 +530,8 @@ fn spawn_bullet_barrage_skill(
             assets,
             owner,
             pos + dir * 18.0,
-            dir * 620.0,
-            attack_power * 0.40,
+            dir * projectile_speed,
+            damage_per_bullet,
             0.0,
             DamageKind::PlayerSkill,
         );
@@ -505,25 +581,37 @@ mod tests {
     use super::*;
     use crate::core::assets::{AudioHandles, TextureHandles};
 
+    fn cfg(energy_cost: f32, consumes_all: bool, min_energy: f32) -> SkillConfig {
+        SkillConfig {
+            skill: SkillType::GroundSlam,
+            category: crate::data::definitions::SkillCategory::Melee,
+            tier: crate::data::definitions::SkillTier::Light,
+            title: String::new(),
+            description: String::new(),
+            energy_cost,
+            cooldown_s: 0.0,
+            consumes_all_energy: consumes_all,
+            min_energy,
+            damage_mult: 0.0,
+            knockback: 0.0,
+            aoe_radius: 0.0,
+            duration_s: 0.0,
+            tick_interval_s: 0.0,
+            projectile_count: 0,
+            projectile_speed: 0.0,
+            status: Default::default(),
+        }
+    }
+
     #[test]
-    fn fallback_skill_energy_costs_match_phase3_tiers() {
+    fn skill_energy_cost_respects_min_and_consume_all() {
+        assert_eq!(skill_energy_cost(&cfg(60.0, false, 0.0), 60.0), Some(60.0));
+        assert_eq!(skill_energy_cost(&cfg(60.0, false, 0.0), 59.9), None);
         assert_eq!(
-            skill_energy_cost(None, SkillType::GroundSlam, 60.0),
-            Some(60.0)
-        );
-        assert_eq!(
-            skill_energy_cost(None, SkillType::BulletBarrage, 59.9),
-            None
-        );
-        assert_eq!(
-            skill_energy_cost(None, SkillType::LifeDrain, 80.0),
-            Some(80.0)
-        );
-        assert_eq!(skill_energy_cost(None, SkillType::MeteorFall, 79.9), None);
-        assert_eq!(
-            skill_energy_cost(None, SkillType::MeteorFall, 100.0),
+            skill_energy_cost(&cfg(80.0, true, 80.0), 100.0),
             Some(100.0)
         );
+        assert_eq!(skill_energy_cost(&cfg(80.0, true, 80.0), 79.9), None);
     }
 
     #[test]

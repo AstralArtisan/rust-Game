@@ -13,7 +13,7 @@ use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::map::{InGameEntity, VisitedRooms};
 use crate::gameplay::player::components::{
-    DashState, Energy, Gold, Health, Player, RewardModifiers, Velocity,
+    DashState, Energy, Gold, Health, Player, RewardModifiers, SkillSlots, SkillType, Velocity,
 };
 use crate::gameplay::progression::experience::{PlayerLevel, build_levelup_options};
 use crate::gameplay::progression::floor::FloorNumber;
@@ -193,7 +193,15 @@ fn enter_reward_selection(
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
     floor: Option<Res<FloorNumber>>,
-    mut player_q: Query<(&RewardModifiers, &mut Health, Option<&AugmentInventory>), With<Player>>,
+    mut player_q: Query<
+        (
+            &RewardModifiers,
+            &mut Health,
+            Option<&AugmentInventory>,
+            &SkillSlots,
+        ),
+        With<Player>,
+    >,
 ) {
     let (Some(layout), Some(current)) = (layout.as_deref(), current.as_deref()) else {
         return;
@@ -231,7 +239,7 @@ fn enter_reward_selection(
     });
 
     if decision.heal_alive_fraction > 0.0
-        && let Ok((_, mut health, _)) = player_q.get_single_mut()
+        && let Ok((_, mut health, _, _)) = player_q.get_single_mut()
     {
         let heal = health.max * decision.heal_alive_fraction;
         health.current = (health.current + heal).min(health.max);
@@ -242,7 +250,7 @@ fn enter_reward_selection(
         let is_elite_room = room.room_type == RoomType::Elite;
         let should_offer_augment = is_elite_room || rng.gen_bool(0.40);
         if should_offer_augment && let Some(registry) = data.as_deref() {
-            let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
+            let inventory = player_q.get_single().ok().and_then(|(_, _, inv, _)| inv);
             let generated = generate_augment_choices(
                 registry.augments.augments.as_slice(),
                 &mut rng,
@@ -264,14 +272,18 @@ fn enter_reward_selection(
     skill_choices.options.clear();
 
     if let Some(registry) = data.as_deref() {
-        let inventory = player_q.get_single().ok().and_then(|(_, _, inv)| inv);
+        let player_single = player_q.get_single().ok();
+        let inventory = player_single.and_then(|(_, _, inv, _)| inv);
+        let equipped = player_single
+            .map(|(_, _, _, slots)| slots.equipped())
+            .unwrap_or_default();
         let generated = generate_augment_choices(
             registry.augments.augments.as_slice(),
             &mut rng,
             true,
             inventory,
         );
-        let generated_skills = generate_skill_choices(registry, &mut rng);
+        let generated_skills = generate_skill_choices(registry, &mut rng, &equipped);
         if !generated.is_empty() {
             augment_choices.options = generated;
             augment_choices.return_state = Some(GamePhase::Playing);
@@ -403,18 +415,21 @@ fn apply_reward_choice(
             }
             2 => {
                 let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-                let default_scaling;
-                let scaling = if let Some(data) = data.as_ref() {
-                    &data.rewards.scaling
-                } else {
-                    default_scaling = RewardScalingConfig::default_config();
-                    &default_scaling
-                };
+                let default_scaling = RewardScalingConfig::default_config();
+                let default_levelup = crate::data::definitions::LevelUpConfig::default_config();
+                let (scaling, levelup) = data
+                    .as_ref()
+                    .map(|d| (&d.rewards.scaling, &d.rewards.levelup))
+                    .unwrap_or((&default_scaling, &default_levelup));
 
                 if let Ok((health, mut level, mut gold)) = player_q.p2().get_single_mut() {
                     let max_health = health.max;
                     let new_level = level.level + 1;
-                    apply_revelation_reward(&mut level, &mut gold);
+                    let curve = data
+                        .as_deref()
+                        .map(|d| d.economy.xp_curve.as_slice())
+                        .unwrap_or(&[]);
+                    apply_revelation_reward(&mut level, &mut gold, curve);
                     feedback.send(UiFeedbackEvent::toast(
                         "圣所启示",
                         vec![format!("等级提升到 {}，+50 金币。", new_level)],
@@ -423,6 +438,7 @@ fn apply_reward_choice(
                         &mut levelup_choices,
                         &mut rng,
                         scaling,
+                        levelup,
                         max_health,
                         floor_number,
                         new_level,
@@ -722,8 +738,14 @@ fn generate_augment_choices(
     is_boss: bool,
     inventory: Option<&AugmentInventory>,
 ) -> Vec<AugmentChoiceOption> {
+    let is_maxed = |augment: &AugmentConfig| {
+        inventory
+            .map(|inv| inv.stacks(augment.id) >= augment.max_stacks())
+            .unwrap_or(false)
+    };
     let pool: Vec<_> = augments
         .iter()
+        .filter(|augment| !is_maxed(augment))
         .filter(|augment| {
             if is_boss {
                 matches!(
@@ -770,20 +792,31 @@ fn configure_revelation_choices(
     choices: &mut LevelUpChoices,
     rng: &mut GameRng,
     scaling: &RewardScalingConfig,
+    levelup: &crate::data::definitions::LevelUpConfig,
     max_health: f32,
     floor_number: u32,
     new_level: u32,
 ) {
-    choices.options = build_levelup_options(rng, scaling, max_health, floor_number);
+    choices.options = build_levelup_options(rng, scaling, levelup, max_health, floor_number);
     choices.return_state = Some(GamePhase::Playing);
     choices.new_level = new_level;
+    choices.crit_cap = levelup.crit_cap;
+    choices.melee_min_s = levelup.melee_min_s;
+    choices.ranged_min_s = levelup.ranged_min_s;
+    choices.dash_min_s = levelup.dash_min_s;
 }
 
 fn generate_skill_choices(
     registry: &GameDataRegistry,
     rng: &mut GameRng,
+    equipped_skills: &[SkillType],
 ) -> Vec<SkillChoiceOption> {
-    let mut skills = registry.skills.skills.iter().collect::<Vec<_>>();
+    let mut skills = registry
+        .skills
+        .skills
+        .iter()
+        .filter(|skill| !equipped_skills.contains(&skill.skill))
+        .collect::<Vec<_>>();
     rng.shuffle(&mut skills);
     skills
         .into_iter()
@@ -803,9 +836,9 @@ fn full_restore(health: &mut Health, energy: &mut Energy) {
     energy.current = energy.max;
 }
 
-fn apply_revelation_reward(level: &mut PlayerLevel, gold: &mut Gold) {
+fn apply_revelation_reward(level: &mut PlayerLevel, gold: &mut Gold, curve: &[u32]) {
     level.level += 1;
-    level.xp_to_next = PlayerLevel::xp_threshold(level.level);
+    level.xp_to_next = crate::gameplay::progression::experience::xp_threshold(curve, level.level);
     gold.0 = gold.0.saturating_add(50);
 }
 
@@ -966,17 +999,21 @@ mod tests {
 
     #[test]
     fn revelation_grants_level_and_gold() {
+        const CURVE: &[u32] = &[50, 70, 90, 110, 130, 150, 180, 200, 220];
         let mut level = PlayerLevel {
             level: 2,
             xp: 0,
-            xp_to_next: PlayerLevel::xp_threshold(2),
+            xp_to_next: crate::gameplay::progression::experience::xp_threshold(CURVE, 2),
         };
         let mut gold = Gold(20);
 
-        apply_revelation_reward(&mut level, &mut gold);
+        apply_revelation_reward(&mut level, &mut gold, CURVE);
 
         assert_eq!(level.level, 3);
-        assert_eq!(level.xp_to_next, PlayerLevel::xp_threshold(3));
+        assert_eq!(
+            level.xp_to_next,
+            crate::gameplay::progression::experience::xp_threshold(CURVE, 3)
+        );
         assert_eq!(gold.0, 70);
     }
 
@@ -989,6 +1026,7 @@ mod tests {
             &mut choices,
             &mut rng,
             &RewardScalingConfig::default_config(),
+            &crate::data::definitions::LevelUpConfig::default_config(),
             100.0,
             1,
             3,

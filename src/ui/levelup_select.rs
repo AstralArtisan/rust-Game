@@ -26,16 +26,38 @@ pub enum LevelUpStat {
     RecoverHealth(f32),
     MoveSpeed(f32),
     CritChance(f32),
-    AttackSpeed(f32),
+    MeleeSpeed(f32),
+    RangedSpeed(f32),
     DashCooldown(f32),
 }
 
 /// Resource: holds the level-up choices.
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone)]
 pub struct LevelUpChoices {
     pub options: Vec<LevelUpOption>,
     pub return_state: Option<GamePhase>,
     pub new_level: u32,
+    /// Caps copied from RewardsConfig::levelup at the moment the menu opened
+    /// so `levelup_input` doesn't have to take another Res.
+    pub crit_cap: f32,
+    pub melee_min_s: f32,
+    pub ranged_min_s: f32,
+    pub dash_min_s: f32,
+}
+
+impl Default for LevelUpChoices {
+    fn default() -> Self {
+        let cfg = crate::data::definitions::LevelUpConfig::default_config();
+        Self {
+            options: Vec::new(),
+            return_state: None,
+            new_level: 0,
+            crit_cap: cfg.crit_cap,
+            melee_min_s: cfg.melee_min_s,
+            ranged_min_s: cfg.ranged_min_s,
+            dash_min_s: cfg.dash_min_s,
+        }
+    }
 }
 
 #[derive(Component)]
@@ -216,7 +238,9 @@ pub fn levelup_input(
             &mut MoveSpeed,
             &mut CritChance,
             &mut AttackCooldown,
+            &mut RangedCooldown,
             &mut DashCooldown,
+            &RewardModifiers,
         ),
         With<Player>,
     >,
@@ -248,8 +272,16 @@ pub fn levelup_input(
     };
 
     let mut feedback_line = opt.label.clone();
-    if let Ok((mut health, mut atk, mut spd, mut crit, mut atk_cd, mut dash_cd)) =
-        player_q.get_single_mut()
+    if let Ok((
+        mut health,
+        mut atk,
+        mut spd,
+        mut crit,
+        mut atk_cd,
+        mut ranged_cd,
+        mut dash_cd,
+        mods,
+    )) = player_q.get_single_mut()
     {
         match opt.apply {
             LevelUpStat::AttackPower(v) => {
@@ -271,22 +303,28 @@ pub fn levelup_input(
                 feedback_line = format!("移动速度 +{v:.0}，当前 {:.0}", spd.0);
             }
             LevelUpStat::CritChance(v) => {
-                crit.0 = (crit.0 + v).min(0.80);
+                crit.0 = (crit.0 + v).min(choices.crit_cap);
                 feedback_line = format!("暴击率 +{:.0}%，当前 {:.0}%", v * 100.0, crit.0 * 100.0);
             }
-            LevelUpStat::AttackSpeed(v) => {
-                let new_dur = (atk_cd.timer.duration().as_secs_f32() - v).max(0.15);
-                atk_cd
-                    .timer
-                    .set_duration(std::time::Duration::from_secs_f32(new_dur));
-                feedback_line = format!("近战冷却缩短，当前 {:.2}s", new_dur);
+            LevelUpStat::MeleeSpeed(v) => {
+                atk_cd.base_duration_s = (atk_cd.base_duration_s - v).max(choices.melee_min_s);
+                atk_cd.apply_speed_bonus(mods.total_melee_speed_bonus());
+                feedback_line =
+                    format!("近战攻击间隔 -{v:.2}s，当前 {:.2}s", atk_cd.base_duration_s);
+            }
+            LevelUpStat::RangedSpeed(v) => {
+                ranged_cd.base_duration_s =
+                    (ranged_cd.base_duration_s - v).max(choices.ranged_min_s);
+                ranged_cd.apply_speed_bonus(mods.total_ranged_speed_bonus());
+                feedback_line = format!(
+                    "远程攻击间隔 -{v:.2}s，当前 {:.2}s",
+                    ranged_cd.base_duration_s
+                );
             }
             LevelUpStat::DashCooldown(v) => {
-                let new_dur = (dash_cd.timer.duration().as_secs_f32() - v).max(0.3);
-                dash_cd
-                    .timer
-                    .set_duration(std::time::Duration::from_secs_f32(new_dur));
-                feedback_line = format!("冲刺冷却缩短，当前 {:.2}s", new_dur);
+                dash_cd.base_duration_s = (dash_cd.base_duration_s - v).max(choices.dash_min_s);
+                dash_cd.apply_reduction(mods.total_dash_cooldown_reduction());
+                feedback_line = format!("冲刺冷却 -{v:.2}s，当前 {:.2}s", dash_cd.base_duration_s);
             }
         }
     }

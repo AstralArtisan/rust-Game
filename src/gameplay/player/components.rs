@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::gameplay::combat::components::Team;
 use crate::gameplay::rewards::data::RewardType;
 
-pub const ENERGY_SYSTEM_ENABLED: bool = true;
-
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Player;
 
@@ -118,12 +116,6 @@ impl Combo {
             timer: Timer::from_seconds(window_s, TimerMode::Once),
         }
     }
-}
-
-#[allow(dead_code)]
-#[derive(Component, Debug, Clone)]
-pub struct Skill1Cooldown {
-    pub timer: Timer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,6 +254,10 @@ impl SkillSlots {
         state.skill = Some(skill);
         true
     }
+
+    pub fn equipped(&self) -> Vec<SkillType> {
+        self.slots.iter().filter_map(|s| s.skill).collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -299,6 +295,50 @@ pub struct RangedRapidFire {
     pub decay: Timer,
 }
 
+/// Temporary buff applied by skills like WarCry / TimeRift. Numeric fields are
+/// additive bonuses (0.40 means +40%); they stack on top of RewardModifiers.
+/// `attack_speed_bonus` is a percentage cooldown reduction (0.50 = -50% cd).
+/// `force_attack_speed_max` overrides both melee and ranged cooldowns to the
+/// floor configured in `rewards.ron::levelup.{melee,ranged}_min_s` — used by
+/// WarCry, which design.md §5.4 describes as maxing out attack speed.
+#[derive(Component, Debug, Clone)]
+pub struct PlayerBuff {
+    pub timer: Timer,
+    pub attack_bonus: f32,
+    pub move_speed_bonus: f32,
+    pub attack_speed_bonus: f32,
+    pub force_attack_speed_max: bool,
+}
+
+impl PlayerBuff {
+    pub fn from_seconds(duration_s: f32) -> Self {
+        Self {
+            timer: Timer::from_seconds(duration_s.max(0.01), TimerMode::Once),
+            attack_bonus: 0.0,
+            move_speed_bonus: 0.0,
+            attack_speed_bonus: 0.0,
+            force_attack_speed_max: false,
+        }
+    }
+
+    /// Merge `new` on top of `existing` (per-field max for numeric bonuses,
+    /// OR for boolean flags, `max(remaining, new_duration)` for the timer).
+    pub fn merge(existing: Option<&PlayerBuff>, new: PlayerBuff) -> PlayerBuff {
+        let Some(prev) = existing else {
+            return new;
+        };
+        let prev_remaining = prev.timer.remaining_secs();
+        let new_duration = new.timer.duration().as_secs_f32();
+        let final_duration = prev_remaining.max(new_duration);
+        let mut merged = PlayerBuff::from_seconds(final_duration);
+        merged.attack_bonus = prev.attack_bonus.max(new.attack_bonus);
+        merged.move_speed_bonus = prev.move_speed_bonus.max(new.move_speed_bonus);
+        merged.attack_speed_bonus = prev.attack_speed_bonus.max(new.attack_speed_bonus);
+        merged.force_attack_speed_max = prev.force_attack_speed_max || new.force_attack_speed_max;
+        merged
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RangedVolleyPattern {
     Single,
@@ -319,7 +359,6 @@ pub struct RewardModifiers {
     pub move_speed_mult: f32,
     pub attack_speed_add: f32,
     pub dash_damage_trail: bool,
-    pub bonus_projectile: bool,
     pub melee_mastery_stacks: u32,
     pub ranged_mastery_stacks: u32,
     pub attack_speed_level: u8,

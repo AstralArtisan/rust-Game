@@ -10,8 +10,8 @@ use crate::core::local_debug::debug_save_filename;
 use crate::gameplay::augment::data::AugmentInventory;
 use crate::gameplay::enemy::systems::EnemySpawnCount;
 use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Gold,
-    Health, MoveSpeed, Player, RangedCooldown, RewardModifiers, SkillSlots,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Gold, Health, MoveSpeed, Player,
+    RangedCooldown, RewardModifiers, SkillSlots,
 };
 use crate::gameplay::progression::experience::PlayerLevel;
 use crate::gameplay::progression::floor::FloorNumber;
@@ -284,11 +284,7 @@ fn apply_pending_load(
     hp.max = save.player.hp_max.max(1.0);
     hp.current = save.player.hp_current.clamp(0.0, hp.max);
     energy.max = save.player.energy_max.max(0.0);
-    energy.current = if ENERGY_SYSTEM_ENABLED {
-        save.player.energy_current.clamp(0.0, energy.max)
-    } else {
-        energy.max
-    };
+    energy.current = save.player.energy_current.clamp(0.0, energy.max);
     gold.0 = save.player.gold;
     move_speed.0 = save.player.move_speed.max(0.0);
     attack_power.0 = save.player.attack_power.max(0.0);

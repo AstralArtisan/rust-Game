@@ -2341,7 +2341,10 @@ fn coop_shop_modal_view(session: &CoopSessionState, slot: PlayerSlot) -> CoopMod
         view.options[index] = coop_modal_option(title, description, meta, action, enabled, tone);
     }
 
-    let refresh_cost = next_refresh_cost(player_state.refresh_count);
+    // Coop UI uses the default shop config for display only; the host's
+    // try_refresh_shop is the authoritative cost source on purchase.
+    let shop_cfg = crate::data::definitions::ShopConfig::default();
+    let refresh_cost = next_refresh_cost(player_state.refresh_count, &shop_cfg);
     let (refresh_meta, refresh_enabled, refresh_tone) = if player_state.can_interact {
         (
             if refresh_cost == 0 {

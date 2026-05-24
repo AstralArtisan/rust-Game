@@ -6,6 +6,7 @@ use rand::Rng;
 
 use crate::core::assets::GameAssets;
 use crate::core::events::{DamageAppliedEvent, DamageEvent};
+use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{
     ArcHitbox, DamageKind, Hitbox, Hurtbox, Projectile, Team,
 };
@@ -34,11 +35,11 @@ pub struct HomingProjectile {
 }
 
 impl HomingProjectile {
-    pub fn from_stacks(stacks: u8, speed: f32) -> Self {
+    pub fn from_stacks(data: &GameDataRegistry, stacks: u8, speed: f32) -> Self {
         Self {
             speed,
-            turn_rate: tuning::homing_turn_rate(stacks),
-            search_radius: tuning::homing_search_radius(stacks),
+            turn_rate: tuning::homing_turn_rate(data, stacks),
+            search_radius: tuning::homing_search_radius(data, stacks),
         }
     }
 }
@@ -58,6 +59,7 @@ struct MeleeReflector {
 }
 
 pub fn dash_energy_system(
+    data: Res<GameDataRegistry>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     mut dash_hits: Local<HashMap<Entity, HashSet<Entity>>>,
     mut player_q: ParamSet<(
@@ -107,7 +109,7 @@ pub fn dash_energy_system(
             continue;
         }
 
-        let gain = tuning::dash_energy_gain(stacks, hit_set.len());
+        let gain = tuning::dash_energy_gain(&data, stacks, hit_set.len());
         energy.current = (energy.current + gain).min(energy.max);
     }
 }
@@ -128,6 +130,7 @@ pub fn armor_broken_tick_system(
 pub fn melee_reflect_system(
     mut commands: Commands,
     assets: Res<GameAssets>,
+    data: Res<GameDataRegistry>,
     owner_mods: Query<&RewardModifiers>,
     owner_augments: Query<&AugmentInventory>,
     mut collision_sets: ParamSet<(
@@ -201,7 +204,7 @@ pub fn melee_reflect_system(
         let reflected_dir =
             projectile_reflect_direction(projectile.velocity, reflector.arc.direction);
         let reflected_speed = projectile.velocity.length().max(360.0);
-        let damage_mult = tuning::reflect_damage_mult(reflector.augment_stacks);
+        let damage_mult = tuning::reflect_damage_mult(&data, reflector.augment_stacks);
 
         projectile.velocity = reflected_dir * reflected_speed;
         projectile.team = Team::Player;
@@ -217,10 +220,10 @@ pub fn melee_reflect_system(
         tf.rotation = Quat::from_rotation_z(reflected_dir.y.atan2(reflected_dir.x));
         sprite.color = Color::srgb(0.86, 1.0, 0.52);
         sprite.custom_size = Some(Vec2::new(18.0, 9.0));
-        if tuning::reflect_homing(reflector.augment_stacks) {
+        if tuning::reflect_homing(&data, reflector.augment_stacks) {
             commands
                 .entity(entity)
-                .insert(HomingProjectile::from_stacks(3, reflected_speed));
+                .insert(HomingProjectile::from_stacks(&data, 3, reflected_speed));
         }
 
         particles::spawn_hit_particles(
@@ -276,6 +279,7 @@ pub fn homing_projectile_system(
 pub fn chain_lightning_system(
     mut commands: Commands,
     assets: Res<GameAssets>,
+    data: Res<GameDataRegistry>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     mut damage_writer: EventWriter<DamageEvent>,
     player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
@@ -296,7 +300,7 @@ pub fn chain_lightning_system(
             continue;
         }
 
-        let Some(profile) = tuning::chain_lightning_profile(stacks) else {
+        let Some(profile) = tuning::chain_lightning_profile(&data, stacks) else {
             continue;
         };
         let mut struck = HashSet::from([event.target]);
@@ -348,6 +352,7 @@ pub fn chain_lightning_system(
 pub fn thorns_system(
     mut commands: Commands,
     assets: Res<GameAssets>,
+    data: Res<GameDataRegistry>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     mut damage_writer: EventWriter<DamageEvent>,
     player_augments: Query<(&AugmentInventory, &AttackPower), (With<Player>, Without<Replicated>)>,
@@ -369,7 +374,7 @@ pub fn thorns_system(
             continue;
         }
 
-        let reflected_damage = attack_power.0 * tuning::thorns_damage_fraction(stacks);
+        let reflected_damage = attack_power.0 * tuning::thorns_damage_fraction(&data, stacks);
         let knockback = match (target_q.get(event.target), source_q.get(source)) {
             (Ok(target_tf), Ok(source_tf)) => {
                 (source_tf.translation().truncate() - target_tf.translation().truncate())
@@ -483,10 +488,12 @@ pub struct PhoenixUsed;
 /// Freeze: on PlayerRanged hit, chance to freeze enemy.
 pub fn freeze_system(
     mut commands: Commands,
+    data: Res<GameDataRegistry>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
     mut rng: ResMut<crate::utils::rng::GameRng>,
     existing_frozen: Query<(), (With<Frozen>, Without<Replicated>)>,
+    shielded_q: Query<&crate::gameplay::enemy::components::ShieldedAffixState, Without<Replicated>>,
 ) {
     for event in damage_events.read() {
         if event.kind != DamageKind::PlayerRanged || event.target_team != Some(Team::Enemy) {
@@ -506,7 +513,11 @@ pub fn freeze_system(
         if existing_frozen.get(event.target).is_ok() {
             continue;
         }
-        let Some(profile) = tuning::freeze_profile(stacks) else {
+        // Shielded elites with immune_freeze cannot be chilled.
+        if shielded_q.get(event.target).is_ok_and(|s| s.immune_freeze) {
+            continue;
+        }
+        let Some(profile) = tuning::freeze_profile(&data, stacks) else {
             continue;
         };
         if rng.gen_range_f32(0.0, 1.0) < profile.chance
@@ -619,6 +630,7 @@ pub fn tick_dash_shield_system(
 /// Runs after apply_damage_events but we read health directly.
 pub fn phoenix_system(
     mut commands: Commands,
+    data: Res<GameDataRegistry>,
     mut flash_events: EventWriter<crate::core::events::ScreenFlashRequest>,
     mut q: Query<
         (Entity, &mut Health, &AugmentInventory),
@@ -633,7 +645,7 @@ pub fn phoenix_system(
         if stacks == 0 {
             continue;
         }
-        let Some(profile) = tuning::phoenix_profile(stacks) else {
+        let Some(profile) = tuning::phoenix_profile(&data, stacks) else {
             continue;
         };
         health.current = health.max * profile.revive_fraction;

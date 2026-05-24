@@ -96,7 +96,12 @@ impl EliteAffix {
 
 #[derive(Component, Debug, Clone, Copy)]
 pub struct ShieldedAffixState {
-    pub charges: u8,
+    /// Damage taken is multiplied by `1.0 - damage_reduction` (0..1).
+    /// design.md §7.2: Shielded affix reduces incoming damage by 25%.
+    pub damage_reduction: f32,
+    /// design.md §7.2 also says Shielded is immune to knockback and freeze.
+    pub immune_knockback: bool,
+    pub immune_freeze: bool,
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -115,7 +120,7 @@ pub struct BossPhase(pub u8);
 #[derive(Component, Debug, Clone)]
 pub struct BossPatternTimer(pub Timer);
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BossArchetype {
     Floor1Guardian,
     MirrorWarden,

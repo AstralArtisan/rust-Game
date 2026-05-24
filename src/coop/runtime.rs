@@ -24,9 +24,8 @@ use crate::gameplay::map::{InGameEntity, RewardRoomGoldBonusSeen, VisitedRooms};
 use crate::gameplay::player::animation::PlayerAnim;
 use crate::gameplay::player::components::{
     AnimationState, AttackCooldown, AttackPower, Combo, CritChance, DashCooldown, DashState,
-    ENERGY_SYSTEM_ENABLED, Energy, FacingDirection, Gold, Health, InvincibilityTimer, MoveSpeed,
-    Player, PlayerDriveInput, RangedCooldown, RangedRapidFire, RewardModifiers, Skill1Cooldown,
-    TeamMarker, Velocity,
+    Energy, FacingDirection, Gold, Health, InvincibilityTimer, MoveSpeed, Player, PlayerDriveInput,
+    RangedCooldown, RangedRapidFire, RewardModifiers, TeamMarker, Velocity,
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::puzzle::{ActivePuzzle, reset_active_puzzle};
@@ -713,11 +712,13 @@ fn host_process_phase_commands(
             CoopCommandMessage::RefreshShop { slot }
                 if session.phase == CoopPhase::Shop && slot_client_id(slot) == client_id =>
             {
+                let shop_cfg = data.as_deref().map(|d| d.shop.clone()).unwrap_or_default();
                 try_refresh_shop(
                     slot,
                     session.floor_number.max(1),
                     &mut session,
                     &mut rng,
+                    &shop_cfg,
                     &mut player_queries.p0(),
                 );
             }
@@ -1108,9 +1109,6 @@ fn spawn_coop_player(
     ));
     commands.entity(entity).insert((
         DashCooldown::new(cfg.dash_cooldown_s),
-        Skill1Cooldown {
-            timer: Timer::from_seconds(cfg.skill1_cooldown_s, TimerMode::Once),
-        },
         InvincibilityTimer {
             timer: Timer::from_seconds(cfg.invincibility_s, TimerMode::Once),
         },
@@ -2082,9 +2080,6 @@ fn build_shop_offers_for_player(
         CoopShopItem::IncreaseCritChance,
         CoopShopItem::IncreaseAttackSpeed,
     ];
-    if !ENERGY_SYSTEM_ENABLED {
-        pool.retain(|item| *item != CoopShopItem::IncreaseEnergyMax);
-    }
     rng.shuffle(&mut pool);
     pool.truncate(3);
 
@@ -2186,6 +2181,7 @@ fn try_refresh_shop(
     floor_number: u32,
     session: &mut CoopSessionState,
     rng: &mut GameRng,
+    shop: &crate::data::definitions::ShopConfig,
     players: &mut Query<
         (
             &PlayerSlot,
@@ -2234,7 +2230,7 @@ fn try_refresh_shop(
             continue;
         }
 
-        let refresh_cost = next_refresh_cost(refresh_count);
+        let refresh_cost = next_refresh_cost(refresh_count, shop);
         if gold.0 < refresh_cost {
             return;
         }
@@ -2780,10 +2776,11 @@ mod tests {
         assert_eq!(base, 83);
         assert_eq!(once_bought, 112);
         assert_eq!(twice_bought, 145);
-        assert_eq!(next_refresh_cost(0), 0);
-        assert_eq!(next_refresh_cost(1), 30);
-        assert_eq!(next_refresh_cost(2), 45);
-        assert_eq!(next_refresh_cost(3), 60);
+        let shop = crate::data::definitions::ShopConfig::default();
+        assert_eq!(next_refresh_cost(0, &shop), 0);
+        assert_eq!(next_refresh_cost(1, &shop), 30);
+        assert_eq!(next_refresh_cost(2, &shop), 45);
+        assert_eq!(next_refresh_cost(3, &shop), 60);
     }
 
     #[test]

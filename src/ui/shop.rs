@@ -127,6 +127,7 @@ fn spawn_shop_column(
 pub fn update_shop_ui(
     offers: Res<ShopOffers>,
     assets: Res<GameAssets>,
+    data: Option<Res<GameDataRegistry>>,
     mut commands: Commands,
     attr_q: Query<Entity, With<ShopAttrColumn>>,
     aug_q: Query<Entity, With<ShopAugColumn>>,
@@ -171,7 +172,8 @@ pub fn update_shop_ui(
                 &offers.utility_lines,
                 &["0", "-", "="],
             );
-            let refresh_cost = next_refresh_cost(offers.refresh_count);
+            let shop_cfg = data.as_deref().map(|d| d.shop.clone()).unwrap_or_default();
+            let refresh_cost = next_refresh_cost(offers.refresh_count, &shop_cfg);
             let refresh_text = if refresh_cost == 0 {
                 "R 刷新（免费）".to_string()
             } else {

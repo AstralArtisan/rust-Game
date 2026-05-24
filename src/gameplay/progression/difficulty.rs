@@ -4,13 +4,14 @@ pub fn get_floor_difficulty_multiplier(data: &GameDataRegistry, floor: u32) -> f
     1.0 + (floor.saturating_sub(1) as f32) * data.balance.difficulty_per_floor
 }
 
-pub fn get_floor_enemy_count(_data: &GameDataRegistry, floor: u32) -> u32 {
-    match floor {
-        0 | 1 => 4,
-        2 => 5,
-        3 => 5,
-        _ => 6,
-    }
+pub fn get_floor_enemy_count(data: &GameDataRegistry, floor: u32) -> u32 {
+    let idx = floor.saturating_sub(1) as usize;
+    data.balance
+        .enemy_count_by_floor
+        .get(idx)
+        .or_else(|| data.balance.enemy_count_by_floor.last())
+        .copied()
+        .unwrap_or(data.balance.enemy_count_normal_room)
 }
 
 #[allow(dead_code)]

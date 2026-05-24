@@ -11,7 +11,7 @@ use crate::gameplay::map::room::{CurrentRoom, FloorLayout, RoomId, RoomType};
 use crate::gameplay::map::transitions::RoomTransition;
 use crate::gameplay::player::components::{
     AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Gold, Health, MoveSpeed, Player,
-    RangedCooldown, RewardModifiers,
+    RangedCooldown, RewardModifiers, SkillSlots, SkillType,
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::session_core::{
@@ -236,7 +236,7 @@ pub fn maybe_enter_shop_state(
     mut rng: ResMut<GameRng>,
     floor: Option<Res<FloorNumber>>,
     player_q: Query<&GlobalTransform, With<Player>>,
-    mods_q: Query<&RewardModifiers, With<Player>>,
+    mods_q: Query<(&RewardModifiers, &SkillSlots), With<Player>>,
     kiosk_q: Query<&GlobalTransform, With<ShopKiosk>>,
     transition: Option<Res<RoomTransition>>,
 ) {
@@ -265,7 +265,10 @@ pub fn maybe_enter_shop_state(
     seen.rooms.insert(current.0);
 
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let mods = mods_q.get_single().copied().unwrap_or_default();
+    let (mods, equipped) = mods_q
+        .get_single()
+        .map(|(m, s)| (*m, s.equipped()))
+        .unwrap_or_default();
     generate_shop_offers(
         &mut offers,
         &mut cache,
@@ -274,6 +277,7 @@ pub fn maybe_enter_shop_state(
         current.0,
         floor_number,
         mods,
+        &equipped,
     );
     next.set(GamePhase::Shop);
 }
@@ -288,7 +292,7 @@ pub fn open_shop_hotkey(
     floor: Option<Res<FloorNumber>>,
     layout: Option<Res<FloorLayout>>,
     current: Option<Res<CurrentRoom>>,
-    mods_q: Query<&RewardModifiers, With<Player>>,
+    mods_q: Query<(&RewardModifiers, &SkillSlots), With<Player>>,
     transition: Option<Res<RoomTransition>>,
 ) {
     if !input.shop_pressed
@@ -310,7 +314,10 @@ pub fn open_shop_hotkey(
     }
 
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
-    let mods = mods_q.get_single().copied().unwrap_or_default();
+    let (mods, equipped) = mods_q
+        .get_single()
+        .map(|(m, s)| (*m, s.equipped()))
+        .unwrap_or_default();
     generate_shop_offers(
         &mut offers,
         &mut cache,
@@ -319,6 +326,7 @@ pub fn open_shop_hotkey(
         current.0,
         floor_number,
         mods,
+        &equipped,
     );
     next.set(GamePhase::Shop);
 }
@@ -331,6 +339,7 @@ fn generate_shop_offers(
     room: RoomId,
     floor_number: u32,
     mods: RewardModifiers,
+    equipped_skills: &[SkillType],
 ) {
     if let Some(state) = cache.rooms.get(&room) {
         offers.room = Some(room);
@@ -342,7 +351,7 @@ fn generate_shop_offers(
     }
 
     offers.room = Some(room);
-    let draft = build_shop_draft(floor_number, mods, rng, data);
+    let draft = build_shop_draft(floor_number, mods, rng, data, equipped_skills);
     offers.refresh_count = draft.refresh_count;
     let (lines, augment_lines, utility_lines) = build_shop_lines_from_draft(data, &draft);
     offers.lines = lines;
@@ -359,9 +368,17 @@ fn refresh_shop_offers(
     room: RoomId,
     floor_number: u32,
     mods: RewardModifiers,
+    equipped_skills: &[SkillType],
 ) {
     offers.room = Some(room);
-    let draft = refresh_shop_draft(offers.refresh_count, floor_number, mods, rng, data);
+    let draft = refresh_shop_draft(
+        offers.refresh_count,
+        floor_number,
+        mods,
+        rng,
+        data,
+        equipped_skills,
+    );
     offers.refresh_count = draft.refresh_count;
     let (lines, augment_lines, utility_lines) = build_shop_lines_from_draft(data, &draft);
     offers.lines = lines;
@@ -370,8 +387,8 @@ fn refresh_shop_offers(
     sync_shop_cache(offers, cache, room);
 }
 
-pub fn next_refresh_cost(refresh_count: u32) -> u32 {
-    shared_next_refresh_cost(refresh_count)
+pub fn next_refresh_cost(refresh_count: u32, shop: &crate::data::definitions::ShopConfig) -> u32 {
+    shared_next_refresh_cost(refresh_count, shop)
 }
 
 #[allow(dead_code)]
@@ -454,6 +471,7 @@ pub fn handle_shop_purchase_input(
             &mut RangedCooldown,
             &mut RewardModifiers,
             Option<&mut AugmentInventory>,
+            &SkillSlots,
         ),
         With<Player>,
     >,
@@ -485,17 +503,20 @@ pub fn handle_shop_purchase_input(
         mut ranged_cd,
         mut mods,
         augment_inventory,
+        skill_slots,
     )) = player_q.get_single_mut()
     else {
         return;
     };
     let floor_number = floor.as_deref().map(|value| value.0).unwrap_or(1);
+    let equipped = skill_slots.equipped();
 
     if refresh_pressed {
         let Some(room) = offers.room else {
             return;
         };
-        let cost = next_refresh_cost(offers.refresh_count);
+        let shop_cfg = data.as_ref().map(|d| d.shop.clone()).unwrap_or_default();
+        let cost = next_refresh_cost(offers.refresh_count, &shop_cfg);
         if gold.0 < cost {
             warn!("金币不足：需要 {}，当前 {}", cost, gold.0);
             feedback.send(shop_warning_feedback(cost, gold.0));
@@ -510,6 +531,7 @@ pub fn handle_shop_purchase_input(
             room,
             floor_number,
             *mods,
+            &equipped,
         );
         feedback.send(UiFeedbackEvent::toast(
             "商店已刷新",
@@ -616,11 +638,13 @@ pub fn handle_shop_purchase_input(
                 .map(|d| &d.rewards.scaling)
                 .cloned()
                 .unwrap_or_else(RewardScalingConfig::default_config);
+            let shop_fx = data.as_ref().map(|d| d.shop.effects).unwrap_or_default();
             apply_shop_purchase(
                 shared_shop_item_from_shop_item(line.item),
                 floor_number,
                 &mut effects,
                 &scaling,
+                &shop_fx,
             ) == ShopPurchaseResult::Applied
         }
     };

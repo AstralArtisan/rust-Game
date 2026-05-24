@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::gameplay::augment::data::{AugmentCategory, AugmentId, AugmentRarity};
-use crate::gameplay::enemy::components::{EliteAffix, EnemyType};
+use crate::gameplay::enemy::components::{BossArchetype, EliteAffix, EnemyType};
 use crate::gameplay::map::room::RoomType;
 use crate::gameplay::player::components::SkillType;
 use crate::gameplay::rewards::data::RewardType;
@@ -28,7 +28,6 @@ pub struct PlayerConfig {
     pub perfect_dash_charge_gain: f32,
     pub combo_charge_gain: f32,
     pub finisher_charge_cost: f32,
-    pub skill1_cooldown_s: f32,
     pub ranged_base_cooldown_s: f32,
     pub ranged_min_cooldown_s: f32,
     pub ranged_ramp_max: u32,
@@ -98,6 +97,76 @@ pub struct BossesConfig {
     pub floor_2: BossFloorConfig,
     pub floor_3: BossFloorConfig,
     pub floor_4: BossFloorConfig,
+    /// Per-floor scaling derived from `floor_multiplier`. Indexed by
+    /// `BossArchetype`; missing archetypes fall back to `default_scaling`.
+    #[serde(default)]
+    pub scaling: BossScalingConfig,
+    /// Floor 2 split sub-core HP formula: `base + phase * per_phase`.
+    #[serde(default = "default_sub_core_base_hp")]
+    pub sub_core_base_hp: f32,
+    #[serde(default = "default_sub_core_hp_per_phase")]
+    pub sub_core_hp_per_phase: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BossScalingConfig {
+    pub hp_per_floor_default: f32,
+    pub hp_per_floor_cube_core: f32,
+    pub move_speed_per_floor: f32,
+    pub damage_per_floor: f32,
+    pub cooldown_inverse_per_floor: f32,
+    pub projectile_speed_per_floor: f32,
+    pub base_cooldown_s: f32,
+    pub min_cooldown_s: f32,
+    pub aggro_range: f32,
+    pub attack_range_by_archetype: Vec<(BossArchetype, f32)>,
+}
+
+impl Default for BossScalingConfig {
+    fn default() -> Self {
+        Self {
+            hp_per_floor_default: 0.38,
+            hp_per_floor_cube_core: 0.72,
+            move_speed_per_floor: 0.08,
+            damage_per_floor: 0.30,
+            cooldown_inverse_per_floor: 0.12,
+            projectile_speed_per_floor: 0.12,
+            base_cooldown_s: 0.95,
+            min_cooldown_s: 0.40,
+            aggro_range: 900.0,
+            attack_range_by_archetype: vec![
+                (BossArchetype::Floor1Guardian, 42.0),
+                (BossArchetype::MirrorWarden, 44.0),
+                (BossArchetype::TideHunter, 52.0),
+                (BossArchetype::CubeCore, 48.0),
+            ],
+        }
+    }
+}
+
+impl BossScalingConfig {
+    pub fn hp_factor_for(&self, archetype: BossArchetype) -> f32 {
+        match archetype {
+            BossArchetype::CubeCore => self.hp_per_floor_cube_core,
+            _ => self.hp_per_floor_default,
+        }
+    }
+
+    pub fn attack_range_for(&self, archetype: BossArchetype) -> f32 {
+        self.attack_range_by_archetype
+            .iter()
+            .find(|(a, _)| *a == archetype)
+            .map(|(_, range)| *range)
+            .unwrap_or(42.0)
+    }
+}
+
+fn default_sub_core_base_hp() -> f32 {
+    40.0
+}
+
+fn default_sub_core_hp_per_phase() -> f32 {
+    10.0
 }
 
 impl BossesConfig {
@@ -124,6 +193,8 @@ pub struct RewardsConfig {
     pub rewards: Vec<RewardConfig>,
     #[serde(default = "RewardScalingConfig::default_config")]
     pub scaling: RewardScalingConfig,
+    #[serde(default = "LevelUpConfig::default_config")]
+    pub levelup: LevelUpConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +227,43 @@ pub struct RewardScalingConfig {
     pub move_speed: FloorGains,
     pub heal_base: FloorGains,
     pub heal_hp_fraction: f32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct LevelUpConfig {
+    /// Flat attribute increments offered per level-up.
+    pub attack_power: f32,
+    pub max_health: f32,
+    pub move_speed: f32,
+    pub crit_chance: f32,
+    /// Seconds shaved off melee attack cooldown per pick.
+    pub melee_speed_s: f32,
+    /// Seconds shaved off ranged attack cooldown per pick.
+    pub ranged_speed_s: f32,
+    /// Seconds shaved off dash cooldown per pick.
+    pub dash_cooldown_s: f32,
+    pub crit_cap: f32,
+    pub melee_min_s: f32,
+    pub ranged_min_s: f32,
+    pub dash_min_s: f32,
+}
+
+impl LevelUpConfig {
+    pub fn default_config() -> Self {
+        Self {
+            attack_power: 3.0,
+            max_health: 15.0,
+            move_speed: 15.0,
+            crit_chance: 0.05,
+            melee_speed_s: 0.06,
+            ranged_speed_s: 0.04,
+            dash_cooldown_s: 0.10,
+            crit_cap: 0.80,
+            melee_min_s: 0.15,
+            ranged_min_s: 0.15,
+            dash_min_s: 0.30,
+        }
+    }
 }
 
 impl RewardScalingConfig {
@@ -238,6 +346,61 @@ pub struct GameBalanceConfig {
     pub elite_gold_bonus: u32,
     #[serde(default = "default_use_sprite_textures")]
     pub use_sprite_textures: bool,
+    /// Normal-room enemy count by floor. Index 0 = floor 1. Falls back to
+    /// `enemy_count_normal_room` if empty.
+    #[serde(default)]
+    pub enemy_count_by_floor: Vec<u32>,
+    /// Per-floor elite spawn chance. Index 0 = floor 1. Falls back to
+    /// `elite_chance` if empty.
+    #[serde(default)]
+    pub elite_chance_by_floor: Vec<f32>,
+    /// Per-floor enemy stat growth curves (4 entries: floor 1..4). Multipliers
+    /// of the per-floor `base_step = (floor_multiplier - 1) / (floor - 1)`.
+    /// hp/damage/projectile add positively; cooldown subtracts (capped at 0.5).
+    #[serde(default)]
+    pub floor_growth_curves: Vec<FloorGrowthCurve>,
+    /// Extra multipliers applied to specific enemy types when `floor >= 3`.
+    #[serde(default)]
+    pub enemy_type_curves: Vec<EnemyTypeCurve>,
+    #[serde(default)]
+    pub floor1_easing: Floor1Easing,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+pub struct FloorGrowthCurve {
+    pub hp: f32,
+    pub damage: f32,
+    pub cooldown: f32,
+    pub projectile: f32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct EnemyTypeCurve {
+    pub enemy: EnemyType,
+    pub hp: f32,
+    pub damage: f32,
+    pub cooldown: f32,
+    pub projectile: f32,
+    pub aggro_bonus: f32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Floor1Easing {
+    pub room1_mult: f32,
+    pub room2_mult: f32,
+    pub room1_count_offset: i32,
+    pub min_enemy_count: u32,
+}
+
+impl Default for Floor1Easing {
+    fn default() -> Self {
+        Self {
+            room1_mult: 0.86,
+            room2_mult: 0.93,
+            room1_count_offset: -1,
+            min_enemy_count: 3,
+        }
+    }
 }
 
 fn default_use_sprite_textures() -> bool {
@@ -320,6 +483,41 @@ pub struct SkillConfig {
     pub consumes_all_energy: bool,
     #[serde(default)]
     pub min_energy: f32,
+    /// ATK multiplier applied to the primary damage hit. `0.0` means the skill
+    /// has no direct damage component (pure utility / buff).
+    #[serde(default)]
+    pub damage_mult: f32,
+    /// Knockback magnitude on hit.
+    #[serde(default)]
+    pub knockback: f32,
+    /// Radius of the round AOE hitbox. Ignored for projectile skills.
+    #[serde(default)]
+    pub aoe_radius: f32,
+    /// Sustained duration in seconds (BladeDance / BulletBarrage / WarCry /
+    /// TimeRift).
+    #[serde(default)]
+    pub duration_s: f32,
+    /// Tick interval for repeating-damage skills (BladeDance).
+    #[serde(default)]
+    pub tick_interval_s: f32,
+    /// Number of projectiles spawned (BulletBarrage).
+    #[serde(default)]
+    pub projectile_count: u32,
+    /// Speed of spawned projectiles.
+    #[serde(default)]
+    pub projectile_speed: f32,
+    /// Status modifiers keyed by name: `lifesteal_fraction`, `freeze_s`,
+    /// `attack_bonus`, `move_speed_bonus`, `attack_speed_bonus`, `slow`,
+    /// `invincibility_s`, etc. Reader-driven so adding a new key only requires
+    /// touching RON + the consuming system.
+    #[serde(default)]
+    pub status: BTreeMap<String, f32>,
+}
+
+impl SkillConfig {
+    pub fn status(&self, key: &str) -> f32 {
+        self.status.get(key).copied().unwrap_or(0.0)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -376,11 +574,29 @@ pub struct EventDefinitionConfig {
     pub puzzle: Option<PuzzleEventConfig>,
     #[serde(default)]
     pub choices: Vec<EventChoiceConfig>,
+    /// Numeric knobs consumed by `event_room/mod.rs` setup/apply paths.
+    /// Same `BTreeMap<String, f32>` shape as augments.ron::params so the
+    /// designer surface is consistent.
+    #[serde(default)]
+    pub params: BTreeMap<String, f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventsConfig {
     pub events: Vec<EventDefinitionConfig>,
+}
+
+impl EventsConfig {
+    pub fn param(&self, id: &str, key: &str) -> Option<f32> {
+        self.events
+            .iter()
+            .find(|event| event.id == id)
+            .and_then(|event| event.params.get(key).copied())
+    }
+
+    pub fn param_or(&self, id: &str, key: &str, default: f32) -> f32 {
+        self.param(id, key).unwrap_or(default)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -400,6 +616,70 @@ pub struct ShopConfig {
     pub refresh_first_cost: u32,
     pub refresh_base_cost: u32,
     pub refresh_increment: u32,
+    /// Per-purchase price increment for repeated attribute buys (design.md §6.3).
+    #[serde(default)]
+    pub repeat_increment: ShopRepeatIncrement,
+    /// Non-floor-scaled effect magnitudes (potions, % discounts, reduction caps).
+    #[serde(default)]
+    pub effects: ShopEffects,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShopRepeatIncrement {
+    pub heal: u32,
+    pub energy: u32,
+    pub max_hp: u32,
+    pub attack_power: u32,
+}
+
+impl Default for ShopRepeatIncrement {
+    fn default() -> Self {
+        Self {
+            heal: 15,
+            energy: 10,
+            max_hp: 30,
+            attack_power: 30,
+        }
+    }
+}
+
+/// Effect magnitudes for shop items that are NOT scaled by floor (potions,
+/// flat heals, % discounts vs the reward-curve, and reduction caps).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ShopEffects {
+    /// Heal restored as a fraction of max HP.
+    pub heal_fraction: f32,
+    /// Flat energy restored by the "Restore Energy" attribute item.
+    pub energy_restore: f32,
+    /// Flat max-energy gain from the "Increase Energy Max" item.
+    pub energy_max_gain: f32,
+    /// HP fraction restored by the "Healing Potion" tool.
+    pub potion_heal_fraction: f32,
+    /// Flat energy restored by the "Energy Potion" tool.
+    pub energy_potion_restore: f32,
+    /// Discount applied to move-speed/crit reward-curve values when bought
+    /// from the shop (vs from a normal levelup/reward).
+    pub move_speed_factor: f32,
+    pub crit_factor: f32,
+    /// Hard caps on accumulated shop-only cooldown reductions.
+    pub dash_cd_cap_s: f32,
+    pub attack_speed_cap_s: f32,
+}
+
+impl Default for ShopEffects {
+    fn default() -> Self {
+        Self {
+            heal_fraction: 0.30,
+            energy_restore: 50.0,
+            energy_max_gain: 25.0,
+            potion_heal_fraction: 0.40,
+            energy_potion_restore: 60.0,
+            move_speed_factor: 0.75,
+            crit_factor: 0.75,
+            dash_cd_cap_s: 0.20,
+            attack_speed_cap_s: 0.18,
+        }
+    }
 }
 
 impl Default for ShopConfig {
@@ -420,6 +700,8 @@ impl Default for ShopConfig {
             refresh_first_cost: 0,
             refresh_base_cost: 30,
             refresh_increment: 15,
+            repeat_increment: ShopRepeatIncrement::default(),
+            effects: ShopEffects::default(),
         }
     }
 }
@@ -431,6 +713,79 @@ pub struct EconomyConfig {
     pub boss_gold: [u32; 2],
     pub floor_income: [u32; 2],
     pub xp_curve: Vec<u32>,
+    #[serde(default)]
+    pub xp_rewards: XpRewards,
+    #[serde(default)]
+    pub drop_counts: DropCounts,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct XpReward {
+    pub base: u32,
+    pub per_floor: u32,
+    pub cap: u32,
+}
+
+impl XpReward {
+    pub fn for_floor(&self, floor: u32) -> u32 {
+        self.base + (floor.saturating_sub(1).saturating_mul(self.per_floor)).min(self.cap)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct XpRewards {
+    pub boss: XpReward,
+    pub elite: XpReward,
+    pub normal: XpReward,
+}
+
+impl Default for XpRewards {
+    fn default() -> Self {
+        Self {
+            boss: XpReward {
+                base: 120,
+                per_floor: 15,
+                cap: 45,
+            },
+            elite: XpReward {
+                base: 40,
+                per_floor: 5,
+                cap: 15,
+            },
+            normal: XpReward {
+                base: 10,
+                per_floor: 1,
+                cap: 3,
+            },
+        }
+    }
+}
+
+/// How many drop orbs an enemy spawns. Boss/elite counts double once the
+/// floor crosses `floor_double_threshold` (per legacy behavior).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct DropCounts {
+    pub boss_gold: u32,
+    pub boss_xp: u32,
+    pub elite_gold: u32,
+    pub elite_xp: u32,
+    pub normal_gold: u32,
+    pub normal_xp: u32,
+    pub floor_double_threshold: u32,
+}
+
+impl Default for DropCounts {
+    fn default() -> Self {
+        Self {
+            boss_gold: 8,
+            boss_xp: 6,
+            elite_gold: 4,
+            elite_xp: 3,
+            normal_gold: 1,
+            normal_xp: 1,
+            floor_double_threshold: 3,
+        }
+    }
 }
 
 impl Default for EconomyConfig {
@@ -440,7 +795,9 @@ impl Default for EconomyConfig {
             elite_gold: [12, 20],
             boss_gold: [30, 50],
             floor_income: [100, 180],
-            xp_curve: vec![0, 50, 120, 210, 320, 450, 600],
+            xp_curve: vec![50, 70, 90, 110, 130, 150, 180, 200, 220],
+            xp_rewards: XpRewards::default(),
+            drop_counts: DropCounts::default(),
         }
     }
 }
@@ -450,11 +807,28 @@ pub struct EliteAffixConfig {
     pub affix: EliteAffix,
     pub title: String,
     pub description: String,
+    /// Numerical knobs, e.g. Swift: `move_speed_mult`, `attack_cooldown_mult`,
+    /// `slow_resist`; Berserk: `hp_threshold`, `damage_bonus`, ...
+    #[serde(default)]
+    pub params: BTreeMap<String, f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EliteAffixesConfig {
     pub affixes: Vec<EliteAffixConfig>,
+}
+
+impl EliteAffixesConfig {
+    pub fn param(&self, affix: EliteAffix, key: &str) -> Option<f32> {
+        self.affixes
+            .iter()
+            .find(|c| c.affix == affix)
+            .and_then(|c| c.params.get(key).copied())
+    }
+
+    pub fn param_or(&self, affix: EliteAffix, key: &str, default: f32) -> f32 {
+        self.param(affix, key).unwrap_or(default)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -492,7 +866,7 @@ impl Default for EffectsConfig {
     fn default() -> Self {
         Self {
             hit_particle_count: 10,
-            death_particle_count: 16,
+            death_particle_count: 8,
             hitstop_duration_s: 0.04,
             hitstop_crit_s: 0.06,
             hitstop_kill_s: 0.08,

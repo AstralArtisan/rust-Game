@@ -372,11 +372,13 @@ pub fn room_entry_spawner(
             }
             let mut enemy_count = spawn_count.current;
             if floor_number == 1 {
+                let easing = data.balance.floor1_easing;
                 if current_room.0.0 == 1 {
-                    enemy_count = enemy_count.saturating_sub(1).max(3);
-                    floor_multiplier *= 0.86;
+                    let adjusted = (enemy_count as i32 + easing.room1_count_offset).max(0) as u32;
+                    enemy_count = adjusted.max(easing.min_enemy_count);
+                    floor_multiplier *= easing.room1_mult;
                 } else if current_room.0.0 == 2 {
-                    floor_multiplier *= 0.93;
+                    floor_multiplier *= easing.room2_mult;
                 }
             }
             spawn_room_enemies(
@@ -434,11 +436,7 @@ pub fn spawn_room_enemies(
     let frontline_in_pool = !frontline_pool.is_empty();
     let backline_in_pool = !backline_pool.is_empty();
 
-    let elite_chance = match floor_number {
-        0..=2 => 0.0,
-        3 => data.balance.elite_chance,
-        _ => 0.32,
-    };
+    let elite_chance = elite_chance_for_floor(&data.balance, floor_number);
     let elite_idx = if spawn_n > 0 && rng.gen_range_f32(0.0, 1.0) < elite_chance {
         Some((rng.gen_range_f32(0.0, spawn_n as f32) as usize).min(spawn_n - 1))
     } else {
@@ -775,7 +773,7 @@ fn spawn_enemy_with_elite_scale(
         EnemyType::Summoner => &data.enemies.summoner,
         EnemyType::Boss => &data.enemies.melee_chaser,
     };
-    let mut stats = scaled_enemy_stats(stats_cfg, enemy_type, floor_number, floor_multiplier);
+    let mut stats = scaled_enemy_stats(data, stats_cfg, enemy_type, floor_number, floor_multiplier);
     stats.max_hp *= coop_hp_mult.max(1.0);
     let elite_affixes = if is_elite && enemy_type != EnemyType::Boss {
         let mut affix_rng = GameRng::default();
@@ -785,8 +783,12 @@ fn spawn_enemy_with_elite_scale(
         affix_rng.reseed(seed);
         let affixes = pick_elite_affixes(floor_number, &mut affix_rng);
         if affixes.contains(&EliteAffix::Swift) {
-            stats.move_speed *= 1.5;
-            stats.attack_cooldown_s *= 0.77;
+            stats.move_speed *=
+                data.elite_affixes
+                    .param_or(EliteAffix::Swift, "move_speed_mult", 1.40);
+            stats.attack_cooldown_s *=
+                data.elite_affixes
+                    .param_or(EliteAffix::Swift, "attack_cooldown_mult", 0.70);
         }
         affixes
     } else {
@@ -902,14 +904,32 @@ fn spawn_enemy_with_elite_scale(
         for affix in &elite_affixes {
             match affix {
                 EliteAffix::Shielded => {
-                    entity.insert(ShieldedAffixState { charges: 1 });
+                    let reduction =
+                        data.elite_affixes
+                            .param_or(EliteAffix::Shielded, "damage_reduction", 0.25);
+                    let immune_knockback =
+                        data.elite_affixes
+                            .param_or(EliteAffix::Shielded, "immune_knockback", 1.0)
+                            > 0.0;
+                    let immune_freeze =
+                        data.elite_affixes
+                            .param_or(EliteAffix::Shielded, "immune_freeze", 1.0)
+                            > 0.0;
+                    entity.insert(ShieldedAffixState {
+                        damage_reduction: reduction,
+                        immune_knockback,
+                        immune_freeze,
+                    });
                 }
                 EliteAffix::Berserk => {
                     entity.insert(BerserkAffixState { active: false });
                 }
                 EliteAffix::Teleporting => {
+                    let interval =
+                        data.elite_affixes
+                            .param_or(EliteAffix::Teleporting, "interval_s", 4.0);
                     entity.insert(TeleportAffixTimer {
-                        timer: Timer::from_seconds(4.0, TimerMode::Repeating),
+                        timer: Timer::from_seconds(interval, TimerMode::Repeating),
                     });
                 }
                 EliteAffix::Swift | EliteAffix::Splitting | EliteAffix::Vampiric => {}
@@ -1442,14 +1462,31 @@ fn elite_splitting_system(
             continue;
         }
 
+        let hp_fraction = data
+            .elite_affixes
+            .param_or(EliteAffix::Splitting, "hp_fraction", 0.50);
+        let damage_fraction =
+            data.elite_affixes
+                .param_or(EliteAffix::Splitting, "damage_fraction", 0.50);
+        let count = (data
+            .elite_affixes
+            .param_or(EliteAffix::Splitting, "count", 2.0)
+            .round() as i32)
+            .max(0) as u32;
         let mut split_stats = *stats;
-        split_stats.max_hp = health.max * 0.5;
-        split_stats.attack_damage *= 0.5;
+        split_stats.max_hp = health.max * hp_fraction;
+        split_stats.attack_damage *= damage_fraction;
 
         let origin = tf.translation.truncate();
         let base_angle = rng.gen_range_f32(0.0, std::f32::consts::TAU);
-        for index in 0..2 {
-            let angle = base_angle + if index == 0 { -0.55 } else { 0.55 };
+        for index in 0..count {
+            // count == 2 keeps the original tight ±0.55 split for visual
+            // continuity; larger counts fan out evenly across TAU.
+            let angle = if count == 2 {
+                base_angle + if index == 0 { -0.55 } else { 0.55 }
+            } else {
+                base_angle + std::f32::consts::TAU * index as f32 / count as f32
+            };
             let offset = Vec2::new(angle.cos(), angle.sin()) * 32.0;
             let spawn_pos = clamp_in_room(
                 origin + offset,
@@ -1499,9 +1536,13 @@ fn elite_splitting_system(
 }
 
 fn elite_vampiric_system(
+    data: Res<GameDataRegistry>,
     mut damage_events: EventReader<DamageAppliedEvent>,
     mut elites: Query<(&EliteAffixes, &mut Health), Without<Replicated>>,
 ) {
+    let lifesteal_fraction =
+        data.elite_affixes
+            .param_or(EliteAffix::Vampiric, "lifesteal_fraction", 0.30);
     for event in damage_events.read() {
         if event.target_team != Some(Team::Player) || event.attacker_team != Team::Enemy {
             continue;
@@ -1516,12 +1557,13 @@ fn elite_vampiric_system(
             continue;
         }
 
-        let heal = health.max * 0.10;
+        let heal = event.amount * lifesteal_fraction;
         health.current = (health.current + heal).min(health.max);
     }
 }
 
 fn elite_berserk_system(
+    data: Res<GameDataRegistry>,
     mut elites: Query<
         (
             &Health,
@@ -1532,13 +1574,27 @@ fn elite_berserk_system(
         (With<Enemy>, Without<Replicated>),
     >,
 ) {
+    let threshold = data
+        .elite_affixes
+        .param_or(EliteAffix::Berserk, "hp_threshold", 0.40);
+    let damage_bonus = data
+        .elite_affixes
+        .param_or(EliteAffix::Berserk, "damage_bonus", 0.50);
+    let attack_speed_bonus =
+        data.elite_affixes
+            .param_or(EliteAffix::Berserk, "attack_speed_bonus", 0.40);
+    let move_speed_bonus =
+        data.elite_affixes
+            .param_or(EliteAffix::Berserk, "move_speed_bonus", 0.20);
     for (health, mut stats, mut state, mut sprite) in &mut elites {
-        if state.active || health.max <= 0.0 || health.current / health.max >= 0.30 {
+        if state.active || health.max <= 0.0 || health.current / health.max >= threshold {
             continue;
         }
 
         state.active = true;
-        stats.attack_damage *= 2.0;
+        stats.attack_damage *= 1.0 + damage_bonus;
+        stats.attack_cooldown_s /= (1.0 + attack_speed_bonus).max(0.1);
+        stats.move_speed *= 1.0 + move_speed_bonus;
         sprite.color = Color::srgb(0.96, 0.22, 0.20);
     }
 }
@@ -2063,8 +2119,11 @@ pub fn enemy_death_system(
 
             let kill_heal = inventory
                 .map(|value| {
-                    tuning::kill_heal_amount(value.stacks(AugmentId::KillHeal))
-                        + tuning::lifesteal_kill_heal(value.stacks(AugmentId::LifestealSlash))
+                    tuning::kill_heal_amount(&data, value.stacks(AugmentId::KillHeal))
+                        + tuning::lifesteal_kill_heal(
+                            &data,
+                            value.stacks(AugmentId::LifestealSlash),
+                        )
                 })
                 .unwrap_or(0.0);
             if kill_heal > 0.0 {
@@ -2391,15 +2450,16 @@ fn clear_enemy_attacks_on_room_clear(
 }
 
 fn scaled_enemy_stats(
+    data: &GameDataRegistry,
     stats_cfg: &EnemyStatsConfig,
     enemy_type: EnemyType,
     floor_number: u32,
     floor_multiplier: f32,
 ) -> EnemyStats {
     let (floor_hp, floor_damage, floor_cooldown, floor_projectile) =
-        floor_growth_curve(floor_number, floor_multiplier);
+        floor_growth_curve(data, floor_number, floor_multiplier);
     let (type_hp, type_damage, type_cooldown, type_projectile, aggro_bonus) =
-        enemy_type_curve(enemy_type, floor_number);
+        enemy_type_curve(data, enemy_type, floor_number);
     EnemyStats {
         max_hp: stats_cfg.max_hp * floor_hp * type_hp,
         move_speed: stats_cfg.move_speed,
@@ -2411,59 +2471,66 @@ fn scaled_enemy_stats(
     }
 }
 
-fn floor_growth_curve(floor_number: u32, floor_multiplier: f32) -> (f32, f32, f32, f32) {
+fn elite_chance_for_floor(
+    balance: &crate::data::definitions::GameBalanceConfig,
+    floor: u32,
+) -> f32 {
+    let idx = floor.saturating_sub(1) as usize;
+    balance
+        .elite_chance_by_floor
+        .get(idx)
+        .or_else(|| balance.elite_chance_by_floor.last())
+        .copied()
+        .unwrap_or(balance.elite_chance)
+}
+
+fn floor_growth_curve(
+    data: &GameDataRegistry,
+    floor_number: u32,
+    floor_multiplier: f32,
+) -> (f32, f32, f32, f32) {
     let base_step = if floor_number > 1 {
         (floor_multiplier - 1.0) / floor_number.saturating_sub(1) as f32
     } else {
-        0.16
+        data.balance.difficulty_per_floor
     };
-    match floor_number {
-        0 | 1 => (1.0, 1.0, 1.0, 1.0),
-        2 => (
-            1.0 + base_step * 0.625,
-            1.0 + base_step * 0.50,
-            (1.0 - base_step * 0.1875).max(0.5),
-            1.0 + base_step * 0.3125,
-        ),
-        3 => (
-            1.0 + base_step * 3.4375,
-            1.0 + base_step * 1.25,
-            (1.0 - base_step * 0.625).max(0.5),
-            1.0 + base_step * 0.75,
-        ),
-        _ => (
-            1.0 + base_step * 6.5625,
-            1.0 + base_step * 2.375,
-            (1.0 - base_step * 1.125).max(0.5),
-            1.0 + base_step * 1.25,
-        ),
-    }
+    let idx = floor_number.saturating_sub(1) as usize;
+    let curve = data
+        .balance
+        .floor_growth_curves
+        .get(idx)
+        .or_else(|| data.balance.floor_growth_curves.last())
+        .copied()
+        .unwrap_or_default();
+    (
+        1.0 + base_step * curve.hp,
+        1.0 + base_step * curve.damage,
+        (1.0 - base_step * curve.cooldown).max(0.5),
+        1.0 + base_step * curve.projectile,
+    )
 }
 
-fn enemy_type_curve(enemy_type: EnemyType, floor_number: u32) -> (f32, f32, f32, f32, f32) {
+fn enemy_type_curve(
+    data: &GameDataRegistry,
+    enemy_type: EnemyType,
+    floor_number: u32,
+) -> (f32, f32, f32, f32, f32) {
     if floor_number < 3 {
         return (1.0, 1.0, 1.0, 1.0, 0.0);
     }
-
-    match enemy_type {
-        EnemyType::MeleeChaser => (1.08, 1.0, 1.0, 1.0, 0.0),
-        EnemyType::Lobber => (1.10, 1.0, 0.98, 1.08, 0.0),
-        EnemyType::RangedShooter => (1.15, 1.0, 0.96, 1.05, 0.0),
-        EnemyType::Charger => (1.20, 1.08, 1.0, 1.0, 80.0),
-        EnemyType::Flanker => (1.12, 1.10, 1.0, 1.0, 0.0),
-        EnemyType::Sniper => (1.18, 1.12, 1.0, 1.0, 0.0),
-        EnemyType::SupportCaster => {
-            if floor_number >= 4 {
-                (1.20, 1.0, 1.0, 1.0, 0.0)
-            } else {
-                (1.0, 1.0, 1.0, 1.0, 0.0)
-            }
-        }
-        EnemyType::Bomber => (1.0, 1.0, 1.0, 1.0, 0.0),
-        EnemyType::Shielder => (1.0, 1.0, 1.0, 1.0, 0.0),
-        EnemyType::Summoner => (1.0, 1.0, 1.0, 1.0, 0.0),
-        EnemyType::Boss => (1.0, 1.0, 1.0, 1.0, 0.0),
+    if let Some(c) = data
+        .balance
+        .enemy_type_curves
+        .iter()
+        .find(|c| c.enemy == enemy_type)
+    {
+        return (c.hp, c.damage, c.cooldown, c.projectile, c.aggro_bonus);
     }
+    // SupportCaster gets a small HP bump at floor 4+ when not configured in RON.
+    if enemy_type == EnemyType::SupportCaster && floor_number >= 4 {
+        return (1.20, 1.0, 1.0, 1.0, 0.0);
+    }
+    (1.0, 1.0, 1.0, 1.0, 0.0)
 }
 
 pub fn effective_enemy_move_speed(stats: &EnemyStats, buff: Option<&EnemyBuffState>) -> f32 {
@@ -2529,24 +2596,17 @@ fn scaled_boss_stats(
 ) -> EnemyStats {
     let scaling = (floor_multiplier - 1.0).max(0.0);
     let config = data.bosses.for_floor(floor_number);
-    let hp_scaling = match archetype {
-        BossArchetype::CubeCore => 0.72,
-        _ => 0.38,
-    };
-    let base_range = match archetype {
-        BossArchetype::Floor1Guardian => 42.0,
-        BossArchetype::MirrorWarden => 44.0,
-        BossArchetype::TideHunter => 52.0,
-        BossArchetype::CubeCore => 48.0,
-    };
+    let s = &data.bosses.scaling;
+    let hp_scaling = s.hp_factor_for(archetype);
     EnemyStats {
         max_hp: config.max_hp * (1.0 + scaling * hp_scaling),
-        move_speed: config.move_speed * (1.0 + scaling * 0.08),
-        attack_damage: config.contact_damage * (1.0 + scaling * 0.30),
-        attack_cooldown_s: (0.95 / (1.0 + scaling * 0.12)).max(0.40),
-        aggro_range: 900.0,
-        attack_range: base_range,
-        projectile_speed: config.projectile_speed * (1.0 + scaling * 0.12),
+        move_speed: config.move_speed * (1.0 + scaling * s.move_speed_per_floor),
+        attack_damage: config.contact_damage * (1.0 + scaling * s.damage_per_floor),
+        attack_cooldown_s: (s.base_cooldown_s / (1.0 + scaling * s.cooldown_inverse_per_floor))
+            .max(s.min_cooldown_s),
+        aggro_range: s.aggro_range,
+        attack_range: s.attack_range_for(archetype),
+        projectile_speed: config.projectile_speed * (1.0 + scaling * s.projectile_speed_per_floor),
     }
 }
 

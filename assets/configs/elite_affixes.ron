@@ -1,10 +1,61 @@
+// Elite affix knobs aligned with docs/superpowers/specs/design.md §7.2.
+// move_speed_mult / attack_cooldown_mult / damage_bonus are direct
+// multipliers / additive bonuses; `*_s` is seconds; `*_fraction` is 0..1.
 (
   affixes: [
-    (affix: Swift, title: "迅捷", description: "移速 +40%，攻击间隔 -30%，减速效果减半。"),
-    (affix: Splitting, title: "分裂", description: "死亡分裂 2 个 50% HP 弱化体。"),
-    (affix: Shielded, title: "铁壁", description: "受伤 -25%，免疫击退和冰冻。"),
-    (affix: Vampiric, title: "吸血", description: "命中回复 30% 伤害 HP，每 5s 回 3% 最大 HP。"),
-    (affix: Berserk, title: "狂暴", description: "HP<40% 时伤害 +50%，攻速 +40%，移速 +20%。"),
-    (affix: Teleporting, title: "闪现", description: "每 4s 瞬移到玩家侧面或背后，首次攻击 +30%。"),
+    (
+      affix: Swift, title: "迅捷",
+      description: "移速 +40%，攻击间隔 -30%，减速效果减半。",
+      params: {
+        "move_speed_mult": 1.40,
+        "attack_cooldown_mult": 0.70,
+        "slow_resist": 0.50,
+      },
+    ),
+    (
+      affix: Splitting, title: "分裂",
+      description: "死亡分裂 2 个 50% HP 弱化体。",
+      params: {
+        "count": 2.0,
+        "hp_fraction": 0.50,
+        "damage_fraction": 0.50,
+      },
+    ),
+    (
+      affix: Shielded, title: "铁壁",
+      description: "受伤 -25%，免疫击退和冰冻。",
+      params: {
+        "damage_reduction": 0.25,
+        "immune_knockback": 1.0,
+        "immune_freeze": 1.0,
+      },
+    ),
+    (
+      affix: Vampiric, title: "吸血",
+      description: "命中回复 30% 伤害 HP，每 5s 回 3% 最大 HP。",
+      params: {
+        "lifesteal_fraction": 0.30,
+        "regen_fraction": 0.03,
+        "regen_interval_s": 5.0,
+      },
+    ),
+    (
+      affix: Berserk, title: "狂暴",
+      description: "HP<40% 时伤害 +50%，攻速 +40%，移速 +20%。",
+      params: {
+        "hp_threshold": 0.40,
+        "damage_bonus": 0.50,
+        "attack_speed_bonus": 0.40,
+        "move_speed_bonus": 0.20,
+      },
+    ),
+    (
+      affix: Teleporting, title: "闪现",
+      description: "每 4s 瞬移到玩家侧面或背后，首次攻击 +30%。",
+      params: {
+        "interval_s": 4.0,
+        "first_attack_bonus": 0.30,
+      },
+    ),
   ],
 )

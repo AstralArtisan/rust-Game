@@ -140,6 +140,7 @@ pub fn reflect_enemy_projectiles_on_melee(
 pub fn detect_hitbox_hurtbox_overlap(
     mut commands: Commands,
     assets: Res<GameAssets>,
+    data: Res<crate::data::registry::GameDataRegistry>,
     mut damage_ev: EventWriter<DamageEvent>,
     mut rng: ResMut<GameRng>,
     owner_mods: Query<&RewardModifiers>,
@@ -202,7 +203,7 @@ pub fn detect_hitbox_hurtbox_overlap(
                     .map(|inv| inv.stacks(AugmentId::Executioner))
                     .unwrap_or(0);
                 if exec_stacks > 0 {
-                    let threshold = tuning::executioner_threshold(exec_stacks);
+                    let threshold = tuning::executioner_threshold(&data, exec_stacks);
                     if let Ok(target_hp) = target_health_q.get(target)
                         && target_hp.max > 0.0
                         && target_hp.current / target_hp.max < threshold
@@ -235,7 +236,7 @@ pub fn detect_hitbox_hurtbox_overlap(
                     .map(|inventory| inventory.stacks(AugmentId::ArmorBreak))
                     .unwrap_or(0);
                 if armor_break_stacks > 0
-                    && let Some(profile) = tuning::armor_break_profile(armor_break_stacks)
+                    && let Some(profile) = tuning::armor_break_profile(&data, armor_break_stacks)
                 {
                     commands.entity(target).insert(ArmorBroken {
                         damage_multiplier: profile.damage_multiplier,
@@ -251,7 +252,7 @@ pub fn detect_hitbox_hurtbox_overlap(
                     }
                 }
                 if lifesteal_slash_stacks > 0 {
-                    let heal_fraction = tuning::lifesteal_fraction(lifesteal_slash_stacks);
+                    let heal_fraction = tuning::lifesteal_fraction(&data, lifesteal_slash_stacks);
                     total_heal += (amount * heal_fraction).min(5.0);
                 }
                 if total_heal > 0.0
@@ -434,6 +435,7 @@ mod tests {
         world.init_resource::<Events<DamageEvent>>();
         world.insert_resource(dummy_assets());
         world.insert_resource(GameRng::default());
+        world.insert_resource(crate::data::loaders::default_registry());
 
         world.spawn((
             Hurtbox {

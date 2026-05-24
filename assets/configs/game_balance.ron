@@ -11,9 +11,44 @@
     [Sniper, Shielder],
     [SupportCaster, Summoner],
   ],
+  // Legacy single value; effective chances live in elite_chance_by_floor below.
   elite_chance: 0.18,
   elite_hp_mult: 2.0,
-  elite_damage_mult: 1.55,
+  // design.md §7.2: elites deal ATK x1.30 (was 1.55 -- adjusted for parity).
+  elite_damage_mult: 1.30,
   elite_gold_bonus: 12,
   use_sprite_textures: false,
+
+  // Per-floor normal-room enemy count (index 0 = floor 1).
+  enemy_count_by_floor: [4, 5, 5, 6],
+  // Per-floor elite spawn probability (index 0 = floor 1).
+  elite_chance_by_floor: [0.0, 0.0, 0.18, 0.32],
+
+  // Per-floor stat growth applied as multipliers of base_step.
+  // base_step = (floor_multiplier - 1) / max(1, floor - 1).
+  // hp/damage/projectile add positively; cooldown subtracts (capped at >= 0.5).
+  floor_growth_curves: [
+    (hp: 0.0,    damage: 0.0,   cooldown: 0.0,    projectile: 0.0),
+    (hp: 0.625,  damage: 0.50,  cooldown: 0.1875, projectile: 0.3125),
+    (hp: 3.4375, damage: 1.25,  cooldown: 0.625,  projectile: 0.75),
+    (hp: 6.5625, damage: 2.375, cooldown: 1.125,  projectile: 1.25),
+  ],
+
+  // Floor >= 3 only: per-type multipliers stacked on top of the floor curve.
+  // Types not listed here use the neutral (1.0, 1.0, 1.0, 1.0, 0.0) curve.
+  enemy_type_curves: [
+    (enemy: MeleeChaser,   hp: 1.08, damage: 1.00, cooldown: 1.00, projectile: 1.00, aggro_bonus:  0.0),
+    (enemy: Lobber,        hp: 1.10, damage: 1.00, cooldown: 0.98, projectile: 1.08, aggro_bonus:  0.0),
+    (enemy: RangedShooter, hp: 1.15, damage: 1.00, cooldown: 0.96, projectile: 1.05, aggro_bonus:  0.0),
+    (enemy: Charger,       hp: 1.20, damage: 1.08, cooldown: 1.00, projectile: 1.00, aggro_bonus: 80.0),
+    (enemy: Flanker,       hp: 1.12, damage: 1.10, cooldown: 1.00, projectile: 1.00, aggro_bonus:  0.0),
+    (enemy: Sniper,        hp: 1.18, damage: 1.12, cooldown: 1.00, projectile: 1.00, aggro_bonus:  0.0),
+  ],
+
+  floor1_easing: (
+    room1_mult: 0.86,
+    room2_mult: 0.93,
+    room1_count_offset: -1,
+    min_enemy_count: 3,
+  ),
 )
