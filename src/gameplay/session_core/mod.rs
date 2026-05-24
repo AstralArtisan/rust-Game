@@ -180,11 +180,14 @@ pub fn evaluate_death(mode: SessionMode, living_players: usize) -> DeathDecision
     }
 }
 
-pub fn next_refresh_cost(refresh_count: u32) -> u32 {
+pub fn next_refresh_cost(refresh_count: u32, shop: &crate::data::definitions::ShopConfig) -> u32 {
     if refresh_count == 0 {
-        0
+        shop.refresh_first_cost
     } else {
-        30 + refresh_count.saturating_sub(1).saturating_mul(15)
+        shop.refresh_base_cost
+            + refresh_count
+                .saturating_sub(1)
+                .saturating_mul(shop.refresh_increment)
     }
 }
 
@@ -487,10 +490,11 @@ mod tests {
 
     #[test]
     fn shop_refresh_cost_and_repeat_price_follow_curve() {
-        assert_eq!(next_refresh_cost(0), 0);
-        assert_eq!(next_refresh_cost(1), 30);
-        assert_eq!(next_refresh_cost(2), 45);
-        assert_eq!(next_refresh_cost(3), 60);
+        let shop = crate::data::definitions::ShopConfig::default();
+        assert_eq!(next_refresh_cost(0, &shop), 0);
+        assert_eq!(next_refresh_cost(1, &shop), 30);
+        assert_eq!(next_refresh_cost(2, &shop), 45);
+        assert_eq!(next_refresh_cost(3, &shop), 60);
 
         let mut mods = RewardModifiers::default();
         let base = build_shop_offers(mods, None)

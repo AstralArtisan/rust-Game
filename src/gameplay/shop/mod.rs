@@ -370,8 +370,8 @@ fn refresh_shop_offers(
     sync_shop_cache(offers, cache, room);
 }
 
-pub fn next_refresh_cost(refresh_count: u32) -> u32 {
-    shared_next_refresh_cost(refresh_count)
+pub fn next_refresh_cost(refresh_count: u32, shop: &crate::data::definitions::ShopConfig) -> u32 {
+    shared_next_refresh_cost(refresh_count, shop)
 }
 
 #[allow(dead_code)]
@@ -495,7 +495,8 @@ pub fn handle_shop_purchase_input(
         let Some(room) = offers.room else {
             return;
         };
-        let cost = next_refresh_cost(offers.refresh_count);
+        let shop_cfg = data.as_ref().map(|d| d.shop.clone()).unwrap_or_default();
+        let cost = next_refresh_cost(offers.refresh_count, &shop_cfg);
         if gold.0 < cost {
             warn!("金币不足：需要 {}，当前 {}", cost, gold.0);
             feedback.send(shop_warning_feedback(cost, gold.0));
