@@ -217,6 +217,28 @@ pub fn activate_skill_inputs(
                 strength: 4.0,
                 duration: 0.12,
             });
+            // design.md §5.4: FrostField also freezes enemies inside the AOE.
+            // Reuse the Frozen component spawned by the Freeze augment so the
+            // existing tick/shatter pipeline takes care of cleanup and visuals.
+            let freeze_s = cfg.status("freeze_s");
+            if freeze_s > 0.0 {
+                use crate::gameplay::augment::effects::Frozen;
+                let radius_sq = cfg.aoe_radius * cfg.aoe_radius;
+                for (enemy_e, enemy_tf, _) in &enemy_q {
+                    if enemy_tf
+                        .translation()
+                        .truncate()
+                        .distance_squared(player_pos)
+                        > radius_sq
+                    {
+                        continue;
+                    }
+                    commands.entity(enemy_e).insert(Frozen {
+                        timer: Timer::from_seconds(freeze_s, TimerMode::Once),
+                        shatter_damage_bonus: 0.0,
+                    });
+                }
+            }
         }
         SkillType::MeteorFall => {
             let target_pos = input.aim_world.unwrap_or(player_pos + direction * 180.0);
