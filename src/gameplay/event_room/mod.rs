@@ -826,7 +826,7 @@ fn apply_puzzle_event_reward(
             }
         }
         if let Some(pool) = augment_pool_from_puzzle(reward.augment_pool)
-            && let Some(augment_id) = pick_random_augment_id(data, rng, pool)
+            && let Some(augment_id) = pick_random_augment_id(data, rng, pool, Some(&inventory))
         {
             let grant = inventory.grant(augment_id);
             lines.extend(describe_augment_grant(grant, data));
@@ -889,7 +889,7 @@ fn apply_combat_event_reward(
             lines.push(format!("+{} 金币", gold_bonus));
         }
         for pool in pools {
-            if let Some(augment_id) = pick_random_augment_id(data, rng, pool) {
+            if let Some(augment_id) = pick_random_augment_id(data, rng, pool, Some(&inventory)) {
                 let grant = inventory.grant(augment_id);
                 lines.extend(describe_augment_grant(grant, data));
             }
@@ -930,12 +930,15 @@ fn configure_non_combat_event(
 
     match event_type {
         EventType::Gambler => {
-            let Some(lite_augment_id) = pick_random_augment_id(data, rng, AugmentPool::Any) else {
+            let Some(lite_augment_id) =
+                pick_random_augment_id(data, rng, AugmentPool::Any, inventory)
+            else {
                 active.choices = vec![leave_choice()];
                 active.choice_payloads = vec![EventChoicePayload::Leave];
                 return;
             };
-            let Some(elite_augment_id) = pick_random_augment_id(data, rng, AugmentPool::EliteOnly)
+            let Some(elite_augment_id) =
+                pick_random_augment_id(data, rng, AugmentPool::EliteOnly, inventory)
             else {
                 active.choices = vec![leave_choice()];
                 active.choice_payloads = vec![EventChoicePayload::Leave];
@@ -976,8 +979,8 @@ fn configure_non_combat_event(
                 active.choice_payloads = vec![EventChoicePayload::Leave];
                 return;
             };
-            let common = pick_random_augment_offer(data, rng, AugmentPool::CommonOnly);
-            let elite = pick_random_augment_offer(data, rng, AugmentPool::EliteOnly);
+            let common = pick_random_augment_offer(data, rng, AugmentPool::CommonOnly, inventory);
+            let elite = pick_random_augment_offer(data, rng, AugmentPool::EliteOnly, inventory);
             let (
                 Some((common_id, common_title, common_desc)),
                 Some((elite_id, elite_title, elite_desc)),
@@ -1011,7 +1014,8 @@ fn configure_non_combat_event(
             ];
         }
         EventType::Treasure => {
-            let Some(augment_id) = pick_random_augment_id(data, rng, AugmentPool::Any) else {
+            let Some(augment_id) = pick_random_augment_id(data, rng, AugmentPool::Any, inventory)
+            else {
                 active.choices = vec![leave_choice()];
                 active.choice_payloads = vec![EventChoicePayload::Leave];
                 return;
@@ -1071,7 +1075,7 @@ fn configure_non_combat_event(
                 active.choice_payloads = vec![EventChoicePayload::Leave];
                 return;
             };
-            let offers = pick_augment_offers(data, rng, AugmentPool::Any, 2);
+            let offers = pick_augment_offers(data, rng, AugmentPool::Any, 2, inventory);
             if offers.is_empty() {
                 active.choices = vec![leave_choice()];
                 active.choice_payloads = vec![EventChoicePayload::Leave];
@@ -1239,7 +1243,8 @@ fn configure_non_combat_event(
             ];
         }
         EventType::SacrificeAltar => {
-            let Some(augment_id) = pick_random_augment_id(data, rng, AugmentPool::LegendaryOnly)
+            let Some(augment_id) =
+                pick_random_augment_id(data, rng, AugmentPool::LegendaryOnly, inventory)
             else {
                 active.choices = vec![leave_choice()];
                 active.choice_payloads = vec![EventChoicePayload::Leave];
@@ -1371,16 +1376,20 @@ fn pick_random_augment_id(
     data: Option<&GameDataRegistry>,
     rng: &mut GameRng,
     pool: AugmentPool,
+    inventory: Option<&AugmentInventory>,
 ) -> Option<AugmentId> {
-    pick_random_augment_offer(data?, rng, pool).map(|(augment_id, _, _)| augment_id)
+    pick_random_augment_offer(data?, rng, pool, inventory).map(|(augment_id, _, _)| augment_id)
 }
 
 fn pick_random_augment_offer(
     data: &GameDataRegistry,
     rng: &mut GameRng,
     pool: AugmentPool,
+    inventory: Option<&AugmentInventory>,
 ) -> Option<(AugmentId, String, String)> {
-    pick_augment_offers(data, rng, pool, 1).into_iter().next()
+    pick_augment_offers(data, rng, pool, 1, inventory)
+        .into_iter()
+        .next()
 }
 
 fn pick_augment_offers(
@@ -1388,11 +1397,20 @@ fn pick_augment_offers(
     rng: &mut GameRng,
     pool: AugmentPool,
     count: usize,
+    inventory: Option<&AugmentInventory>,
 ) -> Vec<(AugmentId, String, String)> {
+    // Drop maxed-out augments from the candidate pool so the player never sees
+    // an offer they cannot meaningfully take.
+    let is_maxed = |augment: &AugmentConfig| -> bool {
+        inventory
+            .map(|inv| inv.stacks(augment.id) >= augment.max_stacks())
+            .unwrap_or(false)
+    };
     let mut candidates = data
         .augments
         .augments
         .iter()
+        .filter(|augment| !is_maxed(augment))
         .filter(|augment| match pool {
             AugmentPool::Any => true,
             AugmentPool::CommonOnly => augment.rarity == AugmentRarity::Common,
@@ -1403,8 +1421,15 @@ fn pick_augment_offers(
             AugmentPool::LegendaryOnly => augment.rarity == AugmentRarity::Legendary,
         })
         .collect::<Vec<_>>();
+    // If filtering by rarity left nothing, relax the rarity filter (but keep
+    // the maxed-out filter — taking a maxed augment would be a no-op).
     if candidates.is_empty() {
-        candidates = data.augments.augments.iter().collect::<Vec<_>>();
+        candidates = data
+            .augments
+            .augments
+            .iter()
+            .filter(|augment| !is_maxed(augment))
+            .collect::<Vec<_>>();
     }
     rng.shuffle(&mut candidates);
     let take_count = count.min(candidates.len());
@@ -1931,7 +1956,9 @@ fn apply_wheel_of_fate(
                 lines.push(format!("等级提升到 {}", level.level));
             }
             _ => {
-                if let Some(augment_id) = pick_random_augment_id(data, rng, AugmentPool::Any) {
+                if let Some(augment_id) =
+                    pick_random_augment_id(data, rng, AugmentPool::Any, Some(inventory))
+                {
                     let grant = inventory.grant(augment_id);
                     lines.extend(describe_augment_grant(grant, data));
                 } else {

@@ -726,8 +726,14 @@ fn generate_augment_choices(
     is_boss: bool,
     inventory: Option<&AugmentInventory>,
 ) -> Vec<AugmentChoiceOption> {
+    let is_maxed = |augment: &AugmentConfig| {
+        inventory
+            .map(|inv| inv.stacks(augment.id) >= augment.max_stacks())
+            .unwrap_or(false)
+    };
     let pool: Vec<_> = augments
         .iter()
+        .filter(|augment| !is_maxed(augment))
         .filter(|augment| {
             if is_boss {
                 matches!(
