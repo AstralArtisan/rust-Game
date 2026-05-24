@@ -18,6 +18,7 @@
       params: {
         "count": 2.0,
         "hp_fraction": 0.50,
+        "damage_fraction": 0.50,
       },
     ),
     (

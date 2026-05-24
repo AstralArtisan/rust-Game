@@ -1465,14 +1465,28 @@ fn elite_splitting_system(
         let hp_fraction = data
             .elite_affixes
             .param_or(EliteAffix::Splitting, "hp_fraction", 0.50);
+        let damage_fraction =
+            data.elite_affixes
+                .param_or(EliteAffix::Splitting, "damage_fraction", 0.50);
+        let count = (data
+            .elite_affixes
+            .param_or(EliteAffix::Splitting, "count", 2.0)
+            .round() as i32)
+            .max(0) as u32;
         let mut split_stats = *stats;
         split_stats.max_hp = health.max * hp_fraction;
-        split_stats.attack_damage *= hp_fraction;
+        split_stats.attack_damage *= damage_fraction;
 
         let origin = tf.translation.truncate();
         let base_angle = rng.gen_range_f32(0.0, std::f32::consts::TAU);
-        for index in 0..2 {
-            let angle = base_angle + if index == 0 { -0.55 } else { 0.55 };
+        for index in 0..count {
+            // count == 2 keeps the original tight ±0.55 split for visual
+            // continuity; larger counts fan out evenly across TAU.
+            let angle = if count == 2 {
+                base_angle + if index == 0 { -0.55 } else { 0.55 }
+            } else {
+                base_angle + std::f32::consts::TAU * index as f32 / count as f32
+            };
             let offset = Vec2::new(angle.cos(), angle.sin()) * 32.0;
             let spawn_pos = clamp_in_room(
                 origin + offset,
