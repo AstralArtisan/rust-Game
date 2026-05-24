@@ -167,7 +167,15 @@ pub fn apply_damage_events(
             pos: tf.translation().truncate(),
         });
 
-        knockback.0 = ev.knockback;
+        // Shielded elites with immune_knockback ignore the impulse entirely.
+        let knockback_immune = shielded_affix
+            .as_deref()
+            .is_some_and(|s| s.immune_knockback);
+        knockback.0 = if knockback_immune {
+            Vec2::ZERO
+        } else {
+            ev.knockback
+        };
         if let Some(mut flash) = flash_opt {
             flash.trigger(0.12);
         }

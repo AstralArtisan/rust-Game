@@ -99,6 +99,9 @@ pub struct ShieldedAffixState {
     /// Damage taken is multiplied by `1.0 - damage_reduction` (0..1).
     /// design.md §7.2: Shielded affix reduces incoming damage by 25%.
     pub damage_reduction: f32,
+    /// design.md §7.2 also says Shielded is immune to knockback and freeze.
+    pub immune_knockback: bool,
+    pub immune_freeze: bool,
 }
 
 #[derive(Component, Debug, Clone, Copy)]

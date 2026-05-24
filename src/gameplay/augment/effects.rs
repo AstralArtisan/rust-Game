@@ -493,6 +493,7 @@ pub fn freeze_system(
     player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
     mut rng: ResMut<crate::utils::rng::GameRng>,
     existing_frozen: Query<(), (With<Frozen>, Without<Replicated>)>,
+    shielded_q: Query<&crate::gameplay::enemy::components::ShieldedAffixState, Without<Replicated>>,
 ) {
     for event in damage_events.read() {
         if event.kind != DamageKind::PlayerRanged || event.target_team != Some(Team::Enemy) {
@@ -510,6 +511,10 @@ pub fn freeze_system(
         }
         // Already frozen, skip
         if existing_frozen.get(event.target).is_ok() {
+            continue;
+        }
+        // Shielded elites with immune_freeze cannot be chilled.
+        if shielded_q.get(event.target).is_ok_and(|s| s.immune_freeze) {
             continue;
         }
         let Some(profile) = tuning::freeze_profile(&data, stacks) else {

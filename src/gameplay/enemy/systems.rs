@@ -907,8 +907,18 @@ fn spawn_enemy_with_elite_scale(
                     let reduction =
                         data.elite_affixes
                             .param_or(EliteAffix::Shielded, "damage_reduction", 0.25);
+                    let immune_knockback =
+                        data.elite_affixes
+                            .param_or(EliteAffix::Shielded, "immune_knockback", 1.0)
+                            > 0.0;
+                    let immune_freeze =
+                        data.elite_affixes
+                            .param_or(EliteAffix::Shielded, "immune_freeze", 1.0)
+                            > 0.0;
                     entity.insert(ShieldedAffixState {
                         damage_reduction: reduction,
+                        immune_knockback,
+                        immune_freeze,
                     });
                 }
                 EliteAffix::Berserk => {
