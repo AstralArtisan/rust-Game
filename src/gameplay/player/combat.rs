@@ -122,8 +122,14 @@ pub fn player_attack_input_system(
             continue;
         }
 
-        let mut melee_speed_bonus =
-            mods.total_melee_speed_bonus() + buff.map(|b| b.attack_speed_bonus).unwrap_or(0.0);
+        let mut melee_speed_bonus = mods.total_melee_speed_bonus();
+        // Buff attack_speed_bonus is a percentage of the current base cooldown;
+        // converting it into a seconds-of-reduction lets it feed apply_speed_bonus
+        // alongside the levelup-driven mods bonus.
+        let buff_speed_pct = buff.map(|b| b.attack_speed_bonus).unwrap_or(0.0);
+        if buff_speed_pct > 0.0 {
+            melee_speed_bonus += buff_speed_pct * cd.base_duration_s;
+        }
         let mut combo_crit_bonus = 0.0;
         let combo_accelerate_stacks = inventory
             .map(|value| value.stacks(AugmentId::ComboAccelerate))
@@ -136,6 +142,15 @@ pub fn player_attack_input_system(
         }
 
         cd.apply_speed_bonus(melee_speed_bonus);
+        // Clamp the resulting cooldown to the RON-configured floor; force_max
+        // pins it directly to that floor.
+        let melee_floor = data.rewards.levelup.melee_min_s.max(0.01);
+        if buff.is_some_and(|b| b.force_attack_speed_max)
+            || cd.timer.duration().as_secs_f32() < melee_floor
+        {
+            cd.timer
+                .set_duration(std::time::Duration::from_secs_f32(melee_floor));
+        }
         cd.timer.reset();
         sfx_events.send(crate::core::events::SfxEvent {
             kind: crate::core::events::SfxKind::MeleeAttack,
@@ -240,13 +255,23 @@ pub fn player_ranged_input_system(
             continue;
         }
 
-        let cfg = data.as_deref().map(|d| &d.player);
-        cd.base_duration_s = cfg
-            .map(|c| c.ranged_cooldown_s)
-            .unwrap_or(cd.base_duration_s);
-        cd.apply_speed_bonus(
-            mods.total_ranged_speed_bonus() + buff.map(|b| b.attack_speed_bonus).unwrap_or(0.0),
-        );
+        // base_duration_s is owned by the levelup system; do not reset per-shot.
+        let mut ranged_speed_bonus = mods.total_ranged_speed_bonus();
+        let buff_speed_pct = buff.map(|b| b.attack_speed_bonus).unwrap_or(0.0);
+        if buff_speed_pct > 0.0 {
+            ranged_speed_bonus += buff_speed_pct * cd.base_duration_s;
+        }
+        cd.apply_speed_bonus(ranged_speed_bonus);
+        let ranged_floor = data
+            .as_deref()
+            .map(|d| d.rewards.levelup.ranged_min_s.max(0.01))
+            .unwrap_or(0.12);
+        if buff.is_some_and(|b| b.force_attack_speed_max)
+            || cd.timer.duration().as_secs_f32() < ranged_floor
+        {
+            cd.timer
+                .set_duration(std::time::Duration::from_secs_f32(ranged_floor));
+        }
         cd.timer.reset();
         sfx_events.send(crate::core::events::SfxEvent {
             kind: crate::core::events::SfxKind::RangedAttack,

@@ -41,13 +41,12 @@
     ),
     (
       skill: WarCry, category: Support, tier: Light, title: "战吼",
-      description: "3s 内攻击 +40%，移速 +20%，攻速 +30%。",
+      description: "3s 内攻击 +40%，移速 +20%，近战 / 远程攻速拉到阈值。",
       energy_cost: 60.0, cooldown_s: 8.0,
       duration_s: 3.0, aoe_radius: 220.0,
       status: {
         "attack_bonus": 0.40,
         "move_speed_bonus": 0.20,
-        "attack_speed_bonus": 0.30,
       },
     ),
     (

@@ -44,6 +44,7 @@ pub fn activate_skill_inputs(
             &DashState,
             &mut InvincibilityTimer,
             Option<&AugmentInventory>,
+            Option<&PlayerBuff>,
         ),
         (With<Player>, Without<Enemy>, Without<Replicated>),
     >,
@@ -61,6 +62,7 @@ pub fn activate_skill_inputs(
         dash,
         mut invincibility,
         inventory,
+        existing_buff,
     )) = player_q.get_single_mut()
     else {
         return;
@@ -275,13 +277,14 @@ pub fn activate_skill_inputs(
                     Color::srgba(1.0, 0.84, 0.32, 0.20),
                 );
             }
-            // design.md §5.4 WarCry: attack/move/attack-speed buff for duration_s.
+            // design.md §5.4 WarCry: attack/move buff + max attack speed for duration_s.
             let duration = cfg.duration_s.max(0.01);
-            let mut buff = PlayerBuff::from_seconds(duration);
-            buff.attack_bonus = cfg.status("attack_bonus");
-            buff.move_speed_bonus = cfg.status("move_speed_bonus");
-            buff.attack_speed_bonus = cfg.status("attack_speed_bonus");
-            commands.entity(player_e).insert(buff);
+            let mut new_buff = PlayerBuff::from_seconds(duration);
+            new_buff.attack_bonus = cfg.status("attack_bonus");
+            new_buff.move_speed_bonus = cfg.status("move_speed_bonus");
+            new_buff.force_attack_speed_max = true;
+            let merged = PlayerBuff::merge(existing_buff, new_buff);
+            commands.entity(player_e).insert(merged);
         }
         SkillType::LifeDrain => {
             spawn_radial_skill_hitbox(
@@ -338,11 +341,14 @@ pub fn activate_skill_inputs(
                     });
                 }
             }
+            // TimeRift: design.md §5.4 "+50% 攻速" — percentage cd reduction,
+            // clamped on top of any levelup gains by the combat systems.
             let attack_speed_bonus = cfg.status("attack_speed_bonus");
             if attack_speed_bonus > 0.0 {
-                let mut buff = PlayerBuff::from_seconds(buff_s);
-                buff.attack_speed_bonus = attack_speed_bonus;
-                commands.entity(player_e).insert(buff);
+                let mut new_buff = PlayerBuff::from_seconds(buff_s);
+                new_buff.attack_speed_bonus = attack_speed_bonus;
+                let merged = PlayerBuff::merge(existing_buff, new_buff);
+                commands.entity(player_e).insert(merged);
             }
         }
     }
