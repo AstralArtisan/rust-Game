@@ -36,6 +36,10 @@ jobs:
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
         with:
+          # 显式传入 workflow 自带的 GITHUB_TOKEN，跳过 anthropics/claude-code-action
+          # 默认的 OIDC → Anthropic GitHub App token 交换流程（我们用的是第三方
+          # API 代理，没装 Anthropic 的 GitHub App，OIDC 交换必然 401）。
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: '--model claude-sonnet-4-6 --add-dir pr-head'
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
