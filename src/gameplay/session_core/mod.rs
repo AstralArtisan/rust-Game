@@ -3,8 +3,8 @@ use crate::data::registry::GameDataRegistry;
 use crate::gameplay::augment::data::{AugmentId, AugmentRarity};
 use crate::gameplay::map::room::RoomType;
 use crate::gameplay::player::components::{
-    AttackCooldown, AttackPower, CritChance, DashCooldown, ENERGY_SYSTEM_ENABLED, Energy, Health,
-    MoveSpeed, RangedCooldown, RewardModifiers, SkillType,
+    AttackCooldown, AttackPower, CritChance, DashCooldown, Energy, Health, MoveSpeed,
+    RangedCooldown, RewardModifiers, SkillType,
 };
 use crate::gameplay::rewards::apply::{
     attack_power_gain, attack_speed_gain_s, crit_gain, dash_cooldown_gain_s, max_health_gain,
@@ -195,7 +195,7 @@ fn build_shop_offers(
     let fallback = crate::data::definitions::ShopConfig::default();
     let shop = shop.unwrap_or(&fallback);
     let inc = &shop.repeat_increment;
-    let mut pool = vec![
+    let pool = vec![
         (
             SharedShopItem::Heal,
             shop.heal_price + u32::from(mods.shop_heal_purchases) * inc.heal,
@@ -214,9 +214,6 @@ fn build_shop_offers(
                 + u32::from(mods.shop_attack_power_purchases) * inc.attack_power,
         ),
     ];
-    if !ENERGY_SYSTEM_ENABLED {
-        pool.retain(|(item, _)| *item != SharedShopItem::RestoreEnergy);
-    }
     pool.into_iter()
         .map(|item| ShopOfferDraft {
             item: item.0,
@@ -517,17 +514,13 @@ mod tests {
         rng.reseed(23);
         let draft = build_shop_draft(1, RewardModifiers::default(), &mut rng, Some(&registry));
 
-        let expected_attribute_count = if ENERGY_SYSTEM_ENABLED { 4 } else { 3 };
-        assert_eq!(draft.offers.len(), expected_attribute_count);
+        assert_eq!(draft.offers.len(), 4);
         assert!(draft.offers.iter().any(|offer| {
             offer.item == SharedShopItem::Heal && offer.cost == registry.shop.heal_price
         }));
-        if ENERGY_SYSTEM_ENABLED {
-            assert!(draft.offers.iter().any(|offer| {
-                offer.item == SharedShopItem::RestoreEnergy
-                    && offer.cost == registry.shop.energy_price
-            }));
-        }
+        assert!(draft.offers.iter().any(|offer| {
+            offer.item == SharedShopItem::RestoreEnergy && offer.cost == registry.shop.energy_price
+        }));
         assert!(draft.offers.iter().any(|offer| {
             offer.item == SharedShopItem::IncreaseMaxHealth
                 && offer.cost == registry.shop.max_hp_price

@@ -44,7 +44,6 @@ pub fn spawn_player(
     let inv_s = cfg.map(|c| c.invincibility_s).unwrap_or(0.35);
     let crit = cfg.map(|c| c.crit_chance).unwrap_or(0.05);
     let energy_max = cfg.map(|c| c.energy_max).unwrap_or(100.0);
-    let skill1_cd = cfg.map(|c| c.skill1_cooldown_s).unwrap_or(1.1);
 
     let mut entity = commands.spawn((SpriteBundle {
         texture: assets.textures.player.clone(),
@@ -99,9 +98,6 @@ pub fn spawn_player(
             decay: Timer::from_seconds(0.65, TimerMode::Once),
         },
         DashCooldown::new(dash_cd),
-        Skill1Cooldown {
-            timer: Timer::from_seconds(skill1_cd, TimerMode::Once),
-        },
         InvincibilityTimer {
             timer: Timer::from_seconds(inv_s, TimerMode::Once),
         },

@@ -28,7 +28,6 @@ pub struct PlayerConfig {
     pub perfect_dash_charge_gain: f32,
     pub combo_charge_gain: f32,
     pub finisher_charge_cost: f32,
-    pub skill1_cooldown_s: f32,
     pub ranged_base_cooldown_s: f32,
     pub ranged_min_cooldown_s: f32,
     pub ranged_ramp_max: u32,

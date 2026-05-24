@@ -75,7 +75,6 @@ pub(crate) fn default_registry() -> GameDataRegistry {
             perfect_dash_charge_gain: 15.0,
             combo_charge_gain: 10.0,
             finisher_charge_cost: 100.0,
-            skill1_cooldown_s: 1.1,
             ranged_base_cooldown_s: 0.80,
             ranged_min_cooldown_s: 0.80,
             ranged_ramp_max: 1,

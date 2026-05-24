@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::gameplay::combat::components::Team;
 use crate::gameplay::rewards::data::RewardType;
 
-pub const ENERGY_SYSTEM_ENABLED: bool = true;
-
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Player;
 
@@ -118,12 +116,6 @@ impl Combo {
             timer: Timer::from_seconds(window_s, TimerMode::Once),
         }
     }
-}
-
-#[allow(dead_code)]
-#[derive(Component, Debug, Clone)]
-pub struct Skill1Cooldown {
-    pub timer: Timer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -319,7 +311,6 @@ pub struct RewardModifiers {
     pub move_speed_mult: f32,
     pub attack_speed_add: f32,
     pub dash_damage_trail: bool,
-    pub bonus_projectile: bool,
     pub melee_mastery_stacks: u32,
     pub ranged_mastery_stacks: u32,
     pub attack_speed_level: u8,

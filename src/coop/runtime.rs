@@ -24,9 +24,8 @@ use crate::gameplay::map::{InGameEntity, RewardRoomGoldBonusSeen, VisitedRooms};
 use crate::gameplay::player::animation::PlayerAnim;
 use crate::gameplay::player::components::{
     AnimationState, AttackCooldown, AttackPower, Combo, CritChance, DashCooldown, DashState,
-    ENERGY_SYSTEM_ENABLED, Energy, FacingDirection, Gold, Health, InvincibilityTimer, MoveSpeed,
-    Player, PlayerDriveInput, RangedCooldown, RangedRapidFire, RewardModifiers, Skill1Cooldown,
-    TeamMarker, Velocity,
+    Energy, FacingDirection, Gold, Health, InvincibilityTimer, MoveSpeed, Player, PlayerDriveInput,
+    RangedCooldown, RangedRapidFire, RewardModifiers, TeamMarker, Velocity,
 };
 use crate::gameplay::progression::floor::FloorNumber;
 use crate::gameplay::puzzle::{ActivePuzzle, reset_active_puzzle};
@@ -1108,9 +1107,6 @@ fn spawn_coop_player(
     ));
     commands.entity(entity).insert((
         DashCooldown::new(cfg.dash_cooldown_s),
-        Skill1Cooldown {
-            timer: Timer::from_seconds(cfg.skill1_cooldown_s, TimerMode::Once),
-        },
         InvincibilityTimer {
             timer: Timer::from_seconds(cfg.invincibility_s, TimerMode::Once),
         },
@@ -2082,9 +2078,6 @@ fn build_shop_offers_for_player(
         CoopShopItem::IncreaseCritChance,
         CoopShopItem::IncreaseAttackSpeed,
     ];
-    if !ENERGY_SYSTEM_ENABLED {
-        pool.retain(|item| *item != CoopShopItem::IncreaseEnergyMax);
-    }
     rng.shuffle(&mut pool);
     pool.truncate(3);
 
