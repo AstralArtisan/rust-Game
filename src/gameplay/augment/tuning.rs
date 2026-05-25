@@ -226,6 +226,10 @@ pub(crate) fn homing_search_radius(data: &GameDataRegistry, stacks: u8) -> f32 {
     param(data, AugmentId::Homing, stacks, "search_radius")
 }
 
+pub(crate) fn homing_snap_radius(data: &GameDataRegistry, stacks: u8) -> f32 {
+    param(data, AugmentId::Homing, stacks, "snap_radius")
+}
+
 pub(crate) fn homing_pierce(data: &GameDataRegistry, stacks: u8) -> u8 {
     param(data, AugmentId::Homing, stacks, "pierce") as u8
 }

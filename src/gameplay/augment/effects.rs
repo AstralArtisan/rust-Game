@@ -10,6 +10,7 @@ use crate::data::registry::GameDataRegistry;
 use crate::gameplay::combat::components::{
     ArcHitbox, DamageKind, Hitbox, Hurtbox, Projectile, Team,
 };
+use crate::gameplay::combat::projectiles::HitTargets;
 use crate::gameplay::effects::particles;
 use crate::gameplay::enemy::components::Enemy;
 use crate::gameplay::player::components::{
@@ -32,14 +33,19 @@ pub struct HomingProjectile {
     pub speed: f32,
     pub turn_rate: f32,
     pub search_radius: f32,
+    pub snap_radius: f32,
 }
 
 impl HomingProjectile {
     pub fn from_stacks(data: &GameDataRegistry, stacks: u8, speed: f32) -> Self {
+        let search_radius = tuning::homing_search_radius(data, stacks).max(0.0);
         Self {
             speed,
             turn_rate: tuning::homing_turn_rate(data, stacks),
-            search_radius: tuning::homing_search_radius(data, stacks),
+            search_radius,
+            snap_radius: tuning::homing_snap_radius(data, stacks)
+                .max(0.0)
+                .min(search_radius),
         }
     }
 }
@@ -238,11 +244,16 @@ pub fn melee_reflect_system(
 pub fn homing_projectile_system(
     enemy_q: Query<(Entity, &GlobalTransform), (With<Enemy>, Without<Replicated>)>,
     mut projectile_q: Query<
-        (&HomingProjectile, &mut Projectile, &mut Transform),
+        (
+            &HomingProjectile,
+            &mut Projectile,
+            &mut Transform,
+            Option<&HitTargets>,
+        ),
         Without<Replicated>,
     >,
 ) {
-    for (homing, mut projectile, mut transform) in &mut projectile_q {
+    for (homing, mut projectile, mut transform, hit_targets) in &mut projectile_q {
         if projectile.team != Team::Player {
             continue;
         }
@@ -252,7 +263,10 @@ pub fn homing_projectile_system(
         let mut best_target = None;
         let mut best_dist_sq = homing.search_radius * homing.search_radius;
 
-        for (_, enemy_tf) in &enemy_q {
+        for (enemy, enemy_tf) in &enemy_q {
+            if hit_targets.is_some_and(|targets| targets.set.contains(&enemy)) {
+                continue;
+            }
             let delta = enemy_tf.translation().truncate() - projectile_pos;
             let dist_sq = delta.length_squared();
             if dist_sq >= best_dist_sq {
@@ -267,13 +281,28 @@ pub fn homing_projectile_system(
         let Some(target_dir) = best_target else {
             continue;
         };
-        let next_dir = current_dir
-            .lerp(target_dir, homing.turn_rate.clamp(0.0, 1.0))
-            .try_normalize()
-            .unwrap_or(target_dir);
+        let next_dir = homing_next_direction(current_dir, target_dir, best_dist_sq, *homing);
         projectile.velocity = next_dir * homing.speed;
         transform.rotation = Quat::from_rotation_z(next_dir.y.atan2(next_dir.x));
     }
+}
+
+fn homing_next_direction(
+    current_dir: Vec2,
+    target_dir: Vec2,
+    target_dist_sq: f32,
+    homing: HomingProjectile,
+) -> Vec2 {
+    let target_dir = target_dir.try_normalize().unwrap_or(current_dir);
+    let current_dir = current_dir.try_normalize().unwrap_or(target_dir);
+    if homing.snap_radius > 0.0 && target_dist_sq <= homing.snap_radius * homing.snap_radius {
+        return target_dir;
+    }
+
+    current_dir
+        .lerp(target_dir, homing.turn_rate.clamp(0.0, 1.0))
+        .try_normalize()
+        .unwrap_or(target_dir)
 }
 
 pub fn chain_lightning_system(
