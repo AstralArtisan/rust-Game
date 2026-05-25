@@ -996,3 +996,22 @@ Phase 3 内容由 Codex 实现（30+ 文件 + 新配置）。Claude 按用户指
 **关键决策：**
 - 等价重构，不改变任何运行时行为
 - let chains 是 Rust 2024 稳定特性，减少嵌套层次使控制流更清晰
+
+---
+
+## 2026-05-25 Claude PR 审核评论兜底
+
+**改动内容：**
+- `.github/workflows/claude-code-review.yml` 显式允许 Claude 使用 PR 评论、PR diff/view 与 inline comment 工具
+- Claude 审核步骤成功但本次 run 没有产生顶层或行内审核评论时，workflow 自动补发一条顶层完成评论
+
+**目的与动机：**
+PR10 的 Claude Code Review action 成功完成，但 PR 页面没有任何 Claude 评论。该兜底让自动审核的成功状态在 PR 上可见，避免维护者误判为审核未运行。
+
+**关键决策：**
+- 保留 `pull_request_target` 的 base checkout + PR head 子目录检出结构，不执行不可信 PR 代码
+- 不开启 `track_progress`，只在没有可见审核反馈时补发结果评论，降低 PR 噪音
+
+**验证：**
+- `git diff --check` 通过
+- `npx --yes js-yaml .github/workflows/claude-code-review.yml` 解析通过
