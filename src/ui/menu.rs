@@ -316,15 +316,116 @@ fn spawn_achievements_page(
 ) {
     parent.spawn(widgets::section_heading(assets, "成就"));
     let unlocked = achievements.map(|value| &value.unlocked);
-    for (id, title) in achievement_labels() {
-        let achieved = unlocked.map(|set| set.contains(&id)).unwrap_or(false);
-        let marker = if achieved { "已完成" } else { "未完成" };
-        parent.spawn(widgets::body_text(
-            assets,
-            format!("{marker} · {title}"),
-            14.0,
-        ));
-    }
+    let labels = achievement_labels();
+    let completed = labels
+        .iter()
+        .filter(|(id, _)| unlocked.map(|set| set.contains(id)).unwrap_or(false))
+        .count();
+
+    parent.spawn(widgets::muted_text(
+        assets,
+        format!("{completed}/{} 已完成", labels.len()),
+        13.0,
+    ));
+
+    parent
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Percent(100.0),
+                flex_wrap: FlexWrap::Wrap,
+                column_gap: Val::Px(12.0),
+                row_gap: Val::Px(12.0),
+                align_items: AlignItems::FlexStart,
+                ..default()
+            },
+            ..default()
+        })
+        .with_children(|grid| {
+            for (id, title) in labels {
+                let achieved = unlocked.map(|set| set.contains(&id)).unwrap_or(false);
+                spawn_achievement_card(grid, assets, id, title, achieved);
+            }
+        });
+}
+
+fn spawn_achievement_card(
+    parent: &mut ChildBuilder,
+    assets: &GameAssets,
+    id: AchievementId,
+    title: &str,
+    achieved: bool,
+) {
+    let border = if achieved {
+        widgets::gold_color()
+    } else {
+        Color::srgb(0.25, 0.29, 0.36)
+    };
+    let background = if achieved {
+        Color::srgba(0.12, 0.11, 0.08, 0.94)
+    } else {
+        widgets::section_color()
+    };
+    let icon_tint = if achieved {
+        Color::WHITE
+    } else {
+        Color::srgba(0.45, 0.46, 0.50, 0.55)
+    };
+    let status = if achieved { "已完成" } else { "未完成" };
+
+    parent
+        .spawn(NodeBundle {
+            style: Style {
+                width: Val::Px(220.0),
+                min_height: Val::Px(96.0),
+                flex_grow: 1.0,
+                flex_basis: Val::Px(220.0),
+                padding: UiRect::all(Val::Px(10.0)),
+                column_gap: Val::Px(10.0),
+                align_items: AlignItems::Center,
+                border: UiRect::all(Val::Px(2.0)),
+                ..default()
+            },
+            background_color: BackgroundColor(background),
+            border_color: BorderColor(border),
+            ..default()
+        })
+        .with_children(|card| {
+            if let Some(icon) = assets.textures.achievement_icons.get(&id) {
+                card.spawn(ImageBundle {
+                    style: Style {
+                        width: Val::Px(64.0),
+                        height: Val::Px(64.0),
+                        flex_shrink: 0.0,
+                        ..default()
+                    },
+                    image: UiImage::new(icon.clone()).with_color(icon_tint),
+                    ..default()
+                });
+            }
+
+            card.spawn(NodeBundle {
+                style: Style {
+                    flex_direction: FlexDirection::Column,
+                    row_gap: Val::Px(4.0),
+                    flex_grow: 1.0,
+                    ..default()
+                },
+                ..default()
+            })
+            .with_children(|text| {
+                if achieved {
+                    text.spawn(widgets::accent_text(
+                        assets,
+                        title,
+                        15.0,
+                        widgets::gold_color(),
+                    ));
+                } else {
+                    text.spawn(widgets::muted_text(assets, title, 15.0));
+                }
+                text.spawn(widgets::muted_text(assets, status, 12.0));
+            });
+        });
 }
 
 fn spawn_codex_page(parent: &mut ChildBuilder, assets: &GameAssets) {

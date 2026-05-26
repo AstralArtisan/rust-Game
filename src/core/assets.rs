@@ -5,6 +5,7 @@ use bevy::render::render_asset::RenderAssetUsages;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use std::collections::HashMap;
 
+use crate::core::achievements::AchievementId;
 use crate::gameplay::enemy::components::{BossArchetype, EnemyType};
 use crate::states::AppState;
 
@@ -28,6 +29,7 @@ pub struct TextureHandles {
     pub boss_sprites: HashMap<BossArchetype, Handle<Image>>,
     pub room_background: Handle<Image>,
     pub menu_background: Handle<Image>,
+    pub achievement_icons: HashMap<AchievementId, Handle<Image>>,
 }
 
 #[allow(dead_code)]
@@ -88,6 +90,10 @@ pub fn load_game_assets(
 
     let room_background = images.add(make_room_background_image());
     let menu_background = asset_server.load("textures/menu.png");
+    let achievement_icons = achievement_icon_paths()
+        .into_iter()
+        .map(|(id, path)| (id, asset_server.load(path)))
+        .collect();
 
     let white = images.add(Image::new_fill(
         Extent3d {
@@ -114,6 +120,7 @@ pub fn load_game_assets(
             boss_sprites,
             room_background,
             menu_background,
+            achievement_icons,
         },
         audio: AudioHandles::default(),
     });
@@ -128,9 +135,43 @@ pub fn check_assets_ready(
         && asset_server.is_loaded_with_dependencies(&assets.textures.player)
         && asset_server.is_loaded_with_dependencies(&assets.textures.slash)
         && asset_server.is_loaded_with_dependencies(&assets.textures.menu_background)
+        && assets
+            .textures
+            .achievement_icons
+            .values()
+            .all(|icon| asset_server.is_loaded_with_dependencies(icon))
     {
         next_state.set(AppState::MainMenu);
     }
+}
+
+fn achievement_icon_paths() -> [(AchievementId, &'static str); 9] {
+    [
+        (
+            AchievementId::FirstBlood,
+            "textures/achievements/firstblood.png",
+        ),
+        (
+            AchievementId::EliteSlayer,
+            "textures/achievements/eliteslayer.png",
+        ),
+        (AchievementId::Combo10, "textures/achievements/combo10.png"),
+        (AchievementId::Rich, "textures/achievements/rich.png"),
+        (AchievementId::Shopper, "textures/achievements/shopper.png"),
+        (
+            AchievementId::PuzzleSolver,
+            "textures/achievements/puzzlesolver.png",
+        ),
+        (
+            AchievementId::BossSlayer,
+            "textures/achievements/bossslayer.png",
+        ),
+        (
+            AchievementId::Untouchable,
+            "textures/achievements/untouchable.png",
+        ),
+        (AchievementId::Victory, "textures/achievements/victory.png"),
+    ]
 }
 
 fn make_cursor_image() -> Image {
