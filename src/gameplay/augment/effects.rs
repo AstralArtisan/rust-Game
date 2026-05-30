@@ -378,6 +378,64 @@ pub fn chain_lightning_system(
     }
 }
 
+pub fn explosive_projectile_system(
+    mut commands: Commands,
+    assets: Res<GameAssets>,
+    data: Res<GameDataRegistry>,
+    mut damage_events: EventReader<DamageAppliedEvent>,
+    mut damage_writer: EventWriter<DamageEvent>,
+    player_augments: Query<&AugmentInventory, (With<Player>, Without<Replicated>)>,
+    enemy_q: Query<(Entity, &GlobalTransform, &Health), (With<Enemy>, Without<Replicated>)>,
+) {
+    for event in damage_events.read() {
+        if event.kind != DamageKind::PlayerRanged || event.target_team != Some(Team::Enemy) {
+            continue;
+        }
+        let Some(player) = event.source else {
+            continue;
+        };
+        let Ok(inventory) = player_augments.get(player) else {
+            continue;
+        };
+        let Some(profile) =
+            tuning::explosive_shot_profile(&data, inventory.stacks(AugmentId::Piercing))
+        else {
+            continue;
+        };
+
+        particles::spawn_explosion_ring(&mut commands, &assets, event.pos, profile.radius);
+        particles::spawn_hit_particles_count(
+            &mut commands,
+            &assets,
+            event.pos,
+            Color::srgba(1.0, 0.52, 0.18, 0.9),
+            14,
+        );
+
+        let radius_sq = profile.radius * profile.radius;
+        for (enemy, enemy_tf, health) in &enemy_q {
+            if enemy == event.target || health.current <= 0.0 {
+                continue;
+            }
+
+            let to_enemy = enemy_tf.translation().truncate() - event.pos;
+            if to_enemy.length_squared() > radius_sq {
+                continue;
+            }
+
+            damage_writer.send(DamageEvent {
+                target: enemy,
+                source: Some(player),
+                amount: event.amount * profile.damage_fraction,
+                knockback: to_enemy.normalize_or_zero() * profile.knockback,
+                team: Team::Player,
+                kind: DamageKind::Passive,
+                is_crit: false,
+            });
+        }
+    }
+}
+
 pub fn thorns_system(
     mut commands: Commands,
     assets: Res<GameAssets>,

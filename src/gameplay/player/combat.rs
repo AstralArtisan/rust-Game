@@ -294,15 +294,8 @@ pub fn player_ranged_input_system(
         let greed_mult = data_ref
             .map(|d| greed_damage_mult(d, inventory, gold.0))
             .unwrap_or(1.0);
-        let charge_stacks = inventory
-            .map(|value| value.stacks(AugmentId::Piercing))
-            .unwrap_or(0);
-        let charge_mult = data_ref
-            .map(|d| tuning::charge_shot_damage_mult(d, charge_stacks))
-            .unwrap_or(1.0);
         let buff_attack = 1.0 + buff.map(|b| b.attack_bonus).unwrap_or(0.0);
-        let damage =
-            power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult * charge_mult * buff_attack;
+        let damage = power.0 * 0.65 * mods.ranged_damage_mult() * greed_mult * buff_attack;
         let Some(d) = data_ref else {
             continue;
         };
@@ -527,13 +520,7 @@ fn spawn_ranged_burst(
             .map(|value| value.stacks(AugmentId::ExtraProjectile))
             .unwrap_or(0),
     );
-    let pierce_remaining = match inventory
-        .map(|value| value.stacks(AugmentId::Piercing))
-        .unwrap_or(0)
-    {
-        3 => 255,
-        _ => 0,
-    };
+    let pierce_remaining = 0;
     let scatter_stacks = inventory
         .map(|value| value.stacks(AugmentId::Scatter))
         .unwrap_or(0);

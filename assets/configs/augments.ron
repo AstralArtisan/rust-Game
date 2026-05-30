@@ -40,10 +40,10 @@
       (description: "敌人 HP<15% 时近战秒杀", params: {"threshold": 0.15}),
       (description: "敌人 HP<20% 时近战秒杀，成功对周围造成 30% 最大 HP 范围伤害", params: {"threshold": 0.20, "explode_max_hp": 0.30}),
     ]),
-    (id: Piercing, category: Ranged, rarity: Common, title: "蓄力弹", shop_cost: 80, levels: [
-      (description: "长按蓄力，伤害 +80%，体积更大", params: {"damage": 0.80}),
-      (description: "蓄力速度 +30%，伤害 +120%", params: {"charge_speed": 0.30, "damage": 1.20}),
-      (description: "满蓄力穿透所有敌人，命中后小范围爆炸", params: {"pierce_all": 1.0, "explode": 1.0}),
+    (id: Piercing, category: Ranged, rarity: Common, title: "爆炸弹", shop_cost: 80, levels: [
+      (description: "远程弹命中敌人后爆炸，对附近敌人造成 45% 命中伤害", params: {"radius": 72.0, "damage": 0.45, "knockback": 140.0}),
+      (description: "爆炸范围扩大，附近敌人受到 65% 命中伤害", params: {"radius": 88.0, "damage": 0.65, "knockback": 180.0}),
+      (description: "爆炸范围大幅扩大，附近敌人受到 85% 命中伤害", params: {"radius": 108.0, "damage": 0.85, "knockback": 220.0}),
     ]),
     (id: SpeedBoost, category: Ranged, rarity: Common, title: "弹速提升", shop_cost: 80, levels: [
       (description: "弹速 +30%，射程 +20%", params: {"speed": 0.30, "range": 0.20}),
