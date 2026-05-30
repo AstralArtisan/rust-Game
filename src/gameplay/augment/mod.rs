@@ -23,6 +23,8 @@ impl Plugin for AugmentPlugin {
                     .after(crate::gameplay::combat::damage::apply_damage_events),
                 effects::chain_lightning_system
                     .after(crate::gameplay::combat::damage::apply_damage_events),
+                effects::explosive_projectile_system
+                    .after(crate::gameplay::combat::damage::apply_damage_events),
                 effects::thorns_system.after(crate::gameplay::combat::damage::apply_damage_events),
                 effects::freeze_system.after(crate::gameplay::combat::damage::apply_damage_events),
                 effects::tick_frozen_system,

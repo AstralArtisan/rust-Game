@@ -313,6 +313,30 @@ pub fn spawn_burst_ring(commands: &mut Commands, assets: &GameAssets, pos: Vec2)
     ));
 }
 
+// --- Explosive shot visual ---
+
+pub fn spawn_explosion_ring(commands: &mut Commands, assets: &GameAssets, pos: Vec2, radius: f32) {
+    commands.spawn((
+        SpriteBundle {
+            texture: assets.textures.white_ring.clone(),
+            transform: Transform::from_translation(pos.extend(55.0)),
+            sprite: Sprite {
+                color: Color::srgba(1.0, 0.46, 0.16, 0.46),
+                custom_size: Some(Vec2::splat(radius * 2.0)),
+                ..default()
+            },
+            ..default()
+        },
+        ExpandingRing {
+            timer: Timer::from_seconds(0.18, TimerMode::Once),
+            initial_scale: 0.25,
+            target_scale: 1.0,
+        },
+        InGameEntity,
+        Name::new("ExplosiveShotRing"),
+    ));
+}
+
 // --- DashShield visual marker ---
 
 #[derive(Component)]

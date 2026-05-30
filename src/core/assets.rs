@@ -20,6 +20,7 @@ pub struct GameAssets {
 #[derive(Resource, Clone, Default)]
 pub struct TextureHandles {
     pub white: Handle<Image>,
+    pub white_ring: Handle<Image>,
     pub player: Handle<Image>,
     pub cursor: Handle<Image>,
     pub crosshair: Handle<Image>,
@@ -106,11 +107,13 @@ pub fn load_game_assets(
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     ));
+    let white_ring = images.add(make_white_ring_image());
 
     commands.insert_resource(GameAssets {
         font,
         textures: TextureHandles {
             white,
+            white_ring,
             player,
             cursor,
             crosshair,
@@ -256,6 +259,40 @@ fn make_room_background_image() -> Image {
         },
         TextureDimension::D2,
         &[34, 36, 44, 255],
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    )
+}
+
+fn make_white_ring_image() -> Image {
+    let size = 64u32;
+    let mut data = vec![0; (size * size * 4) as usize];
+    let center = (size as f32 - 1.0) * 0.5;
+    let radius = center - 1.0;
+    let thickness = 4.0;
+
+    for y in 0..size {
+        for x in 0..size {
+            let dx = x as f32 - center;
+            let dy = y as f32 - center;
+            let dist = (dx * dx + dy * dy).sqrt();
+            let edge_delta = (dist - radius).abs();
+            if edge_delta <= thickness {
+                let alpha = ((thickness - edge_delta) / thickness * 255.0).round() as u8;
+                let index = ((y * size + x) * 4) as usize;
+                data[index..index + 4].copy_from_slice(&[255, 255, 255, alpha]);
+            }
+        }
+    }
+
+    Image::new(
+        Extent3d {
+            width: size,
+            height: size,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
         TextureFormat::Rgba8UnormSrgb,
         RenderAssetUsages::default(),
     )

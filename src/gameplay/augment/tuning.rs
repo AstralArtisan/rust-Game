@@ -38,6 +38,13 @@ pub(crate) struct ChainLightningProfile {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ExplosiveShotProfile {
+    pub(crate) radius: f32,
+    pub(crate) damage_fraction: f32,
+    pub(crate) knockback: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ScatterProfile {
     pub(crate) shots: usize,
     pub(crate) damage_fraction: f32,
@@ -196,9 +203,18 @@ pub(crate) fn executioner_explosion_fraction(data: &GameDataRegistry, stacks: u8
     param(data, AugmentId::Executioner, stacks, "explode_max_hp")
 }
 
-pub(crate) fn charge_shot_damage_mult(data: &GameDataRegistry, stacks: u8) -> f32 {
-    let v = param(data, AugmentId::Piercing, stacks, "damage");
-    if v == 0.0 { 1.0 } else { 1.0 + v }
+pub(crate) fn explosive_shot_profile(
+    data: &GameDataRegistry,
+    stacks: u8,
+) -> Option<ExplosiveShotProfile> {
+    let id = AugmentId::Piercing;
+    let radius = data.augment_param(id, stacks, "radius")?;
+    let damage_fraction = data.augment_param(id, stacks, "damage")?;
+    Some(ExplosiveShotProfile {
+        radius,
+        damage_fraction,
+        knockback: param(data, id, stacks, "knockback"),
+    })
 }
 
 pub(crate) fn speed_boost_mult(data: &GameDataRegistry, stacks: u8) -> f32 {
